@@ -187,7 +187,7 @@ parfor t=1:tests
 
     % If concurrent_cliques is enabled, we must mix up the messages together after we've done the characters erasure
     if concurrent_cliques > 1
-        % Mix up init
+        % Mix up init (untampered messages)
         init = reshape(init, n*tampered_messages_per_test, concurrent_cliques)';
         init = any(init); % mix up messages (by stacking concurrent_cliques messages side-by-side and then summing/anying them)
         %init = reshape(init, tampered_messages_per_test, n)'; % WRONG % unstack the messages vector into a matrix with one mixed sparsemessage per column

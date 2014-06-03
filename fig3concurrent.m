@@ -10,7 +10,7 @@ aux = gbnn_aux; % works with both MatLab and Octave
 
 % Preparing stuff to automate the plots
 % This will allow us to automatically select a different color and shape for each curve
-colorvec = 'krgbmc';
+colorvec = 'rgbkmc';
 markerstylevec = '+o*.xsd^v><ph';
 linestylevec = {'-' ; '--' ; ':' ; '-.'};
 
@@ -91,10 +91,10 @@ xlabel(sprintf('Number of stored messages (M) x %.1E', Mcoeff));
 ylabel('Retrieval Error Rate');
 counter = 1; % useful to keep track inside the matrix E. This is guaranteed to be OK since we use the same order of for loops (so be careful, if you move the forloops here in plotting you must also move them the same way in the tests above!)
 for f=1:numel(filtering_rule) % for each different filtering rule and whether there is guiding or not, we willl print a different curve, with an automatically selected color and shape
+    coloridx = mod(f-1, numel(colorvec))+1; % change color per filtering rule
     for g=1:numel(enable_guiding)
-        lstyleidx = mod(counter, numel(linestylevec))+1;
-        mstyleidx = mod(counter, numel(markerstylevec))+1;
-        coloridx = mod(counter, numel(colorvec))+1;
+        lstyleidx = mod(counter-1, numel(linestylevec))+1; % change line style ...
+        mstyleidx = mod(counter-1, numel(markerstylevec))+1; % and change marker style per plot
 
         lstyle = linestylevec(lstyleidx, 1); lstyle = lstyle{1}; % for MatLab, can't do that in one command...
         cur_plot = plot(M, E(:,counter), sprintf('%s%s%s', lstyle, markerstylevec(mstyleidx), colorvec(coloridx))); % plot one line
@@ -111,11 +111,13 @@ for f=1:numel(filtering_rule) % for each different filtering rule and whether th
         counter = counter + 1;
     end
 end
+
 % Plot theoretical error rates
+counter = counter + 1;
+coloridx = mod(counter, numel(colorvec))+1;
 for g=1:numel(enable_guiding)
-    lstyleidx = mod(counter+g, numel(linestylevec))+1;
-    mstyleidx = mod(counter+g, numel(markerstylevec))+1;
-    coloridx = mod(counter+g, numel(colorvec))+1;
+    lstyleidx = mod(counter+g-1, numel(linestylevec))+1;
+    mstyleidx = mod(counter+g-1, numel(markerstylevec))+1;
 
     lstyle = linestylevec(lstyleidx, 1); lstyle = lstyle{1}; % for MatLab, can't do that in one command...
     cur_plot = plot(M, TE(:,g), sprintf('%s%s%s', lstyle, markerstylevec(mstyleidx), colorvec(coloridx))); % plot one line
