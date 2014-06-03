@@ -36,6 +36,7 @@ tampering_type = 'erase';
 residual_memory = 0;
 variable_length = false;
 concurrent_cliques = 1:4;
+no_concurrent_overlap = true;
 GWTA_first_iteration = false;
 GWTA_last_iteration = false;
 
@@ -69,7 +70,7 @@ for m=1:numel(M) % and for each value of m, we will do a run
                                                                                       l, c, Chi, ...
                                                                                       erasures, iterations, tampered_messages_per_test, tests, ...
                                                                                       enable_guiding(1,g), gamma_memory, threshold, propagation_rule, fr, tampering_type, ...
-                                                                                      residual_memory, variable_length, concurrent_cliques(1,cc), GWTA_first_iteration, GWTA_last_iteration, ...
+                                                                                      residual_memory, variable_length, concurrent_cliques(1,cc), no_concurrent_overlap, GWTA_first_iteration, GWTA_last_iteration, ...
                                                                                       silent);
 
                 % Store the results
@@ -135,14 +136,14 @@ for cc=1:numel(concurrent_cliques)
 
         plot_title = '';
         if concurrent_cliques(1,cc) == 1
-            plot_title = strcat(plot_title, sprintf(' - no cc'));
+            plot_title = strcat(plot_title, sprintf('no cc'));
         else
-            plot_title = strcat(plot_title, sprintf(' - cc = %i', concurrent_cliques(1, cc)));
+            plot_title = strcat(plot_title, sprintf('cc = %i', concurrent_cliques(1, cc)));
         end
         if enable_guiding(1,g)
-            plot_title = strcat(plot_title, sprintf('Guided'));
+            plot_title = strcat(plot_title, sprintf(' - Guided'));
         else
-            plot_title = strcat(plot_title, sprintf('Blind'));
+            plot_title = strcat(plot_title, sprintf(' - Blind'));
         end
         plot_title = strcat(plot_title, ' (Theo.)');
         set(cur_plot, 'DisplayName', plot_title); % add the legend per plot, this is the best method, which also works with scatterplots and polar plots, see http://hattb.wordpress.com/2010/02/10/appending-legends-and-plots-in-matlab/

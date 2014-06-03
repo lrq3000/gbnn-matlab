@@ -2,7 +2,7 @@ function [error_rate, theoretical_error_rate] = gbnn_test(network, sparsemessage
                                                                                   l, c, Chi, ...
                                                                                   erasures, iterations, tampered_messages_per_test, tests, ...
                                                                                   enable_guiding, gamma_memory, threshold, propagation_rule, filtering_rule, tampering_type, ...
-                                                                                  residual_memory, variable_length, concurrent_cliques, GWTA_first_iteration, GWTA_last_iteration, ...
+                                                                                  residual_memory, variable_length, concurrent_cliques, no_concurrent_overlap, GWTA_first_iteration, GWTA_last_iteration, ...
                                                                                   silent)
 %
 % [error_rate, theoretical_error_rate] = gbnn_test(network, sparsemessagestest, ...
@@ -55,6 +55,9 @@ end
 if ~exist('concurrent_cliques', 'var') || isempty(concurrent_cliques)
     concurrent_cliques = 1; % 1 is disabled, > 1 enables and specify the number of concurrent messages/cliques to decode concurrently
 end
+if ~exist('no_concurrent_overlap', 'var') || isempty(no_concurrent_overlap)
+    no_concurrent_overlap = false;
+end
 if ~exist('GWTA_first_iteration', 'var') || isempty(GWTA_first_iteration)
     GWTA_first_iteration = false;
 end
@@ -67,7 +70,7 @@ if ~exist('silent', 'var')
 end
 
 
-% == Show vars (just for the record)
+% == Show vars (just for the record, user can debug or track experiments using diary)
 if ~silent
     % -- Network variables
     l
@@ -142,15 +145,56 @@ parfor t=1:tests
     mconcat = 1; % by default there's no concurrent clique
     if concurrent_cliques > 1; mconcat = concurrent_cliques; end; % if concurrent_cliques is enabled, we have to generate more messages (as many as concurrent_cliques requires)
 
-    % Generate random indices to randomly choose messages
-    %rndidx = unidrnd(mtest, [mconcat tampered_messages_per_test]); % TRICKS: unidrnd(m, [SZ]) is twice as fast as unidrnd(m, dim1, dim2)
-    rndidx = randi([1 mtest], mconcat, tampered_messages_per_test);
+    % If no_concurrent_overlap is enabled, we will regenerate messages that overlap, so that no shared fanal exist in the final set of messages
+    no_concurrent_overlap_flag = false;
+    overlap_idxs = [];
+    mtogen = tampered_messages_per_test;
+    while (~no_concurrent_overlap_flag)
 
-    % Fetch the random messages from the generated indices
-    inputm = sparsemessagestest(rndidx,:)'; % just fetch the messages and transpose them so that we have one sparsemessage per column (we don't generate them this way even if it's possible because of optimization: any, or, and sum are more efficient column-wise than row-wise, as any other MatLab/Octave function).
-    init = inputm; % backup the original message before tampering, we will use the original to check if the network correctly corrected the erasure(s)
+        % Generate random indices to randomly choose messages
+        % At first iteration, we generate the whole set of messages. Then subsequent iterations only serve (when concurrent_cliques > 1 and no_concurrent_overlap is true) to generate replacement messages (messages that will replace the previously overlapping messages).
+        %rndidx = unidrnd(mtest, [mconcat tampered_messages_per_test]); % TRICKS: unidrnd(m, [SZ]) is twice as fast as unidrnd(m, dim1, dim2)
+        rndidx = randi([1 mtest], mconcat, mtogen); % mtest is the total number of messages in the test set (available to be picked up), mconcat is the number of concurrent messages that we will squash together, tampered_messages_per_test is the number of messages we will try to correct per test (number of messages to test per batch).
 
-    %if ~debug; clear rndidx; end; % clear up memory - DEPRECATED because it violates the transparency (preventing the parfor loop to work)
+        % Fetch the random messages from the generated indices
+        inputm = sparsemessagestest(rndidx,:)'; % just fetch the messages and transpose them so that we have one sparsemessage per column (we don't generate them this way even if it's possible because of optimization: any, or, and sum are more efficient column-wise than row-wise, as any other MatLab/Octave function).
+        % Add or replace messages?
+        if ~no_concurrent_overlap || isempty(overlap_idxs) % No overlap, just save the messages
+            init = inputm; % backup the original message before tampering, we will use the original to check if the network correctly corrected the erasure(s)
+        else % Else, we had overlapping messages in the previous while iteration, now we replace the overlapping messages by the new ones (so that we won't move around the previously generated messages, we are thus guaranteed that we won't produce more overlapping messages at replacement, we can only get better)
+            init(:, overlap_idxs) = inputm; % In-place replacement of overlapping messages by other randomly choosen messages.
+            overlap_idxs = []; % empty the overlapping indices, so that we won't replace the same indices by mistake at next iteration
+        end
+        %if ~debug; clear rndidx; end; % clear up memory - DEPRECATED because it violates the transparency (preventing the parfor loop to work)
+
+        % Overlapping detection and correction
+        no_concurrent_overlap_flag = true; % if there's no concurrent_cliques or no_concurrent_overlap is false or if the overlap was fixed, the flag is enabled so that the while loop can stop.
+        if concurrent_cliques > 1 && (~silent || no_concurrent_overlap) % else, in concurrent case, we must check if there is any overlap (and compute the concurrent_overlap_rate just for info)
+            % Mix up init (untampered messages) but keep the number of sharing
+            init_overlaps = reshape(init, n*tampered_messages_per_test, concurrent_cliques)'; % stack concurrent messages (the ones that will be merged together) side-by-side
+            init_overlaps = sum(init_overlaps) > 1; % sum (instead of any) to get all shared fanals: they will have a score > 1
+            concurrent_overlap_rate = nnz(init_overlaps) / (nnz(init)/concurrent_cliques); % concurrent overlap rate is the real frequency of having an overlap, which we compute as the number of overlapped characters divided by the mean number of characters per messages (here the division by the number of messages is implicit).
+
+            % If there is any overlap and no_concurrent_overlap is enabled, detect which messages are overlapping
+            if no_concurrent_overlap && concurrent_overlap_rate > 0
+                no_concurrent_overlap_flag = false; % we need another while iteration
+
+                % Detect the indices of overlapping messages
+                overlap_idxs = unique(idivide(find(init_overlaps), n, 'floor') + 1); % detect the message index of overlaps in merged messages (this gives us one index per package of concurrent messages, but we can then deduce the missing indices)
+                mtogen = numel(overlap_idxs); % remember the number of messages we will have to generate again to replace the overlapping ones
+                overlap_idxs = repmat(overlap_idxs, [concurrent_cliques, 1]); % expand indices to account for the unmerged messages (multiply by concurrent_cliques)
+                offsets = (1:tampered_messages_per_test:tampered_messages_per_test * concurrent_cliques) - 1; % offset to align indices to unmerged messages (the first row is aligned, but all the others must be aligned to each concurrent message)
+                overlap_idxs = bsxfun(@plus, overlap_idxs, offsets'); % apply offset
+                %init(:, overlap_idxs) = []; % DEPRECATED: in-place remove, but then we can only append newly generated messages but they will unalign the other messages which won't be merged together like before but with other messages, and thus we may get even more overlapping!
+            end
+        end
+    end
+    inputm = init; % Finally, set inputm with init: we will work on inputm but leave init as a backup to later check the error correction performances
+
+    % Show concurrent_overlap_rate
+    if concurrent_cliques > 1 && ~silent
+        concurrent_overlap_rate
+    end
 
     % 2- randomly tamper them (erasure or noisy bit-flipping of a few characters)
     % -- Random erasure of random active characters (which the network is more tolerant than noise, which is normal and described in modern error correction theory)
