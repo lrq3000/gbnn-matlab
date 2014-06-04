@@ -95,10 +95,11 @@ ylabel('Retrieval Error Rate');
 counter = 1; % useful to keep track inside the matrix E. This is guaranteed to be OK since we use the same order of for loops (so be careful, if you move the forloops here in plotting you must also move them the same way in the tests above!)
 for f=1:numel(filtering_rule) % for each different filtering rule and whether there is guiding or not, we willl print a different curve, with an automatically selected color and shape
     coloridx = mod(f-1, numel(colorvec))+1; % change color per filtering rule
+    counterstyle = 1; % use another counter for styles, so that each curve will get the exact same style for each set of parameters
     for cc=1:numel(concurrent_cliques)
         for g=1:numel(enable_guiding)
-            lstyleidx = mod(counter-1, numel(linestylevec))+1; % change line style ...
-            mstyleidx = mod(counter-1, numel(markerstylevec))+1; % and change marker style per plot
+            lstyleidx = mod(counterstyle-1, numel(linestylevec))+1; % change line style ...
+            mstyleidx = mod(counterstyle-1, numel(markerstylevec))+1; % and change marker style per plot
 
             lstyle = linestylevec(lstyleidx, 1); lstyle = lstyle{1}; % for MatLab, can't do that in one command...
             cur_plot = plot(M, E(:,counter), sprintf('%s%s%s', lstyle, markerstylevec(mstyleidx), colorvec(coloridx))); % plot one line
@@ -118,6 +119,7 @@ for f=1:numel(filtering_rule) % for each different filtering rule and whether th
             set(cur_plot, 'DisplayName', plot_title); % add the legend per plot, this is the best method, which also works with scatterplots and polar plots, see http://hattb.wordpress.com/2010/02/10/appending-legends-and-plots-in-matlab/
 
             counter = counter + 1;
+            counterstyle = counterstyle + 1;
         end
     end
 end
@@ -125,11 +127,10 @@ end
 % Plot theoretical error rates
 coloridx = mod(counter, numel(colorvec))+1; % change color for theoretical errors
 tecounter = 1;
-counter = counter + 1;
 for cc=1:numel(concurrent_cliques)
     for g=1:numel(enable_guiding)
-        lstyleidx = mod(counter+tecounter-1, numel(linestylevec))+1;
-        mstyleidx = mod(counter+tecounter-1, numel(markerstylevec))+1;
+        lstyleidx = mod(tecounter-1, numel(linestylevec))+1;
+        mstyleidx = mod(tecounter-1, numel(markerstylevec))+1;
 
         lstyle = linestylevec(lstyleidx, 1); lstyle = lstyle{1}; % for MatLab, can't do that in one command...
         cur_plot = plot(M, TE(:,tecounter), sprintf('%s%s%s', lstyle, markerstylevec(mstyleidx), colorvec(coloridx))); % plot one line
