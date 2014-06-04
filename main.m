@@ -90,7 +90,7 @@
 %
 % ## ToDo ##
 % - Implement sparse_cliques (Chi) in gbnn_mini
-% - variable_length complete implementation and tests
+% - variable_length complete implementation and tests (when c is a vector of two values)
 % - propagation_rule 1 and 2 (normalized and Sum of Max)
 % - convergence stop criterions: NoChange (no change in out messages between two iterations, just like Perceptron) and Clique (all nodes have the same value, won't work with concurrent_cliques)
 % - optional named arguments
@@ -126,7 +126,6 @@ filtering_rule = 'GWsTA';
 tampering_type = 'erase';
 
 residual_memory = 0;
-variable_length = false;
 concurrent_cliques = 2;
 no_concurrent_overlap = true;
 GWTA_first_iteration = false;
@@ -136,12 +135,12 @@ silent = false; % If you don't want to see the progress output
 
 % == Launching the runs
 tperf = cputime();
-[network, sparsemessages, density] = gbnn_learn([], m, miterator, l, c, Chi, variable_length, silent);
+[network, sparsemessages, density] = gbnn_learn([], m, miterator, l, c, Chi, silent);
 error_rate = gbnn_test(network, sparsemessages, ...
                                                                                   l, c, Chi, ...
                                                                                   erasures, iterations, tampered_messages_per_test, tests, ...
                                                                                   enable_guiding, gamma_memory, threshold, propagation_rule, filtering_rule, tampering_type, ...
-                                                                                  residual_memory, variable_length, concurrent_cliques, no_concurrent_overlap, GWTA_first_iteration, GWTA_last_iteration, ...
+                                                                                  residual_memory, concurrent_cliques, no_concurrent_overlap, GWTA_first_iteration, GWTA_last_iteration, ...
                                                                                   silent);
 aux.printcputime(cputime() - tperf, 'Total cpu time elapsed to do everything: %g seconds.\n'); aux.flushout(); % print total time elapsed
 

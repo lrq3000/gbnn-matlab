@@ -34,8 +34,9 @@ if ~exist('Chi', 'var') || isempty(Chi)
     Chi = c;
 end
 
-if ~exist('variable_length', 'var') || isempty(variable_length)
-    variable_length = false;
+variable_length = false;
+if isvector(c) && ~isscalar(c)
+    variable_length = true;
 end
 
 if ~exist('silent', 'var')
@@ -79,6 +80,11 @@ end
 
 if miterator > m
     miterator = 0;
+end
+
+% -- A few error checks
+if numel(c) ~= 1 && numel(c) ~= 2
+    error('c contains too many values! numel(c) should be equal to 1 or 2.');
 end
 
 

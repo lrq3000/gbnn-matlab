@@ -2,14 +2,14 @@ function partial_messages = gbnn_correct(network, partial_messages, ...
                                                                                   l, c, Chi, ...
                                                                                   iterations, ...
                                                                                   k, guiding_mask, gamma_memory, threshold, propagation_rule, filtering_rule, tampering_type, ...
-                                                                                  residual_memory, variable_length, concurrent_cliques, GWTA_first_iteration, GWTA_last_iteration, ...
+                                                                                  residual_memory, concurrent_cliques, GWTA_first_iteration, GWTA_last_iteration, ...
                                                                                   silent)
 %
 % partial_messages = gbnn_correct(network, partial_messages, ...
 %                                                                                  l, c, Chi, ...
 %                                                                                  iterations, ...
 %                                                                                  k, guiding_mask, gamma_memory, threshold, propagation_rule, filtering_rule, tampering_type, ...
-%                                                                                  residual_memory, variable_length, concurrent_cliques, GWTA_first_iteration, GWTA_last_iteration, ...
+%                                                                                  residual_memory, concurrent_cliques, GWTA_first_iteration, GWTA_last_iteration, ...
 %                                                                                  silent)
 %
 % Feed a network and partially tampered messages, and will let the network try to 'remember' a message that corresponds to the given input. The function will return the recovered message(s).
@@ -46,9 +46,6 @@ end
 if ~exist('residual_memory', 'var')
     residual_memory = 0;
 end
-if ~exist('variable_length', 'var') || isempty(variable_length)
-    variable_length = false;
-end
 if ~exist('concurrent_cliques', 'var') || isempty(concurrent_cliques)
     concurrent_cliques = 1; % 1 is disabled, > 1 enables and specify the number of concurrent messages/cliques to decode concurrently
 end
@@ -57,6 +54,11 @@ if ~exist('GWTA_first_iteration', 'var') || isempty(GWTA_first_iteration)
 end
 if ~exist('GWTA_last_iteration', 'var') || isempty(GWTA_last_iteration)
     GWTA_last_iteration = false;
+end
+
+variable_length = false;
+if isvector(c) && ~isscalar(c)
+    variable_length = true;
 end
 
 if ~exist('silent', 'var')
@@ -72,6 +74,11 @@ if Chi <= c
 end
 n = Chi * l; % total number of nodes ( = length of a message = total number of characters slots per message)
 mpartial = size(partial_messages, 2); % mpartial = number of messages to reconstruct. This is also equal to tampered_messages_per_test in gbnn_test.m
+
+% -- A few error checks
+if numel(c) ~= 1 && numel(c) ~= 2
+    error('c contains too many values! numel(c) should be equal to 1 or 2.');
+end
 
 % #### Correction phase
 for iter=1:iterations % To let the network converge towards a stable state...

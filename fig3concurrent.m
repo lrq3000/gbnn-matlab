@@ -30,11 +30,10 @@ enable_guiding = [false, true]; % here too, we will try with and without the gui
 gamma_memory = 1;
 threshold = 0;
 propagation_rule = 'sum'; % TODO: not implemented yet, please always set 0 here
-filtering_rule = {'WTA', 'GkWTA', 'GWsTA', 'CGkWTA'}; % this is a cell array (vector of strings) because we will try several different values of c (order of cliques)
+filtering_rule = {'LKO', 'GLKO', 'WTA', 'kWTA', 'WsTA', 'GkWTA', 'GWsTA', 'CGkWTA'}; % this is a cell array (vector of strings) because we will try several different values of c (order of cliques)
 tampering_type = 'erase';
 
 residual_memory = 0;
-variable_length = false;
 concurrent_cliques = 2;
 no_concurrent_overlap = true;
 GWTA_first_iteration = false;
@@ -52,11 +51,10 @@ sparsemessages = logical(sparse([]));
 for m=1:numel(M) % and for each value of m, we will do a run
     % Launch the run
     if m == 1
-        [network, sparsemessages, density] = gbnn_learn([], M(1, 1)*Mcoeff, miterator(1,m), l, c, Chi, variable_length, silent);
+        [network, sparsemessages, density] = gbnn_learn([], M(1, 1)*Mcoeff, miterator(1,m), l, c, Chi, silent);
     else % Optimization trick: instead of relearning the whole network, we will reuse the previous network and just add more messages, this allows to decrease the learning time exponentially, rendering it constant (at each learning, the network will learn the same amount of messages: eg: iteration 1 will learn 1E5 messages, iteration 2 will learn 1E5 messages and reuse 1E5, which will totalize as 2E5, etc...)
         [network, s2, density] = gbnn_learn(network, ...
                                                     (M(1, m)-M(1,m-1))*Mcoeff, miterator(1,m), l, c, Chi, ...
-                                                    variable_length, ...
                                                     silent);
         sparsemessages = [sparsemessages ; s2]; % append new messages
     end
@@ -65,18 +63,23 @@ for m=1:numel(M) % and for each value of m, we will do a run
     for f=1:numel(filtering_rule)
         for g=1:numel(enable_guiding)
             fr = filtering_rule(1,f); fr = fr{1}; % need to prepare beforehand because of MatLab, can't do it in one command...
+            if strcmpi(fr, 'GLKO')
+                GWTA_first_iteration = true;
+            else
+                GWTA_first_iteration = false;
+            end
             [error_rate, theoretical_error_rate] = gbnn_test(network, sparsemessages, ...
                                                                                   l, c, Chi, ...
                                                                                   erasures, iterations, tampered_messages_per_test, tests, ...
                                                                                   enable_guiding(1,g), gamma_memory, threshold, propagation_rule, fr, tampering_type, ...
-                                                                                  residual_memory, variable_length, concurrent_cliques, no_concurrent_overlap, GWTA_first_iteration, GWTA_last_iteration, ...
+                                                                                  residual_memory, concurrent_cliques, no_concurrent_overlap, GWTA_first_iteration, GWTA_last_iteration, ...
                                                                                   silent);
 
             % Store the results
             D(m,counter) = density;
             E(m,counter) = error_rate;
             TE(m, g) = theoretical_error_rate;
-            fprintf('-----------------------------\n\n');
+            if ~silent; fprintf('-----------------------------\n\n'); end;
             
             counter = counter + 1;
         end

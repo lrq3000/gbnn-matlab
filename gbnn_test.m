@@ -2,14 +2,14 @@ function [error_rate, theoretical_error_rate] = gbnn_test(network, sparsemessage
                                                                                   l, c, Chi, ...
                                                                                   erasures, iterations, tampered_messages_per_test, tests, ...
                                                                                   enable_guiding, gamma_memory, threshold, propagation_rule, filtering_rule, tampering_type, ...
-                                                                                  residual_memory, variable_length, concurrent_cliques, no_concurrent_overlap, GWTA_first_iteration, GWTA_last_iteration, ...
+                                                                                  residual_memory, concurrent_cliques, no_concurrent_overlap, GWTA_first_iteration, GWTA_last_iteration, ...
                                                                                   silent)
 %
 % [error_rate, theoretical_error_rate] = gbnn_test(network, sparsemessagestest, ...
 %                                                                                  l, c, Chi, ...
 %                                                                                  erasures, iterations, tampered_messages_per_test, tests, ...
 %                                                                                  enable_guiding, gamma_memory, threshold, propagation_rule, filtering_rule, tampering_type, ...
-%                                                                                  residual_memory, variable_length, concurrent_cliques, GWTA_first_iteration, GWTA_last_iteration, ...
+%                                                                                  residual_memory, concurrent_cliques, no_concurrent_overlap, GWTA_first_iteration, GWTA_last_iteration, ...
 %                                                                                  silent)
 %
 % Feed a network and a matrix of sparse messages from which to pick samples for test, and this function will automatically sample some messages, tamper them, and then try to correct them. Finally, the error rate over all the processed messages will be returned.
@@ -72,9 +72,6 @@ end
 if ~exist('residual_memory', 'var')
     residual_memory = 0;
 end
-if ~exist('variable_length', 'var') || isempty(variable_length)
-    variable_length = false;
-end
 if ~exist('concurrent_cliques', 'var') || isempty(concurrent_cliques)
     concurrent_cliques = 1; % 1 is disabled, > 1 enables and specify the number of concurrent messages/cliques to decode concurrently
 end
@@ -86,6 +83,11 @@ if ~exist('GWTA_first_iteration', 'var') || isempty(GWTA_first_iteration)
 end
 if ~exist('GWTA_last_iteration', 'var') || isempty(GWTA_last_iteration)
     GWTA_last_iteration = false;
+end
+
+variable_length = false;
+if isvector(c) && ~isscalar(c)
+    variable_length = true;
 end
 
 if ~exist('silent', 'var')
@@ -142,6 +144,9 @@ mtest = size(sparsemessagestest, 1);
 % -- A few error checks
 if erasures > c
     error('Erasures > c which is not possible');
+end
+if numel(c) ~= 1 && numel(c) ~= 2
+    error('c contains too many values! numel(c) should be equal to 1 or 2.');
 end
 
 
@@ -280,7 +285,7 @@ parfor t=1:tests
                               l, c, Chi, ...
                               iterations, ...
                               k, guiding_mask, gamma_memory, threshold, propagation_rule, filtering_rule, tampering_type, ...
-                              residual_memory, variable_length, concurrent_cliques, GWTA_first_iteration, GWTA_last_iteration, ...
+                              residual_memory, concurrent_cliques, GWTA_first_iteration, GWTA_last_iteration, ...
                               silent);
 
     if ~silent
@@ -303,18 +308,27 @@ parfor t=1:tests
 
 end
 
-% Finally, show the error rate and some stats
+% Compute error rate
 error_rate = err / (tests * tampered_messages_per_test);
+% Compute density
+real_density = full(  (sum(sum(network)) - sum(diag(network))) / (Chi*(Chi-1) * l^2)  );
+% Compute theoretical error rate
+theoretical_error_rate = -1;
+if enable_guiding % different error rate when guided mask is enabled (and it's lower than blind decoding)
+    theoretical_error_rate = 1 - (1 - real_density^(c-erasures))^(erasures*(l-1));
+else
+    theoretical_error_rate = 1 - (1 - real_density^(c-erasures))^(erasures*(l-1)+l*(Chi-c)); % = spurious_cliques_proba. spurious cliques = nonvalid cliques that we did not memorize and which rests inopportunely on the edges of valid cliques, which we learned and want to remember. In other words: what is the probability of emergence of wrong cliques that we did not learn but which emerges from combinations of cliques we learned? This is influenced heavily by the density (higher density = more errors). Also, error rate is only per one iteration, if you use more iterations to converge the real error may be considerably lower. % TODO: does not compute the correct theoretical error rate if concurrent_cliques > 1.
+end
+if concurrent_cliques > 1
+    theoretical_error_rate = 1-(1-theoretical_error_rate)^concurrent_cliques;
+end
+%theoretical_error_correction_proba = 1 - theoretical_error_rate
+
+% Finally, show the error rate and some stats
 if ~silent
-    real_density = full(  (sum(sum(network)) - sum(diag(network))) / (Chi*(Chi-1) * l^2)  )
-    theoretical_error_rate = -1;
-    if enable_guiding % different error rate when guided mask is enabled (and it's lower than blind decoding)
-        theoretical_error_rate = 1 - (1 - real_density^(c-erasures))^(erasures*(l-1))
-    else
-        theoretical_error_rate = 1 - (1 - real_density^(c-erasures))^(erasures*(l-1)+l*(Chi-c)) % = spurious_cliques_proba. spurious cliques = nonvalid cliques that we did not memorize and which rests inopportunely on the edges of valid cliques, which we learned and want to remember. In other words: what is the probability of emergence of wrong cliques that we did not learn but which emerges from combinations of cliques we learned? This is influenced heavily by the density (higher density = more errors). Also, error rate is only per one iteration, if you use more iterations to converge the real error may be considerably lower. % TODO: does not compute the correct theoretical error rate if concurrent_cliques > 1.
-    end
-    %theoretical_error_correction_proba = 1 - spurious_cliques_proba
+    real_density
     error_rate
+    theoretical_error_rate
     total_tampered_messages_tested = tests * tampered_messages_per_test
     aux.printcputime(cputime - totalperf, 'Total elapsed cpu time for test is %g seconds.\n'); aux.flushout();
     %c_optimal_approx = log(Chi*l/P0)/(2*(1-alpha)) % you have to define alpha = rate of errors per message you want to be able to correct ; P0 = probability or error = theoretical_error_rate you want
