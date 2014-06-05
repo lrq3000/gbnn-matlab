@@ -36,7 +36,7 @@ tampering_type = 'erase';
 residual_memory = 0;
 concurrent_cliques = 1:4;
 no_concurrent_overlap = true;
-concurrent_successive = true;
+concurrent_successive = false;
 GWTA_first_iteration = false;
 GWTA_last_iteration = false;
 

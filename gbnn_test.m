@@ -277,6 +277,7 @@ parfor t=1:tests
 
         % Only if we don't compute in succession, we mix up the tampered messages now (else we will do that at the end after convergence)
         if ~concurrent_successive
+            init = init_mixed; % remove unneeded unmixed init
             % Mix up the tampered messages
             inputm = reshape(inputm, n*tampered_messages_per_test, concurrent_cliques)';
             inputm = any(inputm);
