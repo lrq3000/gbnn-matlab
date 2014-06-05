@@ -9,7 +9,7 @@ function [error_rate, theoretical_error_rate] = gbnn_test(network, sparsemessage
 %                                                                                  l, c, Chi, ...
 %                                                                                  erasures, iterations, tampered_messages_per_test, tests, ...
 %                                                                                  enable_guiding, gamma_memory, threshold, propagation_rule, filtering_rule, tampering_type, ...
-%                                                                                  residual_memory, concurrent_cliques, no_concurrent_overlap, GWTA_first_iteration, GWTA_last_iteration, ...
+%                                                                                  residual_memory, concurrent_cliques, no_concurrent_overlap, concurrent_successive, GWTA_first_iteration, GWTA_last_iteration, ...
 %                                                                                  silent)
 %
 % Feed a network and a matrix of sparse messages from which to pick samples for test, and this function will automatically sample some messages, tamper them, and then try to correct them. Finally, the error rate over all the processed messages will be returned.
@@ -33,8 +33,11 @@ function [error_rate, theoretical_error_rate] = gbnn_test(network, sparsemessage
 %- tampering_type : type of message tampering in the tests. "erase"=erasures (random activated bits are switched off) ; "noise"=noise (random bits are flipped, so a 0 becomes 1 and a 1 becomes 0).
 %
 % -- Custom extensions
-%- residual_memory : residual memory: previously activated nodes lingers a bit and participate in the next iteration
-%- concurrent_cliques : allow to decode multiple messages concurrently (can specify the number here)
+%- residual_memory : residual memory: previously activated nodes lingers a bit and participate in the next iteration.
+%- concurrent_cliques : allow to decode multiple messages concurrently/simultaneously (can specify the number here).
+%- no_concurrent_overlap : ensure that concurrent messages/cliques aren't overlapping, thus there won't be any shared fanal (with a big score).
+%- concurrent_successive : instead of simultaneously stimulate the concurrent messages, stimulate them one after the other in succession. This is a bit like tagging/coloring the cliques to better handle them. For example, guiding_mask is adapted at each step to allow a cumulation of one more message at each step (ie: at first step there will be c clusters allowed in the first guiding_mask, then 2*c in the second step, then 3*c in the third, etc.) instead of allowing all correct clusters for all concurrent messages at once..
+%- GWTA_first_iteration and GWTA_last_iteration : always use GWTA as the first/last filtering rule. Particularly useful with *G*LKO family of algorithms which need the first iteration to be GWTA to kickstart the process.
 %- silent : silence all outputs
 %
 
@@ -124,6 +127,8 @@ if ~silent
     residual_memory
     variable_length
     concurrent_cliques
+    no_concurrent_overlap
+    concurrent_successive
 end
 
 
@@ -146,10 +151,13 @@ mtest = size(sparsemessagestest, 1);
 
 % -- A few error checks
 if erasures > c
-    error('Erasures > c which is not possible');
+    error('Erasures > c which is not possible.');
 end
 if numel(c) ~= 1 && numel(c) ~= 2
     error('c contains too many values! numel(c) should be equal to 1 or 2.');
+end
+if n ~= size(sparsemessagestest, 2)
+    error('Provided arguments Chi and L do not match with the size of sparsemessagestest.');
 end
 
 
@@ -263,33 +271,102 @@ parfor t=1:tests
     % If concurrent_cliques is enabled, we must mix up the messages together after we've done the characters erasure
     if concurrent_cliques > 1
         % Mix up init (untampered messages)
-        init = reshape(init, n*tampered_messages_per_test, concurrent_cliques)';
-        init = any(init); % mix up messages (by stacking concurrent_cliques messages side-by-side and then summing/anying them)
+        init_mixed = any( reshape(init, n*tampered_messages_per_test, concurrent_cliques)' ); % mix up messages (by stacking concurrent_cliques messages side-by-side and then summing/anying them)
         %init = reshape(init, tampered_messages_per_test, n)'; % WRONG % unstack the messages vector into a matrix with one mixed sparsemessage per column
-        init = reshape(init', n, tampered_messages_per_test); % unstack the messages vector into a matrix with one mixed sparsemessage per column
+        init_mixed = reshape(init_mixed', n, tampered_messages_per_test); % unstack the messages vector into a matrix with one mixed sparsemessage per column
 
-        % Mix up the tampered messages
-        inputm = reshape(inputm, n*tampered_messages_per_test, concurrent_cliques)';
-        inputm = any(inputm);
-        inputm = reshape(inputm', n, tampered_messages_per_test);
+        % Only if we don't compute in succession, we mix up the tampered messages now (else we will do that at the end after convergence)
+        if ~concurrent_successive
+            % Mix up the tampered messages
+            inputm = reshape(inputm, n*tampered_messages_per_test, concurrent_cliques)';
+            inputm = any(inputm);
+            inputm = reshape(inputm', n, tampered_messages_per_test);
+        end
     end
 
     if ~silent; aux.printtime(toc()); end;
 
-    if ~silent; tperf = cputime(); end;
     % -- Prediction step: feed the tampered message to the network and wait for it to converge to a stable state, hopefully the corrected message.
     %if ~silent; fprintf('-- Feed to network and wait for convergence\n'); aux.flushout(); end;
-    guiding_mask = [];
-    if enable_guiding % if enabled, prepare the guiding mask (the list of clusters that we will keep, all the other nodes from other clusters will be set to 0). This guiding mask can be defined manually if you want, here to do it automatically we compute it from the initial untampered messages, thus we will keep nodes activated only in the clusters where there were activated nodes in the initial message.
-        guiding_mask = any(reshape(init, l, tampered_messages_per_test * Chi)); % any is better than sum in our case, and it's also faster and keeps the logical datatype!
+    if ~silent; tperf = cputime(); end;
+
+    % Guiding mask preparation
+    % if enabled, prepare the guiding mask (the list of clusters that we will keep, all the other nodes from other clusters will be set to 0). This guiding mask can be defined manually if you want, here to do it automatically we compute it from the initial untampered messages, thus we will keep nodes activated only in the clusters where there were activated nodes in the initial message.
+    guiding_mask = sparse([]);
+    if enable_guiding
+
+        % Normal case (no concurrent_cliques or not concurrent_successive): we simply stack fanals of the same cluster together and merge them to get the mask (if at least one fanal in this cluster was enabled, the mask bit will be 1)
+        % Thus we get one long guiding mask which is a big vector containing many sub-vectors, each one corresponding to a message
+        if ~(concurrent_successive && concurrent_cliques > 1)
+            guiding_mask = sparse(1, Chi * tampered_messages_per_test); % pre-allocating
+            guiding_mask = any(reshape(init, l, Chi * tampered_messages_per_test)); % reshape so that we get all fanals from one cluster per column, and stack all clusters/columns of a message side-by-side, and do the same for all the other messages. Then use any to compile all fanals per cluster into one, which is the mask for this cluster (0 if disabled, 1 if this cluster contains a correct fanal). At the end we get a binary vector, which is in fact the stacking of multiple vectors: one binary vector per message (this message stacking allows us to vectorize the generation and applying of the guiding mask). Note: any is better than sum in our case, and it's also faster and keeps the logical datatype!
+
+        % Concurrent successive case: we want that at each step the guiding mask gets adapted: for the first step, only one message/clique will be recovered, thus the guiding mask must only contain the bits for this message (c bits set to 1 = c clusters will be allowed). Then for the second step, we will try to keep the previous messages + recover a second one, thus we want the guiding mask to now allow for 2*c clusters/bits. And on and on for each subsequent concurrent message.
+        % Thus we will construct a matrix of guiding_masks (one guiding_mask/vector for each step), and we will construct each guiding_mask cumulatively (each subsequent guiding_mask will keep the bits of all previous guiding_masks)
+        else
+            guiding_mask = sparse(concurrent_cliques, Chi * tampered_messages_per_test); % pre-allocating
+            gmask_tmp = sparse(1, Chi*tampered_messages_per_test); % this is where we will store the previous guiding mask, so that we can cumulatively append/allow new clusters/bits.
+            % For each concurrent message, we will make an adapted guiding mask, hence the final guiding mask won't be a vector but a matrix (a mega vector of subvectors like before, but for each step the concurrent_successive processing)
+            for cc=1:concurrent_cliques
+                idxs = (tampered_messages_per_test*(cc-1)+1):(tampered_messages_per_test*cc); % get the indices of the messages for the current step
+                gmask_tmp = or(any(reshape(init(:, idxs), l, Chi * tampered_messages_per_test)), gmask_tmp); % just like in the normal case, reshape to stack fanals of the same cluster together and then squash them using any, but in addition we append these bits to the previous step's guiding_mask.
+                guiding_mask(cc,:) = gmask_tmp; % store the guiding_mask for this step
+            end
+        end
+
+        % Make sure this is a logical (binary) datatype, else we will run into troubles with bsxfun(@and, ...)
+        guiding_mask = logical(guiding_mask);
     end
 
-    inputm = gbnn_correct(network, inputm, ...
-                              l, c, Chi, ...
-                              iterations, ...
-                              k, guiding_mask, gamma_memory, threshold, propagation_rule, filtering_rule, tampering_type, ...
-                              residual_memory, concurrent_cliques, GWTA_first_iteration, GWTA_last_iteration, ...
-                              silent);
+    % Remove the unmixed init, we won't need it anymore as afterwards from here we will only use init to check the error rate of the final converged message, which is mixed
+    if concurrent_cliques > 1
+        init = init_mixed;
+    end
+
+    % Correction of the tampered messages
+    if ~(concurrent_successive && concurrent_cliques > 1) % Normal case: just feed the messages (a matrix containing messages as vectors) and wait for convergence
+        % Correct and wait for convergence!
+        inputm = gbnn_correct(network, inputm, ...
+                                  l, c, Chi, ...
+                                  iterations, ...
+                                  k, guiding_mask, gamma_memory, threshold, propagation_rule, filtering_rule, tampering_type, ...
+                                  residual_memory, concurrent_cliques, GWTA_first_iteration, GWTA_last_iteration, ...
+                                  silent);
+    % Concurrent_successive case: we won't feed the mixed messages at once but instead we will try to converge for one message at a time, and then at each step we append another concurrent message and try again to converge, etc.
+    else
+        inputm_full = inputm; % Backup the unmixed messages
+        for cc=1:concurrent_cliques % Feed one message at a time, but cumulatively (we append concurrent messages to the previous ones)
+            if ~silent; fprintf('=> Converging for successive clique %i\n', cc); aux.flushout(); end;
+            % Prepare the input messages: extract only one message and leave the other concurrent messages for later
+            if cc == 1 % First step: we just take the first messages (first in the sense of all concurrent messages)
+                inputm = inputm_full(:,1:tampered_messages_per_test);
+            else % Subsequent steps: we cumulatively append the bits of other messages on the previous (already converged) messages
+                % Mix up the next clique with the previous message
+                idxs = (tampered_messages_per_test*(cc-1)+1):(tampered_messages_per_test*cc); % get the indices of the messages for the current step
+                inputm = or(inputm, inputm_full(:, idxs)); % cumulatively merge messages of the current step on the messages of previous steps
+            end
+
+            % Re-setup correct values for k, since the number of concurrent_cliques will vary for each step
+            k = c*cc;
+            if strcmpi(filtering_rule, 'kWTA') || strcmpi(filtering_rule, 'kLKO') || strcmpi(filtering_rule, 'WsTA')
+                k = cc;
+            end
+
+            % Load the guiding mask for this step, but only if guiding is enabled (else the indexing will fail with an error since the guiding_mask won't be constructed)
+            gmask = sparse([]);
+            if enable_guiding
+                gmask = guiding_mask(cc, :);
+            end
+
+            % Correct and wait for convergence!
+            inputm = gbnn_correct(network, inputm, ...
+                                  l, c, Chi, ...
+                                  iterations, ...
+                                  k, gmask, gamma_memory, threshold, propagation_rule, filtering_rule, tampering_type, ...
+                                  residual_memory, cc, GWTA_first_iteration, GWTA_last_iteration, ...
+                                  silent);
+        end
+    end
 
     if ~silent
         fprintf('-- Propagation done!\n'); aux.flushout();
@@ -322,7 +399,7 @@ if enable_guiding % different error rate when guided mask is enabled (and it's l
 else
     theoretical_error_rate = 1 - (1 - real_density^(c-erasures))^(erasures*(l-1)+l*(Chi-c)); % = spurious_cliques_proba. spurious cliques = nonvalid cliques that we did not memorize and which rests inopportunely on the edges of valid cliques, which we learned and want to remember. In other words: what is the probability of emergence of wrong cliques that we did not learn but which emerges from combinations of cliques we learned? This is influenced heavily by the density (higher density = more errors). Also, error rate is only per one iteration, if you use more iterations to converge the real error may be considerably lower. % TODO: does not compute the correct theoretical error rate if concurrent_cliques > 1.
 end
-if ~concurrent_successive && concurrent_cliques > 1
+if concurrent_cliques > 1
     theoretical_error_rate = 1-(1-theoretical_error_rate)^concurrent_cliques;
 end
 %theoretical_error_correction_proba = 1 - theoretical_error_rate

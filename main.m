@@ -88,6 +88,10 @@
 % - When I use Global (k-)Loser-Kicked-Out, my error rate is very high!
 %   First check your gamma_memory value: if it's enabled, try to set it to 0. Indeed, what this does is that the network always remember the first input (partially erased message), so that the already known characters are always largely winning over recovered characters, and are thus kicked out by this type of filtering rule. If you disable the memory, this should avoid this kind of effect.
 %
+% - I tried the code but I get a weird error: concatenation operator not implemented for '<unknown type>' on sparse matrices
+% This error happens on Octave when you do a bsxfun with a binary operator (eg: bsxfun(@and, ...) on two sparse matrices with different datatypes (eg: one is logical and the other one is not). In this case, just convert both matrices with logical().
+% On Matlab a similar error may happen if you do a matrix multiplication between two logical matrices: in this case, just convert both of your matrices to double or uint.
+%
 % ## ToDo ##
 % - Implement sparse_cliques (Chi) in gbnn_mini
 % - variable_length complete implementation and tests (when c is a vector of two values)
@@ -128,6 +132,7 @@ tampering_type = 'erase';
 residual_memory = 0;
 concurrent_cliques = 2;
 no_concurrent_overlap = true;
+concurrent_successive = false;
 GWTA_first_iteration = false;
 GWTA_last_iteration = false;
 
@@ -140,7 +145,7 @@ error_rate = gbnn_test(network, sparsemessages, ...
                                                                                   l, c, Chi, ...
                                                                                   erasures, iterations, tampered_messages_per_test, tests, ...
                                                                                   enable_guiding, gamma_memory, threshold, propagation_rule, filtering_rule, tampering_type, ...
-                                                                                  residual_memory, concurrent_cliques, no_concurrent_overlap, GWTA_first_iteration, GWTA_last_iteration, ...
+                                                                                  residual_memory, concurrent_cliques, no_concurrent_overlap, concurrent_successive, GWTA_first_iteration, GWTA_last_iteration, ...
                                                                                   silent);
 aux.printcputime(cputime() - tperf, 'Total cpu time elapsed to do everything: %g seconds.\n'); aux.flushout(); % print total time elapsed
 

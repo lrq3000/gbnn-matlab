@@ -36,6 +36,7 @@ tampering_type = 'erase';
 residual_memory = 0;
 concurrent_cliques = 1;
 no_concurrent_overlap = false;
+concurrent_successive = false;
 GWTA_first_iteration = false;
 GWTA_last_iteration = false;
 
@@ -67,7 +68,7 @@ for m=1:numel(M) % and for each value of m, we will do a run
                                                                                   l, c, Chi, ...
                                                                                   erasures, iterations, tampered_messages_per_test, tests, ...
                                                                                   enable_guiding(1,g), gamma_memory, threshold, propagation_rule, fr, tampering_type, ...
-                                                                                  residual_memory, concurrent_cliques, no_concurrent_overlap, GWTA_first_iteration, GWTA_last_iteration, ...
+                                                                                  residual_memory, concurrent_cliques, no_concurrent_overlap, concurrent_successive, GWTA_first_iteration, GWTA_last_iteration, ...
                                                                                   silent);
 
             % Store the results

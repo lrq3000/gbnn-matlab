@@ -79,6 +79,13 @@ mpartial = size(partial_messages, 2); % mpartial = number of messages to reconst
 if numel(c) ~= 1 && numel(c) ~= 2
     error('c contains too many values! numel(c) should be equal to 1 or 2.');
 end
+if n ~= size(partial_messages, 1)
+    error('Provided arguments Chi and L do not match with the size of partial_messages.');
+end
+if concurrent_cliques && k > n && ~(strcmpi(filtering_rule, 'WTA') || strcmpi(filtering_rule, 'LKO') || strcmpi(filtering_rule, 'GWTA') || strcmpi(filtering_rule, 'GLKO'))
+    error('k cannot be > Chi*L, this means that you are trying to use too many concurrent_cliques for a too small network! Try to lower concurrent_cliques or to increase the size of your network.');
+end
+
 
 % #### Correction phase
 for iter=1:iterations % To let the network converge towards a stable state...
@@ -139,7 +146,7 @@ for iter=1:iterations % To let the network converge towards a stable state...
     % 2- Filtering rules aka activation rules (apply a rule to filter out useless/interfering nodes)
 
     % -- Vectorized version - fastest!
-        out = logical(sparse(size(partial_messages,1), size(partial_messages,2))); % empty binary sparse matrix, it will later store the next network state after winner-takes-all is applied
+    out = logical(sparse(size(partial_messages,1), size(partial_messages,2))); % empty binary sparse matrix, it will later store the next network state after winner-takes-all is applied
     % Winner-take-all : per cluster, keep only the maximum score node active (if multiple nodes share the max score, we keep them all activated). Thus the WTA is based on score value, contrarywise to k-WTA which is based on the number of active node k.
     if strcmpi(filtering_rule, 'wta')
         % The idea is that we will break the clusters and stack them along as a single long cluster spanning several messages, so that we can do a WTA in one pass (with a single max), and then we will unstack them back to their correct places in the messages
