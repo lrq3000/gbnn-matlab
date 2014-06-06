@@ -1,11 +1,11 @@
-function [error_rate, theoretical_error_rate] = gbnn_test(network, sparsemessagestest, ...
+function [error_rate, theoretical_error_rate, error_distance] = gbnn_test(network, sparsemessagestest, ...
                                                                                   l, c, Chi, ...
                                                                                   erasures, iterations, tampered_messages_per_test, tests, ...
                                                                                   enable_guiding, gamma_memory, threshold, propagation_rule, filtering_rule, tampering_type, ...
                                                                                   residual_memory, concurrent_cliques, no_concurrent_overlap, concurrent_successive, GWTA_first_iteration, GWTA_last_iteration, ...
                                                                                   silent)
 %
-% [error_rate, theoretical_error_rate] = gbnn_test(network, sparsemessagestest, ...
+% [error_rate, theoretical_error_rate, error_distance] = gbnn_test(network, sparsemessagestest, ...
 %                                                                                  l, c, Chi, ...
 %                                                                                  erasures, iterations, tampered_messages_per_test, tests, ...
 %                                                                                  enable_guiding, gamma_memory, threshold, propagation_rule, filtering_rule, tampering_type, ...
@@ -168,6 +168,7 @@ if ~silent; totalperf = cputime(); end; % for total time perfs
 if ~silent; fprintf('#### Testing phase (error correction of tampered messages with %i erasures)\n', erasures); aux.flushout(); end;
 %sparsemessagestest = sparsemessages; % by default, use to test the same set as for learning
 err = 0; % error score
+derr = 0; % euclidian error distance
 parfor t=1:tests
     if ~silent
         if tests < 20 || mod(tests, t) == 0
@@ -381,16 +382,18 @@ parfor t=1:tests
     if tampered_messages_per_test > 1
         %err = err + sum(min(sum((init ~= inputm), 1), 1)); % this is a LOT faster than isequal() !
         err = err + nnz(sum((init ~= inputm), 1)); % even faster!
+        derr = derr + (sum(sum(init ~= inputm)) / tampered_messages_per_test) % error distance = euclidian distance to the correct message = number of bits that are wrong
     else
         %err = err + ~isequal(init,inputm);
         err = err + any(init ~= inputm); % remove the useless sum(min()) when we only have one message to compute the error from, this cuts the time by almost half
+        derr = derr + sum(init ~= inputm);
     end
     if ~silent; aux.printtime(toc()); end;
 
 end
 
 % Compute error rate
-error_rate = err / (tests * tampered_messages_per_test);
+error_rate = err / (tests * tampered_messages_per_test); % NOTE: if you use concurrent_cliques > 1, error_rate is not a good measure, because you artificially increase the probability of having a wrong message by concurrent_cliques times (since you're not testing one but concurrent_cliques messages at the same time), and there's no way to correct this biased estimator since we can't know which clique caused which bit flip (eg: concurrent_cliques = 3 and there are 3 wrong bits: are they caused by the three messages, or by only 1 and the other two are in fact corrects?). You should rather try error_distance in this case.
 % Compute density
 real_density = full(  (sum(sum(network)) - sum(diag(network))) / (Chi*(Chi-1) * l^2)  );
 % Compute theoretical error rate
@@ -404,12 +407,15 @@ if concurrent_cliques > 1
     theoretical_error_rate = 1-(1-theoretical_error_rate)^concurrent_cliques;
 end
 %theoretical_error_correction_proba = 1 - theoretical_error_rate
+% Compute euclidiant error distance
+error_distance = derr / concurrent_cliques; % Euclidian distance: compute the mean number of bits that has the wrong values per message.
 
 % Finally, show the error rate and some stats
 if ~silent
     real_density
     error_rate
     theoretical_error_rate
+    error_distance
     total_tampered_messages_tested = tests * tampered_messages_per_test
     aux.printcputime(cputime - totalperf, 'Total elapsed cpu time for test is %g seconds.\n'); aux.flushout();
     %c_optimal_approx = log(Chi*l/P0)/(2*(1-alpha)) % you have to define alpha = rate of errors per message you want to be able to correct ; P0 = probability or error = theoretical_error_rate you want

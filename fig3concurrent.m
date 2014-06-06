@@ -90,7 +90,7 @@ aux.printcputime(cputime() - tperf, 'Total cpu time elapsed to do all runs: %G s
 
 % == Plotting
 
-% Plot density with respect to number of stored messages
+% Plot error rate with respect to the density (or number of messages stored) and a few other parameters
 figure; hold on;
 xlabel(sprintf('Number of stored messages (M) x %.1E', Mcoeff));
 ylabel('Retrieval Error Rate');

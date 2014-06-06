@@ -99,7 +99,6 @@
 % - convergence stop criterions: NoChange (no change in out messages between two iterations, just like Perceptron) and Clique (all nodes have the same value, won't work with concurrent_cliques)
 % - optional named arguments
 % - theoretical_error_rate should be adapted to concurrent_cliques (currently it only computes the correct theoretical error rate for concurrent_cliques = 1)
-% - another error rate (error distance = euclidian distance to the correct message, eg: sum(init != output) / (Chi*l))
 % - modularize the messages -> sparsemessages encoder, so that user can just supply a matrix of messages into gbnn_test or gbnn_correct (can then detect max(max(messages)) and check if it's greater than 1 to see whether it's a sparsemessages or messages).
 %
 
