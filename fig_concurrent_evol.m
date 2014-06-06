@@ -165,7 +165,7 @@ legend(get(gca,'children'),get(get(gca,'children'),'DisplayName')); % IMPORTANT:
 % -- Plot error distance
 figure; hold on;
 xlabel(sprintf('Number of stored messages (M) x %.1E', Mcoeff));
-ylabel('Retrieval Error Distance (number of bits flipped)');
+ylabel('Retrieval Error Distance (above y=1 is random)');
 counter = 1; % useful to keep track inside the matrix E. This is guaranteed to be OK since we use the same order of for loops (so be careful, if you move the forloops here in plotting you must also move them the same way in the tests above!)
 for f=1:numel(filtering_rule) % for each different filtering rule and whether there is guiding or not, we willl print a different curve, with an automatically selected color and shape
     coloridx = mod(f-1, numel(colorvec))+1; % change color per filtering rule

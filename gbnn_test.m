@@ -382,7 +382,7 @@ parfor t=1:tests
     if tampered_messages_per_test > 1
         %err = err + sum(min(sum((init ~= inputm), 1), 1)); % this is a LOT faster than isequal() !
         err = err + nnz(sum((init ~= inputm), 1)); % even faster!
-        derr = derr + (sum(sum(init ~= inputm)) / tampered_messages_per_test) % error distance = euclidian distance to the correct message = number of bits that are wrong
+        derr = derr + sum(sum(init ~= inputm)); % error distance = euclidian distance to the correct message = mean number of bits that are wrong per message / number of bits per message = esperance that a bit is wrongly flipped
     else
         %err = err + ~isequal(init,inputm);
         err = err + any(init ~= inputm); % remove the useless sum(min()) when we only have one message to compute the error from, this cuts the time by almost half
@@ -408,7 +408,7 @@ if concurrent_cliques > 1
 end
 %theoretical_error_correction_proba = 1 - theoretical_error_rate
 % Compute euclidiant error distance
-error_distance = derr / concurrent_cliques; % Euclidian distance: compute the mean number of bits that has the wrong values per message.
+error_distance = derr / (tests * concurrent_cliques * c * tampered_messages_per_test); % Euclidian distance: compute the esperance that a bit is wrongly flipped (has an incorrect value)
 
 % Finally, show the error rate and some stats
 if ~silent
