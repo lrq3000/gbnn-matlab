@@ -22,7 +22,7 @@ c = 12;
 l = 64;
 Chi = 100;
 erasures = 3;
-iterations = 4;
+iterations = 1;
 tampered_messages_per_test = 100;
 tests = 1;
 
@@ -165,7 +165,7 @@ legend(get(gca,'children'),get(get(gca,'children'),'DisplayName')); % IMPORTANT:
 % -- Plot error distance
 figure; hold on;
 xlabel(sprintf('Number of stored messages (M) x %.1E', Mcoeff));
-ylabel('Retrieval Error Distance (above y=1 is random)');
+ylabel('Mean Error Distance per message (above y=1 is random)');
 counter = 1; % useful to keep track inside the matrix E. This is guaranteed to be OK since we use the same order of for loops (so be careful, if you move the forloops here in plotting you must also move them the same way in the tests above!)
 for f=1:numel(filtering_rule) % for each different filtering rule and whether there is guiding or not, we willl print a different curve, with an automatically selected color and shape
     coloridx = mod(f-1, numel(colorvec))+1; % change color per filtering rule
