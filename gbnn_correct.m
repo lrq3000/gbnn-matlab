@@ -1,9 +1,4 @@
-function partial_messages = gbnn_correct(network, partial_messages, ...
-                                                                                  l, c, Chi, ...
-                                                                                  iterations, ...
-                                                                                  k, guiding_mask, gamma_memory, threshold, propagation_rule, filtering_rule, tampering_type, ...
-                                                                                  residual_memory, concurrent_cliques, GWTA_first_iteration, GWTA_last_iteration, ...
-                                                                                  silent)
+function partial_messages = gbnn_correct(varargin)
 %
 % partial_messages = gbnn_correct(network, partial_messages, ...
 %                                                                                  l, c, Chi, ...
@@ -13,6 +8,9 @@ function partial_messages = gbnn_correct(network, partial_messages, ...
 %                                                                                  silent)
 %
 % Feed a network and partially tampered messages, and will let the network try to 'remember' a message that corresponds to the given input. The function will return the recovered message(s).
+%
+% This function supports named arguments, use it like this:
+% gbnn_correct('network', mynetwork, 'partial_messages', sparsemessagestest, 'l', 4, 'c', 3)
 % 
 
 
@@ -20,40 +18,46 @@ function partial_messages = gbnn_correct(network, partial_messages, ...
 % source('gbnn_aux.m'); % does not work with MatLab, only Octave...
 aux = gbnn_aux; % works with both MatLab and Octave
 
-% == Init variables
-if ~exist('Chi', 'var') || isempty(Chi)
-    Chi = c;
-end
-if ~exist('gamma_memory', 'var') || isempty(gamma_memory)
-    gamma_memory = 0;
-end
-if ~exist('threshold', 'var') || isempty(threshold)
-    threshold = 0;
-end
-if ~exist('enable_guiding', 'var')
-    enable_guiding = false;
-end
-if ~exist('propagation_rule', 'var') || ~ischar(propagation_rule)
-    propagation_rule = 'sum';
-end
-if ~exist('filtering_rule', 'var') || ~ischar(filtering_rule)
-    filtering_rule = 'wta';
-end
-if ~exist('tampering_type', 'var') || ~ischar(tampering_type)
-    tampering_type = 'erase';
-end
+% == Arguments processing
+% List of possible arguments and their default values
+arguments_defaults = struct( ...
+    % Mandatory
+    'network', [], ...
+    'partial_messages', [], ...
+    'l', 0, ...
+    'c', 0, ...
 
-if ~exist('residual_memory', 'var')
-    residual_memory = 0;
-end
-if ~exist('concurrent_cliques', 'var') || isempty(concurrent_cliques)
-    concurrent_cliques = 1; % 1 is disabled, > 1 enables and specify the number of concurrent messages/cliques to decode concurrently
-end
-if ~exist('GWTA_first_iteration', 'var') || isempty(GWTA_first_iteration)
-    GWTA_first_iteration = false;
-end
-if ~exist('GWTA_last_iteration', 'var') || isempty(GWTA_last_iteration)
-    GWTA_last_iteration = false;
+    % 2014 sparse enhancement
+    'Chi', 0, ...
+
+    % Test settings
+    'iterations', 1, ...
+
+    % Tests tweakings and rules
+    'guiding_mask', [], ...
+    'threshold', 0, ...
+    'gamma_memory', 0, ...
+    'residual_memory', 0, ...
+    'propagation_rule', 'sum', ...
+    'filtering_rule', 'wta', ...
+    'tampering_type', 'erase', ...
+    'concurrent_cliques', 1, ... % 1 is disabled, > 1 enables and specify the number of concurrent messages/cliques to decode concurrently
+    'GWTA_first_iteration', false, ...
+    'GWTA_last_iteration', false, ...
+    'k', 1, ...
+
+    % Debug stuffs
+    'silent', false);
+
+% Process the arguments
+arguments = aux.getnargs(varargin, arguments_defaults, true);
+
+% Load variables into local namespace (called workspace in MatLab)
+aux.varspull(arguments);
+
+% == Sanity Checks
+if isempty(network) || isempty(partial_messages) || l == 0 || c == 0
+    error('Missing arguments: network, partial_messages, l and c are mandatory!');
 end
 
 variable_length = false;
@@ -61,10 +65,18 @@ if isvector(c) && ~isscalar(c)
     variable_length = true;
 end
 
-if ~exist('silent', 'var')
-    silent = false;
+if ~ischar(propagation_rule)
+    if iscell(propagation_rule); error('propagation_rule is a cell, it should be a string! Maybe you did a typo?'); end;
+    propagation_rule = 'sum';
 end
-
+if ~ischar(filtering_rule)
+    if iscell(filtering_rule); error('filtering_rule is a cell, it should be a string! Maybe you did a typo?'); end;
+    filtering_rule = 'wta';
+end
+if ~ischar(tampering_type)
+    if iscell(tampering_type); error('tampering_type is a cell, it should be a string! Maybe you did a typo?'); end;
+    tampering_type = 'erase';
+end
 
 % == Init data structures and other vars - DO NOT TOUCH
 sparse_cliques = true; % enable the creation of sparse cliques if Chi > c (cliques that don't use all available clusters but just c clusters per one message)
@@ -82,7 +94,7 @@ end
 if n ~= size(partial_messages, 1)
     error('Provided arguments Chi and L do not match with the size of partial_messages.');
 end
-if concurrent_cliques && k > n && ~(strcmpi(filtering_rule, 'WTA') || strcmpi(filtering_rule, 'LKO') || strcmpi(filtering_rule, 'GWTA') || strcmpi(filtering_rule, 'GLKO'))
+if concurrent_cliques > 1 && k > n && ~(strcmpi(filtering_rule, 'WTA') || strcmpi(filtering_rule, 'LKO') || strcmpi(filtering_rule, 'GWTA') || strcmpi(filtering_rule, 'GLKO'))
     error('k cannot be > Chi*L, this means that you are trying to use too many concurrent_cliques for a too small network! Try to lower concurrent_cliques or to increase the size of your network.');
 end
 

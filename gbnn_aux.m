@@ -9,9 +9,11 @@ end
 % For MatLab compatibility, we use a function to return other functions handlers as properties, this is a workaround since it cannot load multiple functions in one .m file (contrarywise to Octave using source())
 function funs = importFunctions
     funs.shake=@shake; % the most important!
+    funs.isOctave=@isOctave; % also important! for MatLab compatibility
+    funs.getnargs=@getnargs; % to process named optional arguments
+    funs.varspull = @varspull; % to load arguments into local namespace/workspace
     funs.fastmode=@fastmode;
-    funs.isOctave=@isOctave;
-    funs.flushout=@flushout;
+    funs.flushout=@flushout; % to force refresh the stdout after printing in the console
     funs.printcputime=@printcputime;
     funs.printtime=@printtime;
 end
@@ -195,4 +197,91 @@ function [y, n]=fastmode(x)
     n=max(num);
     % Pull the values from the original sorted vector
     y=sorted(idx(num==n));
+end
+
+function argStruct = getnargs(varargin, defaults, restrict_flag)
+%GETNARGS Converts name/value pairs to a struct (this allows to process named optional arguments).
+% 
+% ARGSTRUCT = GETNARGS(VARARGIN, DEFAULTS, restrict_flag) converts
+% name/value pairs to a struct, with defaults.  The function expects an
+% even number of arguments in VARARGIN, alternating NAME then VALUE.
+% (Each NAME should be a valid variable name and is case sensitive.)
+% Also VARARGIN should be a cell, and defaults should be a struct().
+% Optionally: you can set restrict_flag to true if you want that only arguments names specified in defaults be allowed. Also, if restrict_flag = 2, arguments that aren't in the defaults will just be ignored.
+% After calling this function, you can access your arguments using: argstruct.your_argument_name
+%
+% Examples: 
+%
+% No defaults
+% getnargs( {'foo', 123, 'bar', 'qwerty'} )
+%
+% With defaults
+% getnargs( {'foo', 123, 'bar', 'qwerty'} , ...
+%               struct('foo', 987, 'bar', magic(3)) )
+%
+% See also: inputParser
+%
+% Authors: Jonas, Richie Cotton and LRQ3000
+%
+
+    % Extract the arguments if it's inside a sub-struct (happens on Octave), because anyway it's impossible that the number of argument be 1 (you need at least a couple, thus two)
+    if (numel(varargin) == 1)
+        varargin = varargin{:};
+    end
+
+    % Sanity check: we need a multiple of couples, if we get an odd number of arguments then that's wrong (probably missing a value somewhere)
+    nArgs = length(varargin);
+    if rem(nArgs, 2) ~= 0
+        error('NameValuePairToStruct:NotNameValuePairs', ...
+            'Inputs were not name/value pairs');
+    end
+
+    % Sanity check: if defaults is not supplied, it's by default an empty struct
+    if ~exist('defaults', 'var')
+        defaults = struct;
+    end
+    if ~exist('restrict_flag', 'var')
+        restrict_flag = false;
+    end
+
+    % Syntactic sugar: if defaults is also a cell instead of a struct, we convert it on-the-fly
+    if iscell(defaults)
+        defaults = struct(defaults{:});
+    end
+
+    optionNames = fieldnames(defaults); % extract all default arguments names (useful for restrict_flag)
+
+    argStruct = defaults; % copy over the defaults: by default, all arguments will have the default value.After we will simply overwrite the defaults with the user specified values.
+    for i = 1:2:nArgs % iterate over couples of argument/value
+        varname = varargin{i}; % make case insensitive
+        % check that the supplied name is a valid variable identifier (it does not check if the variable is allowed/declared in defaults, just that it's a possible variable name!)
+        if ~isvarname(varname)
+          error('NameValuePairToStruct:InvalidName', ...
+             'A variable name was not valid: %s position %i', varname, i);
+        % if options are restricted, check that the argument's name exists in the supplied defaults, else we throw an error. With this we can allow only a restricted range of arguments by specifying in the defaults.
+        elseif restrict_flag && ~isempty(defaults) && ~any(strmatch(varname, optionNames))
+            if restrict_flag ~= 2 % restrict_flag = 2 means that we just ignore this argument, else we show an error
+                error('%s is not a recognized argument name', varname);
+            end
+        % else alright, we replace the default value for this argument with the user supplied one (or we create the variable if it wasn't in the defaults and there's no restrict_flag)
+        else
+            argStruct = setfield(argStruct, varname, varargin{i + 1});  %#ok<SFLD>
+        end
+    end
+
+end
+
+function varspull(s)
+% Import variables in a structures into the local namespace/workspace
+% eg: s = struct('foo', 1, 'bar', 'qwerty'); varspull(s); disp(foo); disp(bar);
+% Will print: 1 and qwerty
+% 
+%
+% Author: Jason S
+%
+    for n = fieldnames(s)'
+        name = n{1};
+        value = s.(name);
+        assignin('caller',name,value);
+    end
 end

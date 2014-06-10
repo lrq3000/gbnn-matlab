@@ -13,6 +13,7 @@
 %- gbnn_aux.m is a set of auxiliary functions.
 %- gbnn_mini.m is a standalone, minified version of the script, with minimum comments and lines of codes (and features are reduced too). This file is intended as a quickstart to quickly grasp the main concept. You can first study this file, and when you feel confident, you can try analyzing the other gbnn files.
 %- main.m is this file, an easy entry to use the gbnn algorithm.
+%- simple.m is a simplified version of main.m, containing the bare minimum to use the gbnn network.
 %- figX.m are example codes that show how to automatically generate a plot to compare the performances between whatever variables you want.
 %
 % ## Variables list ##
@@ -97,8 +98,6 @@
 % - variable_length complete implementation and tests (when c is a vector of two values)
 % - propagation_rule 1 and 2 (normalized and Sum of Max)
 % - convergence stop criterions: NoChange (no change in out messages between two iterations, just like Perceptron) and Clique (all nodes have the same value, won't work with concurrent_cliques)
-% - optional named arguments
-% - theoretical_error_rate should be adapted to concurrent_cliques (currently it only computes the correct theoretical error rate for concurrent_cliques = 1)
 % - modularize the messages -> sparsemessages encoder, so that user can just supply a matrix of messages into gbnn_test or gbnn_correct (can then detect max(max(messages)) and check if it's greater than 1 to see whether it's a sparsemessages or messages).
 %
 
@@ -139,13 +138,13 @@ silent = false; % If you don't want to see the progress output
 
 % == Launching the runs
 tperf = cputime();
-[network, sparsemessages, density] = gbnn_learn([], m, miterator, l, c, Chi, silent);
-error_rate = gbnn_test(network, sparsemessages, ...
-                                                                                  l, c, Chi, ...
-                                                                                  erasures, iterations, tampered_messages_per_test, tests, ...
-                                                                                  enable_guiding, gamma_memory, threshold, propagation_rule, filtering_rule, tampering_type, ...
-                                                                                  residual_memory, concurrent_cliques, no_concurrent_overlap, concurrent_successive, GWTA_first_iteration, GWTA_last_iteration, ...
-                                                                                  silent);
+[network, sparsemessages, density] = gbnn_learn('m', m, 'miterator', miterator, 'l', l, 'c', c, 'Chi', Chi, 'silent', silent);
+error_rate = gbnn_test('network', network, 'sparsemessagestest', sparsemessages, ...
+                                                                                  'l', l, 'c', c, 'Chi', Chi, ...
+                                                                                  'erasures', erasures, 'iterations', iterations, 'tampered_messages_per_test', tampered_messages_per_test, 'tests', tests, ...
+                                                                                  'enable_guiding', enable_guiding, 'gamma_memory', gamma_memory, 'threshold', threshold, 'propagation_rule', propagation_rule, 'filtering_rule', filtering_rule, 'tampering_type', tampering_type, ...
+                                                                                  'residual_memory', residual_memory, 'concurrent_cliques', concurrent_cliques, 'no_concurrent_overlap', no_concurrent_overlap, 'concurrent_successive', concurrent_successive, 'GWTA_first_iteration', GWTA_first_iteration, 'GWTA_last_iteration', GWTA_last_iteration, ...
+                                                                                  'silent', silent);
 aux.printcputime(cputime() - tperf, 'Total cpu time elapsed to do everything: %g seconds.\n'); aux.flushout(); % print total time elapsed
 
 % The end!

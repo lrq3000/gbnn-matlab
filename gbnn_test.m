@@ -1,9 +1,4 @@
-function [error_rate, theoretical_error_rate, error_distance] = gbnn_test(network, sparsemessagestest, ...
-                                                                                  l, c, Chi, ...
-                                                                                  erasures, iterations, tampered_messages_per_test, tests, ...
-                                                                                  enable_guiding, gamma_memory, threshold, propagation_rule, filtering_rule, tampering_type, ...
-                                                                                  residual_memory, concurrent_cliques, no_concurrent_overlap, concurrent_successive, GWTA_first_iteration, GWTA_last_iteration, ...
-                                                                                  silent)
+function [error_rate, theoretical_error_rate, error_distance] = gbnn_test(varargin)
 %
 % [error_rate, theoretical_error_rate, error_distance] = gbnn_test(network, sparsemessagestest, ...
 %                                                                                  l, c, Chi, ...
@@ -13,6 +8,9 @@ function [error_rate, theoretical_error_rate, error_distance] = gbnn_test(networ
 %                                                                                  silent)
 %
 % Feed a network and a matrix of sparse messages from which to pick samples for test, and this function will automatically sample some messages, tamper them, and then try to correct them. Finally, the error rate over all the processed messages will be returned.
+%
+% This function supports named arguments, use it like this:
+% gbnn_test('network', mynetwork, 'sparsemessagestest', sparsemessagestest, 'l', 4, 'c', 3)
 %
 % -- Test variables
 %- network : specify the network to use that you previously learned.
@@ -45,20 +43,59 @@ function [error_rate, theoretical_error_rate, error_distance] = gbnn_test(networ
 % == Importing some useful functions
 aux = gbnn_aux; % works with both MatLab and Octave
 
-% == Init variables
-if ~exist('Chi', 'var') || isempty(Chi)
-    Chi = c;
+% == Arguments processing
+% List of possible arguments and their default values
+arguments_defaults = struct( ...
+    % Mandatory
+    'network', [], ...
+    'sparsemessagestest', [], ...
+    'l', 0, ...
+    'c', 0, ...
+
+    % 2014 sparse enhancement
+    'Chi', 0, ...
+
+    % Test settings
+    'erasures', 1, ...
+    'iterations', 1, ...
+    'tampered_messages_per_test', 1, ...
+    'tests', 1, ...
+
+    % Tests tweakings and rules
+    'enable_guiding', false, ...
+    'threshold', 0, ...
+    'gamma_memory', 0, ...
+    'residual_memory', 0, ...
+    'propagation_rule', 'sum', ...
+    'filtering_rule', 'wta', ...
+    'tampering_type', 'erase', ...
+    'GWTA_first_iteration', false, ...
+    'GWTA_last_iteration', false, ...
+
+    % Concurrency extension (simultaneous messages/cliques)
+    'concurrent_cliques', 1, ... % 1 is disabled, > 1 enables and specify the number of concurrent messages/cliques to decode concurrently
+    'no_concurrent_overlap', false, ...
+    'concurrent_successive', false, ...
+
+    % Debug stuffs
+    'silent', false);
+
+% Process the arguments
+arguments = aux.getnargs(varargin, arguments_defaults, true);
+
+% Load variables into local namespace (called workspace in MatLab)
+aux.varspull(arguments);
+
+% == Sanity Checks
+if isempty(network) || isempty(sparsemessagestest) || l == 0 || c == 0
+    error('Missing arguments: network, sparsemessagestest, l and c are mandatory!');
 end
 
-if ~exist('gamma_memory', 'var') || isempty(gamma_memory)
-    gamma_memory = 0;
+variable_length = false;
+if isvector(c) && ~isscalar(c)
+    variable_length = true;
 end
-if ~exist('threshold', 'var') || isempty(threshold)
-    threshold = 0;
-end
-if ~exist('enable_guiding', 'var')
-    enable_guiding = false;
-end
+
 if ~exist('propagation_rule', 'var') || ~ischar(propagation_rule)
     if iscell(propagation_rule); error('propagation_rule is a cell, it should be a string! Maybe you did a typo?'); end;
     propagation_rule = 'sum';
@@ -71,35 +108,6 @@ if ~exist('tampering_type', 'var') || ~ischar(tampering_type)
     if iscell(tampering_type); error('tampering_type is a cell, it should be a string! Maybe you did a typo?'); end;
     tampering_type = 'erase';
 end
-
-if ~exist('residual_memory', 'var')
-    residual_memory = 0;
-end
-if ~exist('concurrent_cliques', 'var') || isempty(concurrent_cliques)
-    concurrent_cliques = 1; % 1 is disabled, > 1 enables and specify the number of concurrent messages/cliques to decode concurrently
-end
-if ~exist('no_concurrent_overlap', 'var') || isempty(no_concurrent_overlap)
-    no_concurrent_overlap = false;
-end
-if ~exist('concurrent_successive', 'var') || isempty(concurrent_successive)
-    concurrent_successive = false;
-end
-if ~exist('GWTA_first_iteration', 'var') || isempty(GWTA_first_iteration)
-    GWTA_first_iteration = false;
-end
-if ~exist('GWTA_last_iteration', 'var') || isempty(GWTA_last_iteration)
-    GWTA_last_iteration = false;
-end
-
-variable_length = false;
-if isvector(c) && ~isscalar(c)
-    variable_length = true;
-end
-
-if ~exist('silent', 'var')
-    silent = false;
-end
-
 
 % == Show vars (just for the record, user can debug or track experiments using diary)
 if ~silent
@@ -328,12 +336,12 @@ parfor t=1:tests
     % Correction of the tampered messages
     if ~(concurrent_successive && concurrent_cliques > 1) % Normal case: just feed the messages (a matrix containing messages as vectors) and wait for convergence
         % Correct and wait for convergence!
-        inputm = gbnn_correct(network, inputm, ...
-                                  l, c, Chi, ...
-                                  iterations, ...
-                                  k, guiding_mask, gamma_memory, threshold, propagation_rule, filtering_rule, tampering_type, ...
-                                  residual_memory, concurrent_cliques, GWTA_first_iteration, GWTA_last_iteration, ...
-                                  silent);
+        inputm = gbnn_correct('network', network, 'partial_messages', inputm, ...
+                                  'l', l, 'c', c, 'Chi', Chi, ...
+                                  'iterations', iterations, ...
+                                  'k', k, 'guiding_mask', guiding_mask, 'gamma_memory', gamma_memory, 'threshold', threshold, 'propagation_rule', propagation_rule, 'filtering_rule', filtering_rule, 'tampering_type', tampering_type, ...
+                                  'residual_memory', residual_memory, 'concurrent_cliques', concurrent_cliques, 'GWTA_first_iteration', GWTA_first_iteration, 'GWTA_last_iteration', GWTA_last_iteration, ...
+                                  'silent', silent);
     % Concurrent_successive case: we won't feed the mixed messages at once but instead we will try to converge for one message at a time, and then at each step we append another concurrent message and try again to converge, etc.
     else
         inputm_full = inputm; % Backup the unmixed messages
@@ -361,12 +369,13 @@ parfor t=1:tests
             end
 
             % Correct and wait for convergence!
-            inputm = gbnn_correct(network, inputm, ...
-                                  l, c, Chi, ...
-                                  iterations, ...
-                                  k, gmask, gamma_memory, threshold, propagation_rule, filtering_rule, tampering_type, ...
-                                  residual_memory, cc, GWTA_first_iteration, GWTA_last_iteration, ...
-                                  silent);
+            inputm = gbnn_correct('network', network, 'partial_messages', inputm, ...
+                                  'l', l, 'c', c, 'Chi', Chi, ...
+                                  'iterations', iterations, ...
+                                  'k', k, 'guiding_mask', gmask, 'gamma_memory', gamma_memory, 'threshold', threshold, 'propagation_rule', propagation_rule, 'filtering_rule', filtering_rule, 'tampering_type', tampering_type, ...
+                                  'residual_memory', residual_memory, 'concurrent_cliques', cc, 'GWTA_first_iteration', GWTA_first_iteration, 'GWTA_last_iteration', GWTA_last_iteration, ...
+                                  'silent', silent);
+
         end
     end
 
@@ -395,26 +404,33 @@ end
 % Compute error rate
 error_rate = err / (tests * tampered_messages_per_test); % NOTE: if you use concurrent_cliques > 1, error_rate is not a good measure, because you artificially increase the probability of having a wrong message by concurrent_cliques times (since you're not testing one but concurrent_cliques messages at the same time), and there's no way to correct this biased estimator since we can't know which clique caused which bit flip (eg: concurrent_cliques = 3 and there are 3 wrong bits: are they caused by the three messages, or by only 1 and the other two are in fact corrects?). You should rather try error_distance in this case.
 % Compute density
-real_density = full(  (sum(sum(network)) - sum(diag(network))) / (Chi*(Chi-1) * l^2)  );
+real_density = full(  (nnz(network) - nnz(diag(network))) / (Chi*(Chi-1) * l^2)  );
 % Compute theoretical error rate
 theoretical_error_rate = -1;
-if enable_guiding % different error rate when guided mask is enabled (and it's lower than blind decoding)
-    theoretical_error_rate = 1 - (1 - real_density^(c-erasures))^(erasures*(l-1));
+if ~enable_guiding % different error rate when guided mask is enabled (and it's lower than blind decoding)
+    %theoretical_error_rate = 1 - (1 - real_density^(c-erasures))^(erasures*(l-1)+l*(Chi-c)); % = spurious_cliques_proba. spurious cliques = nonvalid cliques that we did not memorize and which rests inopportunely on the edges of valid cliques, which we learned and want to remember. In other words: what is the probability of emergence of wrong cliques that we did not learn but which emerges from combinations of cliques we learned? This is influenced heavily by the density (higher density = more errors). Also, error rate is only per one iteration, if you use more iterations to converge the real error may be considerably lower. % NOTE: this is the correct error rate from the 2014 Behrooz paper but works only if concurrent_cliques = 1.
+    theoretical_error_rate = 1 - binocdf(c-erasures-1, concurrent_cliques*(c-erasures), real_density)^(erasures*(l-1)+l*(Chi-c)); % generalization of the error rate given in the 2014 Behrooz paper, this works with any value of concurrent_cliques
 else
-    theoretical_error_rate = 1 - (1 - real_density^(c-erasures))^(erasures*(l-1)+l*(Chi-c)); % = spurious_cliques_proba. spurious cliques = nonvalid cliques that we did not memorize and which rests inopportunely on the edges of valid cliques, which we learned and want to remember. In other words: what is the probability of emergence of wrong cliques that we did not learn but which emerges from combinations of cliques we learned? This is influenced heavily by the density (higher density = more errors). Also, error rate is only per one iteration, if you use more iterations to converge the real error may be considerably lower. % TODO: does not compute the correct theoretical error rate if concurrent_cliques > 1.
+    %theoretical_error_rate = 1 - (1 - real_density^(c-erasures))^(erasures*(l-1)); % correct error rate from the 2014 Behrooz paper but works only if concurrent_cliques = 1.
+    theoretical_error_rate = 1 - binocdf(c-erasures-1, concurrent_cliques*(c-erasures), real_density)^(erasures*(l-1)); % still the same generalization, but in guided mode so we count less many potentially spurious fanals (since we can exclude all clusters that the mask is excluding)
 end
 if concurrent_cliques > 1
-    theoretical_error_rate = 1-(1-theoretical_error_rate)^concurrent_cliques;
+    %theoretical_error_rate = 1-(1-theoretical_error_rate)^concurrent_cliques; WRONG, this just "doubles" the risk of spurious fanal for each concurrent clique, but it does not account for all possible combinations, you have to use a cumulative binomial distribution to count that!
+    error_rate = 1 - (1 - error_rate)^(1/concurrent_cliques); % unbias approximation the real error rate by averaging, because statistically we exponentiate the error rate by the number of messages: error_rate^concurrent_cliques. Here we try to unbias that by finding the square root and thus to get error_rate per message, and not per concurrent_cliques messages as it is if biased. NOTE: remember that this is an approximation of the unbiased error rate, because we can't know which message caused the error, which would be the only way to get the exact error rate (so that we could know if, with for example concurrent_cliques = 2, if the final recovered mixed message is wrong because of 1 of the messages, or of both. Here we have no way to tell, so we suppose that in general, only one of the messages will fail but not both).
 end
+
 %theoretical_error_correction_proba = 1 - theoretical_error_rate
+
 % Compute euclidiant error distance
 error_distance = derr / (tests * concurrent_cliques * c * tampered_messages_per_test); % Euclidian distance: compute the esperance that a bit is wrongly flipped (has an incorrect value)
+
 
 % Finally, show the error rate and some stats
 if ~silent
     real_density
     error_rate
     theoretical_error_rate
+    %theoretical_error_rate_concurrent
     error_distance
     total_tampered_messages_tested = tests * tampered_messages_per_test
     aux.printcputime(cputime - totalperf, 'Total elapsed cpu time for test is %g seconds.\n'); aux.flushout();

@@ -1,10 +1,13 @@
-function [network, sparsemessages, real_density] = gbnn_learn(network, m, miterator, l, c, Chi, ...
-                                                                                                        silent, debug)
+function [network, sparsemessages, real_density] = gbnn_learn(varargin)
 %
-% [network, sparsemessages, density] = gbnn_learn(network, m, miterator, l, c, Chi, ...
-%                                                                                                        silent, debug)
+% [network, sparsemessages, density] = gbnn_learn(m, l, c, ...,
+%                                                                       Chi, network, miterator, ...
+%                                                                       silent, debug)
 %
 % Learns a network using one-shot learning (simply an adjacency matrix) using either a provided messages list, or either generate a random one. Returns both the network, sparse messages and real density.
+%
+% This function supports named arguments, use it like this:
+% gbnn_learn('m', 6, 'l', 4, 'c', 3)
 %
 %- m : number of messages or a matrix of messages (composed of numbers ranging from 1 to l and of length/columns c per row).
 %- miterator : messages iterator, allows for out-of-core computation, meaning that you can load more messages (greater m) at the expense of more CPU (because of the loop). Set miterator <= m, and the highest allowed by your memory without running out-of-memory. Set 0 to disable.
@@ -23,45 +26,46 @@ function [network, sparsemessages, real_density] = gbnn_learn(network, m, mitera
 % source('gbnn_aux.m'); % does not work with MatLab, only Octave...
 aux = gbnn_aux; % works with both MatLab and Octave
 
-% == Init variables
+% == Arguments processing
+% List of possible arguments and their default values
+arguments_defaults = struct( ...
+    % Mandatory
+    'm', 0, ...
+    'l', 0, ...
+    'c', 0, ...
+
+    % 2014 sparse enhancement
+    'Chi', 0, ...
+
+    % Optimization tweaks
+    'network', [], ... % Reuse a previously learned network, just append new messages (lower number of messages to learn this way)
+    'miterator', 0, ... % Learn messages in small batches to avoid memory overflow
+
+    % Debug stuffs
+    'silent', false, ...
+    'debug', false);
+
+% Process the arguments
+arguments = aux.getnargs(varargin, arguments_defaults, true);
+
+% Load variables into local namespace (called workspace in MatLab)
+aux.varspull(arguments);
+
+% == Sanity Checks
+if m == 0 || l == 0 || c == 0
+    error('Missing arguments: m, l and c are mandatory!');
+end
+
 Xlearn = [];
 if ismatrix(m) && ~isscalar(m) % If user provided a matrix of messages, reuse that
     Xlearn = m; % set this into a temporary variable to hold messages
     m = size(Xlearn, 1); % m should always define the number of messages (even if as argument it can specify a matrix of messages, this is syntax sugar)
 end
 
-if ~exist('Chi', 'var') || isempty(Chi)
-    Chi = c;
-end
-
 variable_length = false;
 if isvector(c) && ~isscalar(c)
     variable_length = true;
 end
-
-if ~exist('silent', 'var')
-    silent = false;
-end
-if ~exist('debug', 'var')
-    debug = false;
-end
-
-
-% == Show vars (just for the record)
-if ~silent
-    % -- Network variables
-    m
-    miterator
-    l
-    c
-    Chi % -- 2014 update
-
-    % -- Custom extensions
-    variable_length
-    debug
-end
-
-
 
 % == Init data structures and other vars (need to do that before the miterator) - DO NOT TOUCH
 sparse_cliques = true; % enable the creation of sparse cliques if Chi > c (cliques that don't use all available clusters but just c clusters per one message)
@@ -80,6 +84,22 @@ end
 
 if miterator > m
     miterator = 0;
+end
+
+% == Show vars (just for the record)
+if ~silent
+    % -- Network variables
+    m
+    miterator
+    l
+    c
+    Chi % -- 2014 update
+
+    network_provided = isempty(network)
+
+    % -- Custom extensions
+    variable_length
+    debug
 end
 
 % -- A few error checks

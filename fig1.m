@@ -33,13 +33,6 @@ propagation_rule = 'sum'; % TODO: not implemented yet, please always set 0 here
 filtering_rule = 'GWsTA';
 tampering_type = 'erase';
 
-residual_memory = 0;
-concurrent_cliques = 1;
-no_concurrent_overlap = false;
-concurrent_successive = false;
-GWTA_first_iteration = false;
-GWTA_last_iteration = false;
-
 silent = false; % If you don't want to see the progress output
 
 % == Launching the runs
@@ -52,20 +45,19 @@ for c=1:numel(C) % for each value of c
     for m=1:numel(M) % and for each value of m, we will do a run
         % Launch the run
         if m == 1
-            [network, sparsemessages, density] = gbnn_learn([], M(1, m)*Mcoeff, miterator(1,m), l, C(1, c), Chi, silent);
+            [network, sparsemessages, density] = gbnn_learn('m', M(1, m)*Mcoeff, 'miterator', miterator(1,m), 'l', l, 'c', C(1, c), 'Chi', Chi, 'silent', silent);
         else % Optimization trick: instead of relearning the whole network, we will reuse the previous network and just add more messages, this allows to decrease the learning time exponentially, rendering it constant (at each learning, the network will learn the same amount of messages: eg: iteration 1 will learn 1E5 messages, iteration 2 will learn 1E5 messages and reuse 1E5, which will totalize as 2E5, etc...)
-            [network, s2, density] = gbnn_learn(network, ...
-                                                        (M(1, m)-M(1,m-1))*Mcoeff, miterator(1,m), l, C(1, c), Chi, ...
-                                                        silent);
+            [network, s2, density] = gbnn_learn('network', network, ...
+                                                        'm', (M(1, m)-M(1,m-1))*Mcoeff, 'miterator', miterator(1,m), 'l', l, 'c', C(1, c), 'Chi', Chi, ...
+                                                        'silent', silent);
             sparsemessages = [sparsemessages ; s2]; % append new messages
         end
 
-        error_rate = gbnn_test(network, sparsemessages, ...
-                                                                                  l, C(1,c), Chi, ...
-                                                                                  erasures(1,c), iterations, tampered_messages_per_test, tests, ...
-                                                                                  enable_guiding, gamma_memory, threshold, propagation_rule, filtering_rule, tampering_type, ...
-                                                                                  residual_memory, concurrent_cliques, no_concurrent_overlap, concurrent_successive, GWTA_first_iteration, GWTA_last_iteration, ...
-                                                                                  silent);
+        error_rate = gbnn_test('network', network, 'sparsemessagestest', sparsemessages, ...
+                                                                                  'l', l, 'c', C(1,c), 'Chi', Chi, ...
+                                                                                  'erasures', erasures(1,c), 'iterations', iterations, 'tampered_messages_per_test', tampered_messages_per_test, 'tests', tests, ...
+                                                                                  'enable_guiding', enable_guiding, 'gamma_memory', gamma_memory, 'threshold', threshold, 'propagation_rule', propagation_rule, 'filtering_rule', filtering_rule, 'tampering_type', tampering_type, ...
+                                                                                  'silent', silent);
         
         % Store the results
         D(m,c) = density;
