@@ -48,16 +48,16 @@ E = zeros(numel(M), numel(filtering_rule)*numel(enable_guiding));
 TE = zeros(numel(M), numel(enable_guiding)); % theoretical error rate depends on: Chi, l, c, erasures, enable_guiding and of course the density (theoretical or real) and thus on any parameter that changes the network (thus as the number of messages m to learn)
 tperf = cputime(); % to show the total time elapsed later
 network = logical(sparse([]));
-sparsemessages = logical(sparse([]));
+thriftymessages = logical(sparse([]));
 for m=1:numel(M) % and for each value of m, we will do a run
     % Launch the run
     if m == 1
-        [network, sparsemessages, density] = gbnn_learn('m', M(1, 1)*Mcoeff, 'miterator', miterator(1,m), 'l', l, 'c', c, 'Chi', Chi, 'silent', silent);
+        [network, thriftymessages, density] = gbnn_learn('m', M(1, 1)*Mcoeff, 'miterator', miterator(1,m), 'l', l, 'c', c, 'Chi', Chi, 'silent', silent);
     else % Optimization trick: instead of relearning the whole network, we will reuse the previous network and just add more messages, this allows to decrease the learning time exponentially, rendering it constant (at each learning, the network will learn the same amount of messages: eg: iteration 1 will learn 1E5 messages, iteration 2 will learn 1E5 messages and reuse 1E5, which will totalize as 2E5, etc...)
         [network, s2, density] = gbnn_learn('network', network, ...
                                                     'm', (M(1, m)-M(1,m-1))*Mcoeff, 'miterator', miterator(1,m), 'l', l, 'c', c, 'Chi', Chi, ...
                                                     'silent', silent);
-        sparsemessages = [sparsemessages ; s2]; % append new messages
+        thriftymessages = [thriftymessages ; s2]; % append new messages
     end
 
     counter = 1;
@@ -69,7 +69,7 @@ for m=1:numel(M) % and for each value of m, we will do a run
             else
                 GWTA_first_iteration = false;
             end
-            [error_rate, theoretical_error_rate] = gbnn_test('network', network, 'sparsemessagestest', sparsemessages, ...
+            [error_rate, theoretical_error_rate] = gbnn_test('network', network, 'thriftymessagestest', thriftymessages, ...
                                                                                   'l', l, 'c', c, 'Chi', Chi, ...
                                                                                   'erasures', erasures, 'iterations', iterations, 'tampered_messages_per_test', tampered_messages_per_test, 'tests', tests, ...
                                                                                   'enable_guiding', enable_guiding(1,g), 'gamma_memory', gamma_memory, 'threshold', threshold, 'propagation_rule', propagation_rule, 'filtering_rule', fr, 'tampering_type', tampering_type, ...

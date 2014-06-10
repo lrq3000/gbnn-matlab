@@ -1,10 +1,10 @@
-function [network, sparsemessages, real_density] = gbnn_learn(varargin)
+function [network, thriftymessages, real_density, messages] = gbnn_learn(varargin)
 %
-% [network, sparsemessages, density] = gbnn_learn(m, l, c, ...,
+% [network, thriftymessages, density] = gbnn_learn(m, l, c, ...,
 %                                                                       Chi, network, miterator, ...
 %                                                                       silent, debug)
 %
-% Learns a network using one-shot learning (simply an adjacency matrix) using either a provided messages list, or either generate a random one. Returns both the network, sparse messages and real density.
+% Learns a network using one-shot learning (simply an adjacency matrix) using either a provided messages list, or either generate a random one. Returns both the network, thrifty messages and real density.
 %
 % This function supports named arguments, use it like this:
 % gbnn_learn('m', 6, 'l', 4, 'c', 3)
@@ -15,6 +15,7 @@ function [network, sparsemessages, real_density] = gbnn_learn(varargin)
 %- c : cliques order = number of nodes per clique = length of messages (eg: c = 3 means that each clique will at most have 3 nodes). If Chi <= c, Chi will be set equal to c, thus c will also define the number of clusters. NOTE: c can also be a vector [min-c max-c] to enable variable length messages.
 % NOTE: increasing c or decreasing miterator increase CPU usage and runtime ; increasing l or m increase memory usage.
 %- Chi : number of clusters, set Chi > c to enable sparse_cliques if you want c to define the length of messages and Chi the number of clusters (where Chi must be > c) to create sparse cliques (cliques that don't use all available clusters but just c clusters per one message)
+% Note: a sparse message is different from a thrifty message: a thrifty message is a message where values like 3 or 5 are replaced by thrifty codes like 00100 and 00001 (only one logical bit, all the others are sparse/zeros) and a sparse message where most clusters aren't used, like if c = 2 and Chi = 5 we will have sparse messages like 12000 or 00305. Combining a sparse message like 00305 + thrifty codes gives us: 00000 00000 00100 00000 00001 which is both thrifty and sparse (thrifty implies sparseness, but sparseness doesn't imply thriftiness. Here we have both!).
 %
 % == LEARNING ALGORITHM
 % - Create random messages (matrix where each line is a messages composed of numbers between 1 and l, thus l is the range of values like the intensity of a pixel in an image)
@@ -74,7 +75,7 @@ if Chi <= c
     sparse_cliques = false;
 end
 n = Chi * l; % total number of nodes ( = length of a message = total number of characters slots per message)
-sparsemessages = logical(sparse(m,n)); % Init and converting to a binary sparse matrix
+thriftymessages = logical(sparse(m,n)); % Init and converting to a binary sparse matrix
 networkprovided = false;
 if ~exist('network', 'var') || isempty(network) % reuse network if provided
     network = logical(sparse(n,n)); % init and converting to a binary sparse matrix
@@ -133,7 +134,8 @@ for M = 1:mloop
 
     if ~silent; fprintf('== Generation of messages batch %i (%i messages)\n', M, mgen); aux.flushout(); end;
     % == Generate input messages
-    % Generate m messages (lines) of length c (columns) with a value between 1 and l
+    % Generate m messages (lines) of length c or Chi (= number of columns) with a value between 1 and l
+    % If Chi > c, then sparse_cliques will be enabled which will convert the messages into sparse messages (with 0 to fill the remaining length for each message).
     len = c;
     if variable_length; len = max(c); end;
     if ~isempty(Xlearn) % If user provided a matrix of messages, reuse that instead of generating a random one
@@ -142,16 +144,18 @@ for M = 1:mloop
         %messages = unidrnd(l,mgen,len); % Generating messages
         messages = randi([1 l], mgen, len); % Generating messages. Use randi instead of unidrnd, the result is the same but does not necessitate the Statistics toolbox on MatLab (Octave natively supports it).
     end
+    % TODO: variable_length between cmin and cmax, here we always remove 1 character from all messages
     if variable_length
         messages(messages > 0) = messages(messages > 0) - 1;
     end
+    % If Chi > c, convert the messages into sparse messages by inserting 0s at random places in order to fill the length remainder (Chi-c zeros will be inserted in each message).
     if sparse_cliques
-        messages = [messages, sparse(mgen, Chi-c)];
-        messages = aux.shake(messages, 2); % this is an external FEX file, please download it if you don't have it! This just randomly shuffles the items but without shuffling the row order (so it's a per-row shuffler of columns).
+        messages = sparse([messages, sparse(mgen, Chi-c)]); % Append the 0s at the end of each message
+        messages = aux.shake(messages, 2); % Then shuffle the 0s to place them randomly inside the message. This is an external FEX file, it is included in gbnn_aux.m. This just randomly shuffles the items but without shuffling the row order (so it's a per-row shuffler of columns).
     end
 
 
-    % == Convert into sparse messages
+    % == Convert into thrifty messages
     % We convert values between 1 and l into sparse thrifty messages (constant weight code) of length l.
     % Eg: message(1,:) = [4 3 2]; sparsemessage(1,:) = [0 0 0 1 0 0 1 0 0 1 0 0]; % notice that we set 1 at the position corresponding to the value of the character at this position, and we have created submessages (thrifty codes) for each character of the message, thus if each message is of length c with each character having a range of value of l, each sparsemessage will be of length c * l)
     if ~silent;
@@ -162,42 +166,45 @@ for M = 1:mloop
     % -- Loop version
 %   for i=1:mgen % for each message
 %       for j=1:c % for each character
-%           sparsemessages(i+M*miterator,(j-1)*l+messages(i,j)) = 1; % expand the character into a thrifty code (set 1 where the position corresponds to the value of the character, 0 everywhere else, eg: [4] -> [0 0 0 1])
+%           thriftymessages(i+M*miterator,(j-1)*l+messages(i,j)) = 1; % expand the character into a thrifty code (set 1 where the position corresponds to the value of the character, 0 everywhere else, eg: [4] -> [0 0 0 1])
 %       end
 %   end
 
     % -- Vectorized version 1
-    % The idea is to precompute two maps (the tiled messages map and indexes of the future  sparsemessages matrix) and superimpose both at once to get the final sparsemessages matrix instead of doing that in a loop.
-    % The bottleneck is memory: we need to precompute two _full_ matrixes the size of the final sparsemessages matrix (there's no 0 in these two matrixes), thus you will get a memory explosion size(sparsemessages)^2 !
+    % The idea is to precompute two maps (the tiled messages map and indexes of the future  thriftymessages matrix) and superimpose both at once to get the final thriftymessages matrix instead of doing that in a loop.
+    % The bottleneck is memory: we need to precompute two _full_ matrixes the size of the final thriftymessages matrix (there's no 0 in these two matrixes), thus you will get a memory explosion size(thriftymessages)^2 !
 %   mes = kron(messages, ones(1, l)); %repmat(messages(:), 1, l)'(:)'; % expand/repeat all characters
 %   idxs = repmat(1:l, m, c); % create indexes map
-%   sparsemessages = (mes == idxs); % superimpose the characters repetition and the indexes map: where it matches then it's OK we have a link
+%   thriftymessages = (mes == idxs); % superimpose the characters repetition and the indexes map: where it matches then it's OK we have a link
     % NOTE: does not work with miterator!
 
     % -- Vectorized version 2
     % Same as vectorized version 1 but we spare one matrix generation by generating an index map vector (instead of a matrix) and use bsxfun to repeat it
 %   mes = kron(messages, ones(1, l)); %repmat(messages(:), 1, l)'(:)'; % expand/repeat all characters
 %   idxs = repmat(1:l, 1, c); % create indexes map (only a vector here instead of a matrix, we will broadcast operations using bsxfun)
-%   sparsemessages = bsxfun(@eq, mes, idxs); % superimpose the characters repetition and the indexes map: where it matches then it's OK we have a link
+%   thriftymessages = bsxfun(@eq, mes, idxs); % superimpose the characters repetition and the indexes map: where it matches then it's OK we have a link
     % NOTE: does not work with miterator!
 
     % -- Vectorized version 3 - Fastest! (about one-tenth of the time taken by the semi-vectorized version, plus it stays linear! and it should also be memory savvy)
     % Idea here is same as previous vectorized versions: we want to avoid generating the two maps as matrices to spare memory.
     % How we do this here is by smartly generate a vector of the indexes of each element which should be set to 1. This way we have only one vector, as long as the number of element of the messages matrix.
-    idxs_map = 0:(Chi-1); % character position index map in the sparsemessages matrix (eg: first character is in the first c numbers, second character in the c numbers after the first c numbers, etc.)
-    idxs = bsxfun(@plus, messages, l*idxs_map); % use messages matrix directly to compute the indexes (this will compute indexes independently of the row)
-    offsets = 0:(n):(mgen*n);
-    idxs = bsxfun(@plus, offsets(1:end-1)', idxs); % account for the row number now by generating a vector of index shift per row (eg: [0 lc 2lc 3lc 4lc ...]')
-    idxs = idxs + ((M-1)*miterator)*n; % offset all indexes to the current miterator position (by just skipping previous messages rows)
-    if sparse_cliques; idxs = idxs(messages > 0); end; % if sparse cliques are enabled, remove all indices of empty, zero, entries (because the indices don't care what the value is, indices of zeros entries will also be returned and scaled, but we don't wont those entries so we filter them at the end)
-    [I, J] = ind2sub([n m], idxs); % convert indexes to two subscripts vector, necessary to optimize sparse set (by using: sparsematrix = sparsematrix + sparse(...) instead of sparsematrix(idxs) = ...)
-    sparsemessages = or(sparsemessages, sparse(I, J, 1, n, m)'); % store the messages (note that the indexes we now have are columns-oriented but MatLab expects row-oriented indexes, thus we just transpose the matrix)
+%    idxs_map = 0:(Chi-1); % character position index map in the thriftymessages matrix (eg: first character is in the first c numbers, second character in the c numbers after the first c numbers, etc.)
+%    idxs = bsxfun(@plus, messages, l*idxs_map); % use messages matrix directly to compute the indexes (this will compute indexes independently of the row)
+%    offsets = 0:(n):(mgen*n);
+%    idxs = bsxfun(@plus, offsets(1:end-1)', idxs); % account for the row number now by generating a vector of index shift per row (eg: [0 lc 2lc 3lc 4lc ...]')
+%    idxs = idxs + ((M-1)*miterator)*n; % offset all indexes to the current miterator position (by just skipping previous messages rows)
+%    if sparse_cliques; idxs = idxs(messages > 0); end; % if sparse cliques are enabled, remove all indices of empty, zero, entries (because the indices don't care what the value is, indices of zeros entries will also be returned and scaled, but we don't wont those entries so we filter them at the end)
+%    [I, J] = ind2sub([n m], idxs); % convert indexes to two subscripts vector, necessary to optimize sparse set (by using: sparsematrix = sparsematrix + sparse(...) instead of sparsematrix(idxs) = ...)
+%    thriftymessages = or(thriftymessages, sparse(I, J, 1, n, m)'); % store the messages (note that the indexes we now have are columns-oriented but MatLab expects row-oriented indexes, thus we just transpose the matrix)
+
+    % -- Vectorized version 3 moved to a function
+    thriftymessages = or(thriftymessages, gbnn_messages2thrifty(messages, l, miterator, M));
 
     % -- Semi-vectorized version (consume less memory than the vectorized versions, at the expense of a bit more CPU usage linear in the number c (about the double time compared to the fastest vectorized version 3)
     % Here we vectorized only the messages loop, but we still have a complexity relative to c, but this way is quite memory savvy
 %   currentmessage = max((M-1)*miterator + 1, 1);
 %   for j=1:c % for each character
-%       sparsemessages(sub2ind(size(sparsemessages), (currentmessage:(currentmessage-1)+mgen)', (j-1)*l + messages(:, j))) = 1; % expand all characters at this position of the message (first, then second, etc.) into a thrifty code (set 1 where the position corresponds to the value of the character, 0 everywhere else, eg: [4] -> [0 0 0 1])
+%       thriftymessages(sub2ind(size(thriftymessages), (currentmessage:(currentmessage-1)+mgen)', (j-1)*l + messages(:, j))) = 1; % expand all characters at this position of the message (first, then second, etc.) into a thrifty code (set 1 where the position corresponds to the value of the character, 0 everywhere else, eg: [4] -> [0 0 0 1])
 %   end
 
     if ~silent; aux.printtime(toc()); end; % For perfs
@@ -308,25 +315,25 @@ for M = 1:mloop
 %   network = network + sparse(rows, cols, 1, n, n);
 
     % -- Vectorized version - fastest, and so elegant!
-    % We simply use a matrix product, this is greatly faster than using sparsemessages as indices
+    % We simply use a matrix product, this is greatly faster than using thriftymessages as indices
     % We also store as a logical sparse matrix to spare a lot of memory, else the matrix product will be slower than the other methods! Setting this to logical type is not necessary but it halves the memory footprint.
     % WARNING: works only with undirected clique network, but not with directed tournament-based network (Xiaoran Jiang Thesis 2013)
     if M == 1 && ~networkprovided % case when network is empty, this is faster
         if aux.isOctave()
-            network = logical(sparsemessages' * sparsemessages); % Credits go to Christophe for the tip!
+            network = logical(thriftymessages' * thriftymessages); % Credits go to Christophe for the tip!
         else % MatLab can't do matrix multiplication on logical (binary) matrices... must convert them to double beforehand
-            dsparsemessages = double(sparsemessages);
-            network = logical(dsparsemessages' * dsparsemessages);
+            dthriftymessages = double(thriftymessages);
+            network = logical(dthriftymessages' * dthriftymessages);
         end
     else % case when we iteratively append new messages (either because of miterator or because user provided a network to reuse), we update the previous network
         if aux.isOctave()
-            network = or(network, logical(sparsemessages' * sparsemessages)); % same as min(network + sparsemessages'*sparsemessages, 1)
+            network = or(network, logical(thriftymessages' * thriftymessages)); % same as min(network + thriftymessages'*thriftymessages, 1)
         else
-            dsparsemessages = double(sparsemessages);
-            network = or(network, logical(dsparsemessages' * dsparsemessages)); % same as min(network + sparsemessages'*sparsemessages, 1)
+            dthriftymessages = double(thriftymessages);
+            network = or(network, logical(dthriftymessages' * dthriftymessages)); % same as min(network + thriftymessages'*thriftymessages, 1)
         end
     end
-    % Vectorized version 2 draft: use directly the indices without matrix multiplication to avoid useless computations because of symmetry: vectorized_indices = reshape(mod(find(sparsemessages'), n), c, m)'
+    % Vectorized version 2 draft: use directly the indices without matrix multiplication to avoid useless computations because of symmetry: vectorized_indices = reshape(mod(find(thriftymessages'), n), c, m)'
     % TODO: use the property of our data to speedup and spare memory: instead of matrix product, do a custom matrix logical product (where you do the product of a line and a column but then instead of the summation you do a OR, so that you end up with a boolean instead of an integer).
     % TODO: use symmetry trick by computing half of the matrix product? (row(i:c) * column(i:c) with i synchronized in both, thus that column cannot be of index lower than row).
     % TODO: reshuffle the adjacency matrix to get a band matrix? http://www.ncbi.nlm.nih.gov/pmc/articles/PMC3148830/
@@ -337,7 +344,7 @@ for M = 1:mloop
 
     if ~silent; aux.printtime(toc()); end; % just to show performance, learning the network (adjacency matrix) _was_ the bottleneck
 
-    if miterator > 0 % for debug cases, it may be nice to keep messages to compare with sparsemessages and network
+    if miterator > 0 % for debug cases, it may be nice to keep messages to compare with thriftymessages and network
         clear messages; % clear up some memory
     end
 end
@@ -345,11 +352,11 @@ end
 %network = logical(network); % = min(network,1) threshold because values can only be 1 at max (but if there were duplicate messages, some entries can have a higher value than 1)
 %network = or(network, network'); % not necessary when using the vectorized version
 % Note that  or(network, network') = min(network + network', 1) but the latter is a bit slower on big datasets
-sparsemessages = logical(sparsemessages); % NOTE: prefer logical(x) rather than min(x, 1) because: logical is faster, and also the ending data will take less storage space (about half)
+thriftymessages = logical(thriftymessages); % NOTE: prefer logical(x) rather than min(x, 1) because: logical is faster, and also the ending data will take less storage space (about half)
 
 % Clean up memory, else MatLab/Octave keep everything in memory
 if ~debug
-    clear messages;
+    %clear messages;
 end
 
 if ~silent; fprintf('-- Finished learning!\n'); aux.flushout(); end;

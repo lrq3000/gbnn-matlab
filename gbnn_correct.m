@@ -7,10 +7,10 @@ function partial_messages = gbnn_correct(varargin)
 %                                                                                  residual_memory, concurrent_cliques, GWTA_first_iteration, GWTA_last_iteration, ...
 %                                                                                  silent)
 %
-% Feed a network and partially tampered messages, and will let the network try to 'remember' a message that corresponds to the given input. The function will return the recovered message(s).
+% Feed a network and partially tampered messages, and will let the network try to 'remember' a message that corresponds to the given input. The function will return the recovered message(s) (but no error rate, see gbnn_test.m for this purpose).
 %
 % This function supports named arguments, use it like this:
-% gbnn_correct('network', mynetwork, 'partial_messages', sparsemessagestest, 'l', 4, 'c', 3)
+% gbnn_correct('network', mynetwork, 'partial_messages', thriftymessagestest, 'l', 4, 'c', 3)
 % 
 
 
@@ -85,6 +85,12 @@ if Chi <= c
     sparse_cliques = false;
 end
 n = Chi * l; % total number of nodes ( = length of a message = total number of characters slots per message)
+
+% Smart messages management: if user provide a non thrifty messages matrix, we convert it on-the-fly (a lot easier for users to manage in their applications since they can use the same messages to learn and to test the network)
+if ~islogical(partial_messages) && any(partial_messages(:) > 1)
+    partial_messages = gbnn_messages2thrifty(partial_messages, l);
+end
+
 mpartial = size(partial_messages, 2); % mpartial = number of messages to reconstruct. This is also equal to tampered_messages_per_test in gbnn_test.m
 
 % -- A few error checks

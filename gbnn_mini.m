@@ -24,7 +24,7 @@ guiding_mask = false % guide the decoding by focusing only on the clusters where
 threshold = 0 % activation threshold. Nodes having a score below this threshold will be deactivated (ie: the nodes won't propaguce a spike). Unlike the article, this here is just a scalar (a global threshold for all nodes), rather than a vector containing per-cluster thresholds.
 
 n = l * c; % total number of nodes
-sparsemessages = logical(sparse(m,n)); % Init and converting to a binary sparse matrix
+thriftymessages = logical(sparse(m,n)); % Init and converting to a binary sparse matrix
 network = logical(sparse(n,n)); % init and converting to a binary sparse matrix
 
 if erasures > c
@@ -37,22 +37,22 @@ tic(); % for perfs
 % == Generate input messages
 messages = randi([1 l], m, c); % Generate m messages (lines) of length c (columns) with a value between 1 and l. Use randi instead of unidrnd, the result is the same but does not necessitate the Statistics toolbox on MatLab (Octave natively supports it).
 
-% == Convert into sparse messages
+% == Convert into thrifty messages
 % We convert values between 1 and l into sparse thrifty messages (constant weight code) of length l.
-idxs_map = 0:(c-1); % character position index map in the sparsemessages matrix (eg: first character is in the first c numbers, second character in the c numbers after the first c numbers, etc.)
+idxs_map = 0:(c-1); % character position index map in the thriftymessages matrix (eg: first character is in the first c numbers, second character in the c numbers after the first c numbers, etc.)
 idxs = bsxfun(@plus, messages, l*idxs_map); % use messages matrix directly to compute the indexes (this will compute indexes independently of the row)
 offsets = 0:(l*c):(m*l*c);
 idxs = bsxfun(@plus, offsets(1:end-1)', idxs); % account for the row number now by generating a vector of index shift per row (eg: [0 lc 2lc 3lc 4lc ...]')
 [I, J] = ind2sub([n m], idxs); % convert indexes to two subscripts vector, necessary to optimize sparse set (by using: sparsematrix = sparsematrix + sparse(...) instead of sparsematrix(idxs) = ...)
-sparsemessages = sparse(I, J, 1, n, m)'; % store the messages (note that the indexes we now have are columns-oriented but MatLab expects row-oriented indexes, thus we just transpose the matrix)
+thriftymessages = sparse(I, J, 1, n, m)'; % store the messages (note that the indexes we now have are columns-oriented but MatLab expects row-oriented indexes, thus we just transpose the matrix)
 
 % == Create network = learn the network
 % We simply link all characters inside each message between them as a clique, which will result in an adjacency matrix
 if aux.isOctave()
-    network = logical(sparsemessages' * sparsemessages); % same as min(network + sparsemessages'*sparsemessages, 1), but logical allows to use less memory (since values are binary!)
+    network = logical(thriftymessages' * thriftymessages); % same as min(network + thriftymessages'*thriftymessages, 1), but logical allows to use less memory (since values are binary!)
 else % MatLab cannot do matrix multiplication on logical matrices...
-    dsparsemessages = double(sparsemessages);
-    network = logical(dsparsemessages' * dsparsemessages);
+    dthriftymessages = double(thriftymessages);
+    network = logical(dthriftymessages' * dthriftymessages);
 end
 
 % == Compute density and some practical and theoretical stats
@@ -72,7 +72,7 @@ parfor t=1:tests
     rndidx = randi([1 m], 1, tampered_messages_per_test);
 
     % Fetch the random messages from the generated indices
-    init = transpose(sparsemessages(rndidx,:));
+    init = transpose(thriftymessages(rndidx,:));
     input = init; % backup the original message before tampering, we will use the original to check if the network correctly corrected the erasure
 
     % 2- randomly tamper them (erasure or noisy bit-flipping of a few characters)

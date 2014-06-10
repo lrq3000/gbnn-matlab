@@ -7,9 +7,10 @@
 %
 % ## Software architecture ##
 % The software is composed of the following files:
-%- gbnn_learn.m allows to learn a network and optionally generate a random set of messages (or you can provide your own). This will return the network and optionally the sparse messages generated.
+%- gbnn_learn.m allows to learn a network and optionally generate a random set of messages (or you can provide your own). This will return the network and optionally the thrifty messages generated.
 %- gbnn_test.m allows to test the correction capability of a previously learned network on randomly tampered messages (either by erasure or by noise). This will return an error rate.
 %- gbnn_predict.m is used by gbnn_test.m and allows to correct a set of tampered messages (but the error rate won't be computed since this function will just try to recover the tamperings).
+%- gbnn_messages2thrifty.m is used internally so that you can use full messages (eg: 1203) and internally it will be automatically converted into sparse thrifty messages (eg: 1000 0100 0000 0010).
 %- gbnn_aux.m is a set of auxiliary functions.
 %- gbnn_mini.m is a standalone, minified version of the script, with minimum comments and lines of codes (and features are reduced too). This file is intended as a quickstart to quickly grasp the main concept. You can first study this file, and when you feel confident, you can try analyzing the other gbnn files.
 %- main.m is this file, an easy entry to use the gbnn algorithm.
@@ -18,8 +19,8 @@
 %
 % ## Variables list ##
 % -- Data variables
-%- Xlearn : messages matrix to learn from. Set [] to use a randomly generated set of messages. Format: m*c (1 message per line and message length of c), and values should be in the range 1:l. This matrix will automatically be converted to a sparse messages matrix.
-%- Xtest : sparse messages matrix to decode from (the messages should be complete without erasures, these will be made by the algorithm, so that we can evaluate performances test!). Set [] to use Xlearn. Format: attention this is a sparse matrix, it's not the same format as Xlearn, you have to convert every character into a thrifty code.
+%- Xlearn : messages matrix to learn from. Set [] to use a randomly generated set of messages. Format: m*c (1 message per line and message length of c), and values should be in the range 1:l. This matrix will automatically be converted to a thrifty messages matrix.
+%- Xtest : thrifty messages matrix to decode from (the messages should be complete without erasures, these will be made by the algorithm, so that we can evaluate performances test!). Set [] to use Xlearn. Format: attention this is a sparse matrix, it's not the same format as Xlearn, you have to convert every character into a thrifty code.
 %
 % -- Network/Learn variables
 %- m : number of messages or a matrix of messages (composed of numbers ranging from 1 to l and of length/columns c per row).
@@ -31,7 +32,7 @@
 %
 % -- Test variables
 %- network : specify the network to use that you previously learned.
-%- sparsemessagestest : matrix of sparse messages (only composed of 0's and 1's) that will be used as a test set.
+%- thriftymessagestest : matrix of thrifty messages (only composed of 0's and 1's) that will be used as a test set.
 %- erasures : number of characters that will be erased (or noised if tampering_type == "noise") from a message for test. NOTE: must be lower than c!
 %- iterations : number of iterations to let the network converge
 %- tampered_messages_per_test : number of tampered messages to generate and try per test (for maximum speed, set this to the maximum allowed by your memory and decrease the number tests)
@@ -82,7 +83,7 @@
 %
 % - I have some troubles understanding the code
 %   The code has been commented as much as possible, but since it's as much vectorized as was possible by the authors, it's understandably a bit cryptic in some parts. If you have some troubles understanding what some parts of the code do, you can try to place the "keyboard" command just before the line that upsets you, then run the code. This will stop the code at runtime right where you placed the keyboard command, and let you print the various variables so that you can get a clearer idea of what's going on. Also feel free to decompose some complex inlined commands, by typing them yourself step by step to monitor what's going on exactly and get a better grasp of the data structures manipulations involved.
-%   Also you should try with a small network and test set (low values between 2 and 6 for m, l, c and tampered_messages_per_test), and try to understand first how the sparsemessages and network are built since they are the core of this algorithm.
+%   Also you should try with a small network and test set (low values between 2 and 6 for m, l, c and tampered_messages_per_test), and try to understand first how the thriftymessages and network are built since they are the core of this algorithm.
 %   Also you can place a keyboard command at the end of the script, call one run and then use full(reshape([init ; out ; propag], n, [])) to show the evolution of the decoding process.
 %   Finally, if you use keyboard, don't forget to "clear all" everytime before doing a run, else MatLab/Octave may cache the function and may not see your latest changes.
 %
@@ -98,7 +99,6 @@
 % - variable_length complete implementation and tests (when c is a vector of two values)
 % - propagation_rule 1 and 2 (normalized and Sum of Max)
 % - convergence stop criterions: NoChange (no change in out messages between two iterations, just like Perceptron) and Clique (all nodes have the same value, won't work with concurrent_cliques)
-% - modularize the messages -> sparsemessages encoder, so that user can just supply a matrix of messages into gbnn_test or gbnn_correct (can then detect max(max(messages)) and check if it's greater than 1 to see whether it's a sparsemessages or messages).
 %
 
 % Clear things up
@@ -138,8 +138,8 @@ silent = false; % If you don't want to see the progress output
 
 % == Launching the runs
 tperf = cputime();
-[network, sparsemessages, density] = gbnn_learn('m', m, 'miterator', miterator, 'l', l, 'c', c, 'Chi', Chi, 'silent', silent);
-error_rate = gbnn_test('network', network, 'sparsemessagestest', sparsemessages, ...
+[network, thriftymessages, density] = gbnn_learn('m', m, 'miterator', miterator, 'l', l, 'c', c, 'Chi', Chi, 'silent', silent);
+error_rate = gbnn_test('network', network, 'thriftymessagestest', thriftymessages, ...
                                                                                   'l', l, 'c', c, 'Chi', Chi, ...
                                                                                   'erasures', erasures, 'iterations', iterations, 'tampered_messages_per_test', tampered_messages_per_test, 'tests', tests, ...
                                                                                   'enable_guiding', enable_guiding, 'gamma_memory', gamma_memory, 'threshold', threshold, 'propagation_rule', propagation_rule, 'filtering_rule', filtering_rule, 'tampering_type', tampering_type, ...

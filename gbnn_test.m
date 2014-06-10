@@ -1,20 +1,20 @@
 function [error_rate, theoretical_error_rate, error_distance] = gbnn_test(varargin)
 %
-% [error_rate, theoretical_error_rate, error_distance] = gbnn_test(network, sparsemessagestest, ...
+% [error_rate, theoretical_error_rate, error_distance] = gbnn_test(network, thriftymessagestest, ...
 %                                                                                  l, c, Chi, ...
 %                                                                                  erasures, iterations, tampered_messages_per_test, tests, ...
 %                                                                                  enable_guiding, gamma_memory, threshold, propagation_rule, filtering_rule, tampering_type, ...
 %                                                                                  residual_memory, concurrent_cliques, no_concurrent_overlap, concurrent_successive, GWTA_first_iteration, GWTA_last_iteration, ...
 %                                                                                  silent)
 %
-% Feed a network and a matrix of sparse messages from which to pick samples for test, and this function will automatically sample some messages, tamper them, and then try to correct them. Finally, the error rate over all the processed messages will be returned.
+% Feed a network and a matrix of thrifty messages from which to pick samples for test, and this function will automatically sample some messages, tamper them, and then try to correct them. Finally, the error rate over all the processed messages will be returned.
 %
 % This function supports named arguments, use it like this:
-% gbnn_test('network', mynetwork, 'sparsemessagestest', sparsemessagestest, 'l', 4, 'c', 3)
+% gbnn_test('network', mynetwork, 'thriftymessagestest', thriftymessagestest, 'l', 4, 'c', 3)
 %
 % -- Test variables
 %- network : specify the network to use that you previously learned.
-%- sparsemessagestest : matrix of sparse messages (only composed of 0's and 1's) that will be used as a test set.
+%- thriftymessagestest : matrix of messages that will be used as a test set. NOTE: you can either provide a thrifty messages matrix (only composed of 0's and 1's, eg: 001010) or a full messages matrix (eg: 23040), so that you can use the same format of messages matrix both in gbnn_learn.m and gbnn_test.m
 %- erasures : number of characters that will be erased (or noised if tampering_type == "noise") from a message for test. NOTE: must be lower than c!
 %- iterations : number of iterations to let the network converge
 %- tampered_messages_per_test : number of tampered messages to generate and try per test (for maximum speed, set this to the maximum allowed by your memory and decrease the number tests)
@@ -48,7 +48,7 @@ aux = gbnn_aux; % works with both MatLab and Octave
 arguments_defaults = struct( ...
     % Mandatory
     'network', [], ...
-    'sparsemessagestest', [], ...
+    'thriftymessagestest', [], ...
     'l', 0, ...
     'c', 0, ...
 
@@ -81,14 +81,14 @@ arguments_defaults = struct( ...
     'silent', false);
 
 % Process the arguments
-arguments = aux.getnargs(varargin, arguments_defaults, true);
+arguments = aux.getnargs(varargin, arguments_defaults);%, true);
 
 % Load variables into local namespace (called workspace in MatLab)
 aux.varspull(arguments);
 
 % == Sanity Checks
-if isempty(network) || isempty(sparsemessagestest) || l == 0 || c == 0
-    error('Missing arguments: network, sparsemessagestest, l and c are mandatory!');
+if isempty(network) || isempty(thriftymessagestest) || l == 0 || c == 0
+    error('Missing arguments: network, thriftymessagestest, l and c are mandatory!');
 end
 
 variable_length = false;
@@ -155,7 +155,13 @@ if strcmpi(filtering_rule, 'kWTA') || strcmpi(filtering_rule, 'kLKO') || strcmpi
     k = concurrent_cliques;
 end
 
-mtest = size(sparsemessagestest, 1);
+% Smart messages management: if user provide a non thrifty messages matrix, we convert it on-the-fly (a lot easier for users to manage in their applications since they can use the same messages to learn and to test the network)
+if ~islogical(thriftymessagestest) && any(thriftymessagestest(:) > 1)
+    thriftymessagestest = gbnn_messages2thrifty(thriftymessagestest, l);
+end
+
+% Get the count of test messages
+mtest = size(thriftymessagestest, 1);
 
 % -- A few error checks
 if erasures > c
@@ -164,8 +170,8 @@ end
 if numel(c) ~= 1 && numel(c) ~= 2
     error('c contains too many values! numel(c) should be equal to 1 or 2.');
 end
-if n ~= size(sparsemessagestest, 2)
-    error('Provided arguments Chi and L do not match with the size of sparsemessagestest.');
+if n ~= size(thriftymessagestest, 2)
+    error('Provided arguments Chi and L do not match with the size of thriftymessagestest.');
 end
 
 
@@ -174,7 +180,7 @@ if ~silent; totalperf = cputime(); end; % for total time perfs
 % #### Test phase
 % == Run the test (error correction) and compute error rate (in reconstruction of original message without erasures)
 if ~silent; fprintf('#### Testing phase (error correction of tampered messages with %i erasures)\n', erasures); aux.flushout(); end;
-%sparsemessagestest = sparsemessages; % by default, use to test the same set as for learning
+%thriftymessagestest = thriftymessages; % by default, use to test the same set as for learning
 err = 0; % error score
 derr = 0; % euclidian error distance
 parfor t=1:tests
@@ -205,7 +211,7 @@ parfor t=1:tests
         rndidx = randi([1 mtest], mconcat, mtogen); % mtest is the total number of messages in the test set (available to be picked up), mconcat is the number of concurrent messages that we will squash together, tampered_messages_per_test is the number of messages we will try to correct per test (number of messages to test per batch).
 
         % Fetch the random messages from the generated indices
-        inputm = sparsemessagestest(rndidx,:)'; % just fetch the messages and transpose them so that we have one sparsemessage per column (we don't generate them this way even if it's possible because of optimization: any, or, and sum are more efficient column-wise than row-wise, as any other MatLab/Octave function).
+        inputm = thriftymessagestest(rndidx,:)'; % just fetch the messages and transpose them so that we have one sparsemessage per column (we don't generate them this way even if it's possible because of optimization: any, or, and sum are more efficient column-wise than row-wise, as any other MatLab/Octave function).
         % Add or replace messages?
         if ~no_concurrent_overlap || isempty(overlap_idxs) % No overlap, just save the messages
             init = inputm; % backup the original message before tampering, we will use the original to check if the network correctly corrected the erasure(s)
