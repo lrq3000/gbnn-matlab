@@ -81,7 +81,7 @@ arguments_defaults = struct( ...
     'silent', false);
 
 % Process the arguments
-arguments = aux.getnargs(varargin, arguments_defaults);%, true);
+arguments = aux.getnargs(varargin, arguments_defaults, true);
 
 % Load variables into local namespace (called workspace in MatLab)
 aux.varspull(arguments);

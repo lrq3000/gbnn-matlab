@@ -1,4 +1,5 @@
 function thriftymessages = gbnn_messages2thrifty(messages, l, miterator, M)
+% thriftymessages = gbnn_messages2thrifty(messages, l)
 % Converts a messages matrix into a sparse thrifty messages matrix.
 % Messages matrix should be of size [m, Chi] (m lines of messages of length Chi each).
 

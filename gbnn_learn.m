@@ -1,4 +1,4 @@
-function [cnetwork, thriftymessages, real_density, messages] = gbnn_learn(varargin)
+function [cnetwork, thriftymessages, real_density] = gbnn_learn(varargin)
 %
 % [cnetwork, thriftymessages, density] = gbnn_learn(m, l, c, ...,
 %                                                                       Chi, cnetwork, miterator, ...
