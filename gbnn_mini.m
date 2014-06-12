@@ -25,7 +25,7 @@ threshold = 0 % activation threshold. Nodes having a score below this threshold 
 
 n = l * c; % total number of nodes
 thriftymessages = logical(sparse(m,n)); % Init and converting to a binary sparse matrix
-network = logical(sparse(n,n)); % init and converting to a binary sparse matrix
+cnetwork = logical(sparse(n,n)); % init and converting to a binary sparse matrix
 
 if erasures > c
     error('Erasures > c which is not possible');
@@ -49,14 +49,14 @@ thriftymessages = sparse(I, J, 1, n, m)'; % store the messages (note that the in
 % == Create network = learn the network
 % We simply link all characters inside each message between them as a clique, which will result in an adjacency matrix
 if aux.isOctave()
-    network = logical(thriftymessages' * thriftymessages); % same as min(network + thriftymessages'*thriftymessages, 1), but logical allows to use less memory (since values are binary!)
+    cnetwork = logical(thriftymessages' * thriftymessages); % same as min(cnetwork + thriftymessages'*thriftymessages, 1), but logical allows to use less memory (since values are binary!)
 else % MatLab cannot do matrix multiplication on logical matrices...
     dthriftymessages = double(thriftymessages);
-    network = logical(dthriftymessages' * dthriftymessages);
+    cnetwork = logical(dthriftymessages' * dthriftymessages);
 end
 
 % == Compute density and some practical and theoretical stats
-density = full( (sum(sum(network)) - sum(diag(network))) / (c*(c-1) * l^2) ) % density = (number_of_links - loops) / max_number_of_links; where max_number_of_links = (l*l*c*(c-1))
+density = full( (sum(sum(cnetwork)) - sum(diag(cnetwork))) / (c*(c-1) * l^2) ) % density = (number_of_links - loops) / max_number_of_links; where max_number_of_links = (l*l*c*(c-1))
 
 
 
@@ -101,9 +101,9 @@ parfor t=1:tests
     for iter=1:iterations % To let the network converge towards a stable state...
         % 1- Update the network's state: Push message and propagate through the network
         if aux.isOctave()
-            propag = network * input; % Propagation rule (Sum of Sum): Propagate the previous message state by using a simple matrix propaguct (equivalent to similarity/likelihood? or is it more like a markov chain convergence?). Eg: if network = [0 1 0 ; 1 0 0], input = [1 1 0] will match quite well: [1 1 0] while input = [0 0 1] will not match at all: [0 0 0]
+            propag = cnetwork * input; % Propagation rule (Sum of Sum): Propagate the previous message state by using a simple matrix propaguct (equivalent to similarity/likelihood? or is it more like a markov chain convergence?). Eg: if cnetwork = [0 1 0 ; 1 0 0], input = [1 1 0] will match quite well: [1 1 0] while input = [0 0 1] will not match at all: [0 0 0]
         else % MatLab cannot do matrix multiplication on logical matrices...
-            propag = double(network) * double(input);
+            propag = double(cnetwork) * double(input);
         end
         if gamma_memory > 0; propag = propag + (gamma_memory .* input); end; % memory effect: keep a bit of the previous nodes scores
         if threshold > 0; propag(propag < threshold) = 0; end; % activation threshold: set to 0 all nodes with a score lower than the activation threshold (ie: those nodes won't emit a spike)

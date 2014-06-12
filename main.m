@@ -99,6 +99,7 @@
 % - variable_length complete implementation and tests (when c is a vector of two values)
 % - propagation_rule 1 and 2 (normalized and Sum of Max)
 % - convergence stop criterions: NoChange (no change in out messages between two iterations, just like Perceptron) and Clique (all nodes have the same value, won't work with concurrent_cliques)
+% - place parfor loop back inplace of the main for loop inside gbnn_test.m when the codebase will be mature enough.
 %
 
 % Clear things up
@@ -138,8 +139,8 @@ silent = false; % If you don't want to see the progress output
 
 % == Launching the runs
 tperf = cputime();
-[network, thriftymessages, density] = gbnn_learn('m', m, 'miterator', miterator, 'l', l, 'c', c, 'Chi', Chi, 'silent', silent);
-error_rate = gbnn_test('network', network, 'thriftymessagestest', thriftymessages, ...
+[cnetwork, thriftymessages, density] = gbnn_learn('m', m, 'miterator', miterator, 'l', l, 'c', c, 'Chi', Chi, 'silent', silent);
+error_rate = gbnn_test('cnetwork', cnetwork, 'thriftymessagestest', thriftymessages, ...
                                                                                   'l', l, 'c', c, 'Chi', Chi, ...
                                                                                   'erasures', erasures, 'iterations', iterations, 'tampered_messages_per_test', tampered_messages_per_test, 'tests', tests, ...
                                                                                   'enable_guiding', enable_guiding, 'gamma_memory', gamma_memory, 'threshold', threshold, 'propagation_rule', propagation_rule, 'filtering_rule', filtering_rule, 'tampering_type', tampering_type, ...

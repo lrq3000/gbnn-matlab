@@ -1,8 +1,8 @@
-function [network, thriftymessages, real_density, messages] = gbnn_learn(varargin)
+function [cnetwork, thriftymessages, real_density, messages] = gbnn_learn(varargin)
 %
-% [network, thriftymessages, density] = gbnn_learn(m, l, c, ...,
-%                                                                       Chi, network, miterator, ...
-%                                                                       silent, debug)
+% [cnetwork, thriftymessages, density] = gbnn_learn(m, l, c, ...,
+%                                                                       Chi, cnetwork, miterator, ...
+%                                                                       silent)
 %
 % Learns a network using one-shot learning (simply an adjacency matrix) using either a provided messages list, or either generate a random one. Returns both the network, thrifty messages and real density.
 %
@@ -30,21 +30,20 @@ aux = gbnn_aux; % works with both MatLab and Octave
 % == Arguments processing
 % List of possible arguments and their default values
 arguments_defaults = struct( ...
-    % Mandatory
+    ... % Mandatory
     'm', 0, ...
     'l', 0, ...
     'c', 0, ...
-
-    % 2014 sparse enhancement
+    ...
+    ... % 2014 sparse enhancement
     'Chi', 0, ...
-
-    % Optimization tweaks
-    'network', [], ... % Reuse a previously learned network, just append new messages (lower number of messages to learn this way)
+    ...
+    ... % Optimization tweaks
+    'cnetwork', [], ... % Reuse a previously learned network, just append new messages (lower number of messages to learn this way)
     'miterator', 0, ... % Learn messages in small batches to avoid memory overflow
-
-    % Debug stuffs
-    'silent', false, ...
-    'debug', false);
+    ...
+    ... % Debug stuffs
+    'silent', false);
 
 % Process the arguments
 arguments = aux.getnargs(varargin, arguments_defaults, true);
@@ -77,8 +76,8 @@ end
 n = Chi * l; % total number of nodes ( = length of a message = total number of characters slots per message)
 thriftymessages = logical(sparse(m,n)); % Init and converting to a binary sparse matrix
 networkprovided = false;
-if ~exist('network', 'var') || isempty(network) % reuse network if provided
-    network = logical(sparse(n,n)); % init and converting to a binary sparse matrix
+if ~exist('cnetwork', 'var') || isempty(cnetwork) % reuse network if provided
+    cnetwork = logical(sparse(n,n)); % init and converting to a binary sparse matrix
 else
     networkprovided = true;
 end
@@ -96,11 +95,10 @@ if ~silent
     c
     Chi % -- 2014 update
 
-    network_provided = isempty(network)
+    networkprovided
 
     % -- Custom extensions
     variable_length
-    debug
 end
 
 % -- A few error checks
@@ -217,7 +215,7 @@ for M = 1:mloop
     % The matrix is ordered by character position and then subordered by character value (thrifty code), eg:
     % c = 3; l = 2; m = 2;
     % messages = [1 2 1 ; 2 1 2];
-    % network =
+    % cnetwork =
     %
     %              pos1 pos2 pos3
     %            __[1 2][1 2][1 2]
@@ -252,8 +250,8 @@ for M = 1:mloop
 %       for j=1:c % first character pointer
 %           for k=j:c % second character pointer. TRICKS: here we compute only one part of the matrix since it is symmetric, we will just copy over the lower part from the top part.
             % NOTE: do NOT set k=j+1:c to avoid setting 1 on the diagonale (which means that a node link to itself, this is necessary when predicting so that propagation of a node stimulates the whole clique, the node itself included if it's part of the clique)
-%               network((j-1)*l+messages(i,j),(k-1)*l+messages(i,k)) = 1; % link them together
-                % format: network(position-char1 * l (range of values) + char1, position-char2 * l + char2); where position-charx is the position of the character in the message (first character, second character, etc), and charx is the value of the character (between 1 and l)
+%               cnetwork((j-1)*l+messages(i,j),(k-1)*l+messages(i,k)) = 1; % link them together
+                % format: cnetwork(position-char1 * l (range of values) + char1, position-char2 * l + char2); where position-charx is the position of the character in the message (first character, second character, etc), and charx is the value of the character (between 1 and l)
 %           end
 %       end
 %   end
@@ -264,9 +262,9 @@ for M = 1:mloop
 %   for j=1:c % first character pointer
 %       for k=j:c % second character pointer. TRICKS: here we compute only one part of the matrix since it is symmetric, we will just copy over the lower part from the top part.
         % NOTE: do NOT set k=j+1:c to avoid setting 1 on the diagonale (which means that a node link to itself, this is necessary when predicting so that propagation of a node stimulates the whole clique, the node itself included if it's part of the clique)
-%           idx = sub2ind(size(network), (j-1)*l+messages(:,j), (k-1)*l+messages(:,k)); % TRICKS: precompute the list of indexes for all messages
-%           network(idx) = 1; % link the characters together
-%           % format: network(position-char1 * l (range of values) + char1, position-char2 * l + char2); where position-charx is the position of the character in the message (first character, second character, etc), and charx is the value of the character (between 1 and l)
+%           idx = sub2ind(size(cnetwork), (j-1)*l+messages(:,j), (k-1)*l+messages(:,k)); % TRICKS: precompute the list of indexes for all messages
+%           cnetwork(idx) = 1; % link the characters together
+%           % format: cnetwork(position-char1 * l (range of values) + char1, position-char2 * l + char2); where position-charx is the position of the character in the message (first character, second character, etc), and charx is the value of the character (between 1 and l)
 %           clear idx; % clear up some memory
 %       end
 %   end
@@ -277,9 +275,9 @@ for M = 1:mloop
 %   for j=1:c % first character pointer
         % TRICKS: here we compute only one part of the matrix since it is symmetric, we will just copy over the lower part from the top part.
         % TRICKS2: we don't use the second pointer explicitly but implicitly, by precomputing all the indexes beforehand (look at the bsxfun below)
-%           idx = sub2ind( size(network), repmat((j-1)*l+messages(:,j), 1, c-(j-1)), bsxfun(@plus, ((j:c)-1).*l, messages(:,j:end)) ); % TRICKS: precompute the list of indexes for all messages
-%           network(idx) = 1; % link the characters together
-            % format: network(position-char1 * l (range of values) + char1, position-char2 * l + char2); where position-charx is the position of the character in the message (first character, second character, etc), and charx is the value of the character (between 1 and l)
+%           idx = sub2ind( size(cnetwork), repmat((j-1)*l+messages(:,j), 1, c-(j-1)), bsxfun(@plus, ((j:c)-1).*l, messages(:,j:end)) ); % TRICKS: precompute the list of indexes for all messages
+%           cnetwork(idx) = 1; % link the characters together
+            % format: cnetwork(position-char1 * l (range of values) + char1, position-char2 * l + char2); where position-charx is the position of the character in the message (first character, second character, etc), and charx is the value of the character (between 1 and l)
 %           clear idx; % clear up some memory
 %   end
 
@@ -290,8 +288,8 @@ for M = 1:mloop
         % TRICKS: here we compute only one part of the matrix since it is symmetric, we will just copy over the lower part from the top part.
         % TRICKS2: we don't use the second pointer explicitly but implicitly, by precomputing all the indexes beforehand (look at the bsxfun below)
         % TRICKS3: we create a sparse matrix instead of assigning 1s directly into the matrix, since it's a sparse matrix, any addition of a non-zero entry is costly. Followed the advices from http://blogs.mathworks.com/loren/2007/03/01/creating-sparse-finite-element-matrices-in-matlab/
-%           network = network + sparse(repmat((j-1)*l+messages(:,j), 1, c-(j-1)), bsxfun(@plus, ((j:c)-1).*l, messages(:,j:end)), 1, n, n);
-            % format: network(position-char1 * l (range of values) + char1, position-char2 * l + char2); where position-charx is the position of the character in the message (first character, second character, etc), and charx is the value of the character (between 1 and l)
+%           cnetwork = cnetwork + sparse(repmat((j-1)*l+messages(:,j), 1, c-(j-1)), bsxfun(@plus, ((j:c)-1).*l, messages(:,j:end)), 1, n, n);
+            % format: cnetwork(position-char1 * l (range of values) + char1, position-char2 * l + char2); where position-charx is the position of the character in the message (first character, second character, etc), and charx is the value of the character (between 1 and l)
 %   end
 
     % -- Semi-vectorized version 4 - fastest after the vectorized version, and is a bit more memory consuming
@@ -309,10 +307,10 @@ for M = 1:mloop
 %           idxstart = idxend - (c-j);
 %           rows(:, idxstart:idxend) = repmat((j-1)*l+messages(:,j), 1, c-(j-1));
 %           cols(:, idxstart:idxend) = bsxfun(@plus, ((j:c)-1).*l, messages(:,j:end));
-            % format: network(position-char1 * l (range of values) + char1, position-char2 * l + char2); where position-charx is the position of the character in the message (first character, second character, etc), and charx is the value of the character (between 1 and l)
+            % format: cnetwork(position-char1 * l (range of values) + char1, position-char2 * l + char2); where position-charx is the position of the character in the message (first character, second character, etc), and charx is the value of the character (between 1 and l)
 %   end
     % At the end, add all new links at once
-%   network = network + sparse(rows, cols, 1, n, n);
+%   cnetwork = cnetwork + sparse(rows, cols, 1, n, n);
 
     % -- Vectorized version - fastest, and so elegant!
     % We simply use a matrix product, this is greatly faster than using thriftymessages as indices
@@ -320,17 +318,17 @@ for M = 1:mloop
     % WARNING: works only with undirected clique network, but not with directed tournament-based network (Xiaoran Jiang Thesis 2013)
     if M == 1 && ~networkprovided % case when network is empty, this is faster
         if aux.isOctave()
-            network = logical(thriftymessages' * thriftymessages); % Credits go to Christophe for the tip!
+            cnetwork = logical(thriftymessages' * thriftymessages); % Credits go to Christophe for the tip!
         else % MatLab can't do matrix multiplication on logical (binary) matrices... must convert them to double beforehand
             dthriftymessages = double(thriftymessages);
-            network = logical(dthriftymessages' * dthriftymessages);
+            cnetwork = logical(dthriftymessages' * dthriftymessages);
         end
     else % case when we iteratively append new messages (either because of miterator or because user provided a network to reuse), we update the previous network
         if aux.isOctave()
-            network = or(network, logical(thriftymessages' * thriftymessages)); % same as min(network + thriftymessages'*thriftymessages, 1)
+            cnetwork = or(cnetwork, logical(thriftymessages' * thriftymessages)); % same as min(cnetwork + thriftymessages'*thriftymessages, 1)
         else
             dthriftymessages = double(thriftymessages);
-            network = or(network, logical(dthriftymessages' * dthriftymessages)); % same as min(network + thriftymessages'*thriftymessages, 1)
+            cnetwork = or(cnetwork, logical(dthriftymessages' * dthriftymessages)); % same as min(cnetwork + thriftymessages'*thriftymessages, 1)
         end
     end
     % Vectorized version 2 draft: use directly the indices without matrix multiplication to avoid useless computations because of symmetry: vectorized_indices = reshape(mod(find(thriftymessages'), n), c, m)'
@@ -348,32 +346,30 @@ for M = 1:mloop
         clear messages; % clear up some memory
     end
 end
-%network = network + network'; % TRICKS: using matrix symmetry to fill the remainder. NOTE: when using miterator, you need to fill the symmetry only at the end of the loop, else you will run out of memory
-%network = logical(network); % = min(network,1) threshold because values can only be 1 at max (but if there were duplicate messages, some entries can have a higher value than 1)
-%network = or(network, network'); % not necessary when using the vectorized version
-% Note that  or(network, network') = min(network + network', 1) but the latter is a bit slower on big datasets
+%cnetwork = cnetwork + cnetwork'; % TRICKS: using matrix symmetry to fill the remainder. NOTE: when using miterator, you need to fill the symmetry only at the end of the loop, else you will run out of memory
+%cnetwork = logical(cnetwork); % = min(cnetwork,1) threshold because values can only be 1 at max (but if there were duplicate messages, some entries can have a higher value than 1)
+%cnetwork = or(cnetwork, cnetwork'); % not necessary when using the vectorized version
+% Note that  or(cnetwork, cnetwork') = min(cnetwork + cnetwork', 1) but the latter is a bit slower on big datasets
 thriftymessages = logical(thriftymessages); % NOTE: prefer logical(x) rather than min(x, 1) because: logical is faster, and also the ending data will take less storage space (about half)
 
 % Clean up memory, else MatLab/Octave keep everything in memory
-if ~debug
-    %clear messages;
-end
+clear messages;
 
 if ~silent; fprintf('-- Finished learning!\n'); aux.flushout(); end;
 
-% count_cliques = sum(network^2 == c) % count the total number of cliques. WARNING: this is VERY slow but there's no better way to my knowledge
+% count_cliques = sum(cnetwork^2 == c) % count the total number of cliques. WARNING: this is VERY slow but there's no better way to my knowledge
 
 
 
 % == Compute density and some practical and theoretical stats
-real_density = full(  (sum(sum(network)) - sum(diag(network))) / (Chi*(Chi-1) * l^2)  );
+real_density = full(  (sum(sum(cnetwork)) - sum(diag(cnetwork))) / (Chi*(Chi-1) * l^2)  );
 if ~silent
     fprintf('-- Computing density\n'); aux.flushout();
     real_density % density = (number_of_links - loops) / max_number_of_links; where max_number_of_links = (Chi*(Chi-1) * l^2).
     theoretical_average_density = 1 - (1 - c * (c-1) / (Chi * (Chi - 1) * l^2) )^m
     total_number_of_messages_really_stored = log2(1 - real_density) / log2(1 - c*(c-1) / (Chi*(Chi-1)*l.^2))
     number_of_nodes = n % total number of nodes (l * c)
-    number_of_active_links = (nnz(network) - nnz(diag(network))) / 2 % total number of active links
+    number_of_active_links = (nnz(cnetwork) - nnz(diag(cnetwork))) / 2 % total number of active links
     number_of_possible_links = Chi*(Chi-1) * l.^2 / 2 % divide by 2 here because edges are undirected. In a tournament-based network you can remove the /2. This is also the capacity of the network (ie: the number of information bits the network can store)
     B_theoretical_information = m * (log2(nchoosek(Chi, c)) + c * log2(l))
     %real_info_stored = m * 2^c;

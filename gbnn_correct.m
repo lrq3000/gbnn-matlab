@@ -1,6 +1,6 @@
 function partial_messages = gbnn_correct(varargin)
 %
-% partial_messages = gbnn_correct(network, partial_messages, ...
+% partial_messages = gbnn_correct(cnetwork, partial_messages, ...
 %                                                                                  l, c, Chi, ...
 %                                                                                  iterations, ...
 %                                                                                  k, guiding_mask, gamma_memory, threshold, propagation_rule, filtering_rule, tampering_type, ...
@@ -10,7 +10,7 @@ function partial_messages = gbnn_correct(varargin)
 % Feed a network and partially tampered messages, and will let the network try to 'remember' a message that corresponds to the given input. The function will return the recovered message(s) (but no error rate, see gbnn_test.m for this purpose).
 %
 % This function supports named arguments, use it like this:
-% gbnn_correct('network', mynetwork, 'partial_messages', thriftymessagestest, 'l', 4, 'c', 3)
+% gbnn_correct('cnetwork', mynetwork, 'partial_messages', thriftymessagestest, 'l', 4, 'c', 3)
 % 
 
 
@@ -21,19 +21,19 @@ aux = gbnn_aux; % works with both MatLab and Octave
 % == Arguments processing
 % List of possible arguments and their default values
 arguments_defaults = struct( ...
-    % Mandatory
-    'network', [], ...
+    ... % Mandatory
+    'cnetwork', [], ...
     'partial_messages', [], ...
     'l', 0, ...
     'c', 0, ...
-
-    % 2014 sparse enhancement
+    ...
+    ... % 2014 sparse enhancement
     'Chi', 0, ...
-
-    % Test settings
+    ...
+    ... % Test settings
     'iterations', 1, ...
-
-    % Tests tweakings and rules
+    ...
+    ... % Tests tweakings and rules
     'guiding_mask', [], ...
     'threshold', 0, ...
     'gamma_memory', 0, ...
@@ -45,8 +45,8 @@ arguments_defaults = struct( ...
     'GWTA_first_iteration', false, ...
     'GWTA_last_iteration', false, ...
     'k', 1, ...
-
-    % Debug stuffs
+    ...
+    ... % Debug stuffs
     'silent', false);
 
 % Process the arguments
@@ -56,8 +56,8 @@ arguments = aux.getnargs(varargin, arguments_defaults, true);
 aux.varspull(arguments);
 
 % == Sanity Checks
-if isempty(network) || isempty(partial_messages) || l == 0 || c == 0
-    error('Missing arguments: network, partial_messages, l and c are mandatory!');
+if isempty(cnetwork) || isempty(partial_messages) || l == 0 || c == 0
+    error('Missing arguments: cnetwork, partial_messages, l and c are mandatory!');
 end
 
 variable_length = false;
@@ -121,9 +121,9 @@ for iter=1:iterations % To let the network converge towards a stable state...
         % We use the standard way to compute the propagation in an adjacency matrix: by matrix multiplication
         % Sum-of-Sum / Matrix multiplication is the same as computing the in-degree(a) for each node a, since each connected and activated link to a is equivalent to +1, thus this is equivalent to the total number of connected and activated link to a.
         if aux.isOctave()
-            propag = network * partial_messages; % Propagate the previous message state by using a simple matrix product (equivalent to similarity/likelihood? or is it more like a markov chain convergence?). Eg: if network = [0 1 0 ; 1 0 0], partial_messages = [1 1 0] will match quite well: [1 1 0] while partial_messages = [0 0 1] will not match at all: [0 0 0]
+            propag = cnetwork * partial_messages; % Propagate the previous message state by using a simple matrix product (equivalent to similarity/likelihood? or is it more like a markov chain convergence?). Eg: if network = [0 1 0 ; 1 0 0], partial_messages = [1 1 0] will match quite well: [1 1 0] while partial_messages = [0 0 1] will not match at all: [0 0 0]
         else % MatLab cannot do matrix multiplication on logical matrices...
-            propag = double(network) * double(partial_messages);
+            propag = double(cnetwork) * double(partial_messages);
         end
     % Else error, the propagation_rule does not exist
     else
@@ -142,7 +142,7 @@ for iter=1:iterations % To let the network converge towards a stable state...
     % -- Semi-vectorized version 1 - fast but very memory consuming
     % Using the adjacency matrix as an adjacency list of neighbors per node: we just fetch the neighbors indices and then compute the final message
 %        propag_idx = mod(find(partial_messages)-1, c*l)+1; % get the indices of the currently activated nodes (we use mod because we compute at once the indices for all messages, and the indices will be off starting from the second message)
-%        activated_neighbors = network(:, propag_idx); % propagation: find the list of neighbors for each currently activated node = just use the current nodes indices in the adjacency list. Thus we get one list of activated neighbors per currently activated node.
+%        activated_neighbors = cnetwork(:, propag_idx); % propagation: find the list of neighbors for each currently activated node = just use the current nodes indices in the adjacency list. Thus we get one list of activated neighbors per currently activated node.
 %        messages_idx = [0 cumsum(sum(partial_messages))]; % now we need to unstack all lists of neighbors per message instead of per node (we will get one list of neighbor per activated neuron in one message, thus we need to unstack the matrix into submatrixes: one per message)
 %        propag = sparse(c*l, mpartial); % preallocate the propag matrix
 %        parfor i=1:mpartial % now we will sum all neighbors activations into one message (because we have many submatrices = messages containing lists of activated neighbors per currently activated node, but we want one list of activated neighbors for all nodes = one message)
@@ -156,7 +156,7 @@ for iter=1:iterations % To let the network converge towards a stable state...
 %        propag = sparse(c*l, mpartial);
 %        parfor i=1:mpartial
 %            propagidx_per_cluster = propag_idx(cluster_idx(i)+1:cluster_idx(i+1));
-%            activated_neighbors = network(:, propagidx_per_cluster);
+%            activated_neighbors = cnetwork(:, propagidx_per_cluster);
 %            propag(:,i) = sum( activated_neighbors , 2);
 %        end
 
