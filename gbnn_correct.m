@@ -1,9 +1,8 @@
 function partial_messages = gbnn_correct(varargin)
 %
 % partial_messages = gbnn_correct(cnetwork, partial_messages, ...
-%                                                                                  l, c, Chi, ...
 %                                                                                  iterations, ...
-%                                                                                  k, guiding_mask, gamma_memory, threshold, propagation_rule, filtering_rule, tampering_type, ...
+%                                                                                  k, guiding_mask, gamma_memory, threshold, propagation_rule, filtering_rule, ...
 %                                                                                  residual_memory, concurrent_cliques, GWTA_first_iteration, GWTA_last_iteration, ...
 %                                                                                  silent)
 %
@@ -24,11 +23,6 @@ arguments_defaults = struct( ...
     ... % Mandatory
     'cnetwork', [], ...
     'partial_messages', [], ...
-    'l', 0, ...
-    'c', 0, ...
-    ...
-    ... % 2014 sparse enhancement
-    'Chi', 0, ...
     ...
     ... % Test settings
     'iterations', 1, ...
@@ -40,11 +34,12 @@ arguments_defaults = struct( ...
     'residual_memory', 0, ...
     'propagation_rule', 'sum', ...
     'filtering_rule', 'wta', ...
-    'tampering_type', 'erase', ...
     'concurrent_cliques', 1, ... % 1 is disabled, > 1 enables and specify the number of concurrent messages/cliques to decode concurrently
     'GWTA_first_iteration', false, ...
     'GWTA_last_iteration', false, ...
     'k', 1, ...
+    ...
+    'cnetwork_choose', 'primary', ...
     ...
     ... % Debug stuffs
     'silent', false);
@@ -54,10 +49,11 @@ arguments = aux.getnargs(varargin, arguments_defaults, true);
 
 % Load variables into local namespace (called workspace in MatLab)
 aux.varspull(arguments);
+aux.varspull(cnetwork.(cnetwork_choose).args);
 
 % == Sanity Checks
-if isempty(cnetwork) || isempty(partial_messages) || l == 0 || c == 0
-    error('Missing arguments: cnetwork, partial_messages, l and c are mandatory!');
+if isempty(cnetwork) || isempty(partial_messages) || isfield(cnetwork.(cnetwork_choose).args, 'l') == 0 || isfield(cnetwork.(cnetwork_choose).args, 'c') == 0
+    error('Missing arguments: cnetwork, partial_messages, cnetwork.%s.args.l and cnetwork.%s.args.c are mandatory!', cnetwork_choose, cnetwork_choose);
 end
 
 variable_length = false;
@@ -73,10 +69,6 @@ if ~ischar(filtering_rule)
     if iscell(filtering_rule); error('filtering_rule is a cell, it should be a string! Maybe you did a typo?'); end;
     filtering_rule = 'wta';
 end
-if ~ischar(tampering_type)
-    if iscell(tampering_type); error('tampering_type is a cell, it should be a string! Maybe you did a typo?'); end;
-    tampering_type = 'erase';
-end
 
 % == Init data structures and other vars - DO NOT TOUCH
 sparse_cliques = true; % enable the creation of sparse cliques if Chi > c (cliques that don't use all available clusters but just c clusters per one message)
@@ -88,6 +80,7 @@ n = Chi * l; % total number of nodes ( = length of a message = total number of c
 
 % Smart messages management: if user provide a non thrifty messages matrix, we convert it on-the-fly (a lot easier for users to manage in their applications since they can use the same messages to learn and to test the network)
 if ~islogical(partial_messages) && any(partial_messages(:) > 1)
+    if ~silent; printf('Notice: provided messages is not thrifty. Converting automatically to thrifty code.\n'); end;
     partial_messages = gbnn_messages2thrifty(partial_messages, l);
 end
 
@@ -115,15 +108,22 @@ for iter=1:iterations % To let the network converge towards a stable state...
     % 1- Update the network's state: Push message and propagate through the network
     % NOTE: this is the CPU bottleneck if you use many messages with c > 8
 
+    % Select the network on which we will work
+    net = cnetwork.(cnetwork_choose).net;
+
+    % Propagate on the primary network
     % -- Vectorized version - fastest and low memory overhead
     % Sum-of-Sum: we simply compute per node the sum of all incoming activated edges
     if strcmpi(propagation_rule, 'sum')
         % We use the standard way to compute the propagation in an adjacency matrix: by matrix multiplication
         % Sum-of-Sum / Matrix multiplication is the same as computing the in-degree(a) for each node a, since each connected and activated link to a is equivalent to +1, thus this is equivalent to the total number of connected and activated link to a.
+        % This operation may seem daunting but in fact it's quite simple and just does what it sounds like: for each message (row in the transposed partial_messages matrix = in fanal), we check if any of its activated fanal is connect to any of the network's fanal (1 out fanal = 1 column of the net's matrix). The result is the sum or count of the number of in connections for each of the network's fanals.
+        % Or you can see the network as a black box: it simply transforms one list of messages into another format conditionally on the network's links.
         if aux.isOctave()
-            propag = cnetwork * partial_messages; % Propagate the previous message state by using a simple matrix product (equivalent to similarity/likelihood? or is it more like a markov chain convergence?). Eg: if network = [0 1 0 ; 1 0 0], partial_messages = [1 1 0] will match quite well: [1 1 0] while partial_messages = [0 0 1] will not match at all: [0 0 0]
+            propag = (partial_messages' * net)'; % Propagate the previous message state by using a simple matrix product (equivalent to similarity/likelihood? or is it more like a markov chain convergence?). Eg: if network = [0 1 0 ; 1 0 0], partial_messages = [1 1 0] will match quite well: [1 1 0] while partial_messages = [0 0 1] will not match at all: [0 0 0]
+            % WRONG: net * partial_messages : this works only with non-bridge networks (eg: primary, auxiliary, but not with prim2auxnet !)
         else % MatLab cannot do matrix multiplication on logical matrices...
-            propag = double(cnetwork) * double(partial_messages);
+            propag = (double(partial_messages') * double(net))';
         end
     % Else error, the propagation_rule does not exist
     else
@@ -132,6 +132,46 @@ for iter=1:iterations % To let the network converge towards a stable state...
     % TODO: Sum-of-Max = for each node, compute the sum of incoming link per cluster (thus if a node is connected to 4 other nodes, but 3 of them belong to the same cluster, the score will be 2 = 1 for the node alone in its cluster + 1 for the other 3 belonging to the same cluster).
     % TODO: Normalized Sum-of-Sum = for each node, compute the sum of sum but divide the weight=1 of each incoming link by the number of activated node in the cluster where the link points to (thus if a node is connected to 4 other nodes, but 3 of them belong to the same cluster, the score will be 1 + 1/3 + 1/3 + 1/3 = 2). The score will be different than Sum of Max if concurrent_cliques is enabled (because then the number of activated nodes can be higher and divide more the incoming scores).
     end
+
+    % Propagate in parallel on the auxiliary network
+    mes_echo = [];
+    if isfield(cnetwork, 'auxiliary') && strcmpi(cnetwork_choose, 'primary')
+    
+        if ~silent
+            fprintf('Propagating through auxiliary network...\n'); aux.flushout();
+            auxpropagtime = cputime();
+        end
+
+        % Echo from primary to auxiliary
+        mes_echo = partial_messages;
+        if aux.isOctave()
+            mes_echo = (mes_echo' * cnetwork.auxiliary.prim2auxnet)';
+        else
+            mes_echo = (double(mes_echo') * double(cnetwork.auxiliary.prim2auxnet))';
+        end
+
+        % Propagate through the auxiliary network to find the correct clique
+        if ~isempty(cnetwork.auxiliary.net)
+            mes_echo = logical(mes_echo); % should be logical else it will be converted into thrifty code by gbnn_messages2thrifty.m automatically!
+            mes_echo = gbnn_correct('cnetwork', cnetwork, 'partial_messages', mes_echo, 'cnetwork_choose', 'auxiliary', 'filtering_rule', 'binary', 'silent', true);
+        end
+
+        % Echo back from auxiliary to primary
+        mes_echo = logical(mes_echo);
+        if aux.isOctave()
+            mes_echo = (mes_echo' * cnetwork.auxiliary.prim2auxnet')';
+        else
+            mes_echo = (double(mes_echo') * double(cnetwork.auxiliary.prim2auxnet'))';
+        end
+
+        %mes_echo = logical(mes_echo);
+        propag = propag + mes_echo; % auxiliary network echo
+
+        if ~silent
+            aux.printcputime(cputime - auxpropagtime, 'Elapsed cpu time for auxiliary propagation is %g seconds.\n'); aux.flushout();
+        end
+    end
+
     if gamma_memory > 0
         propag = propag + (gamma_memory .* partial_messages); % memory effect: keep a bit of the previous nodes scores
     end
@@ -139,34 +179,17 @@ for iter=1:iterations % To let the network converge towards a stable state...
         propag(propag < threshold) = 0;
     end;
 
-    % -- Semi-vectorized version 1 - fast but very memory consuming
-    % Using the adjacency matrix as an adjacency list of neighbors per node: we just fetch the neighbors indices and then compute the final message
-%        propag_idx = mod(find(partial_messages)-1, c*l)+1; % get the indices of the currently activated nodes (we use mod because we compute at once the indices for all messages, and the indices will be off starting from the second message)
-%        activated_neighbors = cnetwork(:, propag_idx); % propagation: find the list of neighbors for each currently activated node = just use the current nodes indices in the adjacency list. Thus we get one list of activated neighbors per currently activated node.
-%        messages_idx = [0 cumsum(sum(partial_messages))]; % now we need to unstack all lists of neighbors per message instead of per node (we will get one list of neighbor per activated neuron in one message, thus we need to unstack the matrix into submatrixes: one per message)
-%        propag = sparse(c*l, mpartial); % preallocate the propag matrix
-%        parfor i=1:mpartial % now we will sum all neighbors activations into one message (because we have many submatrices = messages containing lists of activated neighbors per currently activated node, but we want one list of activated neighbors for all nodes = one message)
-%            propag(:,i) = sum( activated_neighbors(:,messages_idx(i)+1:messages_idx(i+1)) , 2); % TODO: Vectorize this! find a way to do it without a for loop!
-%        end
-
-    % -- Semi-vectorized version 2 - slower but easy on memory
-    % same as version 1 but to lower memory footprint we compute the activated_neighbors in the loop instead of outside.
-%        propag_idx = mod(find(partial_messages)-1, c*l)+1;
-%        cluster_idx = [0 cumsum(sum(partial_messages))];
-%        propag = sparse(c*l, mpartial);
-%        parfor i=1:mpartial
-%            propagidx_per_cluster = propag_idx(cluster_idx(i)+1:cluster_idx(i+1));
-%            activated_neighbors = cnetwork(:, propagidx_per_cluster);
-%            propag(:,i) = sum( activated_neighbors , 2);
-%        end
-
 
     % 2- Filtering rules aka activation rules (apply a rule to filter out useless/interfering nodes)
 
-    % -- Vectorized version - fastest!
+    % -- Vectorized versions - fastest!
     out = logical(sparse(size(partial_messages,1), size(partial_messages,2))); % empty binary sparse matrix, it will later store the next network state after winner-takes-all is applied
+    if strcmpi(filtering_rule, 'none') % Do nothing, useful for auxiliary network since it's just a reverberation
+        out = propag;
+    elseif strcmpi(filtering_rule, 'binary') % Just make sure the values are binary
+        out = logical(propag);
     % Winner-take-all : per cluster, keep only the maximum score node active (if multiple nodes share the max score, we keep them all activated). Thus the WTA is based on score value, contrarywise to k-WTA which is based on the number of active node k.
-    if strcmpi(filtering_rule, 'wta')
+    elseif strcmpi(filtering_rule, 'wta')
         % The idea is that we will break the clusters and stack them along as a single long cluster spanning several messages, so that we can do a WTA in one pass (with a single max), and then we will unstack them back to their correct places in the messages
         propag = reshape(propag, l, mpartial * Chi); % reshape so that we can do the WTA by a simple column-wise WTA (and it's efficient in MatLab since matrices - and even more with sparse matrices - are stored as column vectors, thus it efficiently use the memory cache since this is the most limiting factor above CPU power). See also: Locality of reference.
         winner_value = max(propag); % what is the maximum output value (considering all the nodes in this character)

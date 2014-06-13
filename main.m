@@ -123,7 +123,7 @@ tests = 1;
 
 enable_guiding = true;
 gamma_memory = 0;
-threshold = 0;
+threshold = c-erasures;
 propagation_rule = 'sum'; % TODO: not implemented yet, please always set 0 here
 filtering_rule = 'GWsTA';
 tampering_type = 'erase';
@@ -135,13 +135,28 @@ concurrent_successive = false;
 GWTA_first_iteration = false;
 GWTA_last_iteration = false;
 
+training = false; % switch to true to do the training step (disambiguation of conflicting memories)
+c2 = 2; % should be << c
+l2 = 1; % can be set to 1
+Chi2 = Chi;
+trainingbatchs = 2;
+no_auxiliary_propagation = true;
+
 silent = false; % If you don't want to see the progress output
 
 % == Launching the runs
 tperf = cputime();
+
+% Learning phase
 [cnetwork, thriftymessages, density] = gbnn_learn('m', m, 'miterator', miterator, 'l', l, 'c', c, 'Chi', Chi, 'silent', silent);
+
+% Training phase (optional)
+if training
+    cnetwork = gbnn_train('cnetwork', cnetwork, 'thriftymessagestest', thriftymessages, 'l', l2, 'c', c2, 'Chi', Chi2, 'tampered_messages_per_test', tampered_messages_per_test, 'tests', trainingbatchs, 'no_auxiliary_propagation', no_auxiliary_propagation);
+end
+
+% Testing phase
 error_rate = gbnn_test('cnetwork', cnetwork, 'thriftymessagestest', thriftymessages, ...
-                                                                                  'l', l, 'c', c, 'Chi', Chi, ...
                                                                                   'erasures', erasures, 'iterations', iterations, 'tampered_messages_per_test', tampered_messages_per_test, 'tests', tests, ...
                                                                                   'enable_guiding', enable_guiding, 'gamma_memory', gamma_memory, 'threshold', threshold, 'propagation_rule', propagation_rule, 'filtering_rule', filtering_rule, 'tampering_type', tampering_type, ...
                                                                                   'residual_memory', residual_memory, 'concurrent_cliques', concurrent_cliques, 'no_concurrent_overlap', no_concurrent_overlap, 'concurrent_successive', concurrent_successive, 'GWTA_first_iteration', GWTA_first_iteration, 'GWTA_last_iteration', GWTA_last_iteration, ...

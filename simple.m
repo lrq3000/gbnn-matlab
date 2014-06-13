@@ -16,8 +16,7 @@ Chi = 100;
 % == Launching the runs
 tperf = cputime();
 [cnetwork, thriftymessages, density] = gbnn_learn('m', m, 'l', l, 'c', c, 'Chi', Chi);
-error_rate = gbnn_test('cnetwork', cnetwork, 'thriftymessagestest', thriftymessages, ...
-                                                                                  'l', l, 'c', c, 'Chi', Chi);
+error_rate = gbnn_test('cnetwork', cnetwork, 'thriftymessagestest', thriftymessages);
 aux.printcputime(cputime() - tperf, 'Total cpu time elapsed to do everything: %g seconds.\n'); aux.flushout(); % print total time elapsed
 
 % The end!

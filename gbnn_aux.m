@@ -16,6 +16,9 @@ function funs = importFunctions
     funs.flushout=@flushout; % to force refresh the stdout after printing in the console
     funs.printcputime=@printcputime;
     funs.printtime=@printtime;
+    funs.editarg=@editarg;
+    funs.delarg=@delarg;
+    funs.addarg=@addarg;
 end
 
 
@@ -253,7 +256,7 @@ function argStruct = getnargs(varargin, defaults, restrict_flag)
 
     argStruct = defaults; % copy over the defaults: by default, all arguments will have the default value.After we will simply overwrite the defaults with the user specified values.
     for i = 1:2:nArgs % iterate over couples of argument/value
-        varname = varargin{i}; % make case insensitive
+        varname = varargin{i};
         % check that the supplied name is a valid variable identifier (it does not check if the variable is allowed/declared in defaults, just that it's a possible variable name!)
         if ~isvarname(varname)
           error('NameValuePairToStruct:InvalidName', ...
@@ -284,4 +287,51 @@ function varspull(s)
         value = s.(name);
         assignin('caller',name,value);
     end
+end
+
+function varargin = delarg(varname, varargin)
+% varargin = delarg(varname, varargin)
+% Removes an argument from varargin with name varname (varname must be either a string or a cell array of strings)
+
+    % Extract the arguments if it's inside a sub-struct (happens on Octave), because anyway it's impossible that the number of argument be 1 (you need at least a couple, thus two)
+    if (numel(varargin) == 1)
+        varargin = varargin{:};
+    end
+
+    nArgs = length(varargin);
+    for i = nArgs-1:-2:1 % iterate over couples of argument/value
+        vname = varargin{i};
+        if iscell(varname) && any(ismember(varname, vname))
+            varargin(i:i+1) = [];
+        elseif strcmp(vname, varname)
+            varargin(i:i+1) = [];
+            break;
+        end
+    end
+end
+
+function varargin = editarg(varname, varvalue, varargin)
+% varargin = editarg(varname, varargin)
+% Replaces an argument from varargin with name varname (varname must either be a string or a cell array of strings, same for varvalue) with the content varvalue
+
+    % Extract the arguments if it's inside a sub-struct (happens on Octave), because anyway it's impossible that the number of argument be 1 (you need at least a couple, thus two)
+    if (numel(varargin) == 1)
+        varargin = varargin{:};
+    end
+
+    nArgs = length(varargin);
+    for i = 1:2:nArgs % iterate over couples of argument/value
+        vname = varargin{i};
+        if iscell(varname) && any(ismember(varname, vname))
+            idx = find(ismember(varname, vname));
+            varargin{i+1} = varvalue{idx};
+        elseif strcmp(vname, varname)
+            varargin{i+1} = varvalue;
+            break;
+        end
+    end
+end
+
+function varargin = addarg(varname, varvalue, varargin)
+    varargin = {varargin ; varname ; varvalue};
 end
