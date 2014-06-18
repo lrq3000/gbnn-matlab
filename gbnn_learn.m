@@ -196,7 +196,7 @@ for M = 1:mloop
 %    thriftymessages = or(thriftymessages, sparse(I, J, 1, n, m)'); % store the messages (note that the indexes we now have are columns-oriented but MatLab expects row-oriented indexes, thus we just transpose the matrix)
 
     % -- Vectorized version 3 moved to a function
-    thriftymessages = or(thriftymessages, gbnn_messages2thrifty(messages, l, miterator, M));
+    thriftymessages = or(thriftymessages, gbnn_messages2thrifty(messages, l, miterator, M, m));
 
     % -- Semi-vectorized version (consume less memory than the vectorized versions, at the expense of a bit more CPU usage linear in the number c (about the double time compared to the fastest vectorized version 3)
     % Here we vectorized only the messages loop, but we still have a complexity relative to c, but this way is quite memory savvy
