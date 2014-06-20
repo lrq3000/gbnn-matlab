@@ -1,4 +1,4 @@
-function cnetwork = gbnn_construct_network(in_thriftymessages, out_thriftymessages)
+function cnetwork = gbnn_construct_network(in_thriftymessages, out_thriftymessages, outop, inop)
 % cnetwork = gbnn_construct_network(in_thriftymessages [, out_thriftymessages])
 % Construct/learns a network using one-shot learning. Can either construct a normal clique network, or an inter-networks map if you supply a different out_thriftymessages (different from in_thriftymessages).
 %
@@ -37,7 +37,15 @@ function cnetwork = gbnn_construct_network(in_thriftymessages, out_thriftymessag
     % We also store as a logical sparse matrix to spare a lot of memory, else the matrix product will be slower than the other methods! Setting this to logical type is not necessary but it halves the memory footprint.
     % WARNING: works only with undirected clique network, but not with directed tournament-based network (Xiaoran Jiang Thesis 2013) (but it should easily work with few modifications)
     aux = gbnn_aux;
-    
+
+    % Default vars checking
+    if ~exist('inop', 'var')
+        inop = @times;
+    end
+    if ~exist('outop', 'var')
+        outop = @sum;
+    end
+
     % Preallocating
     n = size(in_thriftymessages, 1);
     if exist('out_thriftymessages', 'var')
@@ -46,25 +54,30 @@ function cnetwork = gbnn_construct_network(in_thriftymessages, out_thriftymessag
         m = n;
     end
     cnetwork = logical(sparse(n,m)); % preallocating and converting to a binary sparse matrix
+    if (~strcmpi(func2str(outop), 'sum') && ~strcmpi(func2str(inop), 'times')); cnetwork = double(cnetwork); end;
 
     % Construct the adjacency matrix (= learn the network)
     % Same network case: faster because we use only one datastructure and because MatLab/Octave recognizes the pattern a * a' and optimizes it (half the time because it knows that the computation will somehow be symmetric)
     if ~exist('out_thriftymessages', 'var')
-        if aux.isOctave()
-            cnetwork = logical(in_thriftymessages' * in_thriftymessages); % Credits go to Christophe for the tip!
+        if ~aux.isOctave()
+            in_thriftymessages = double(in_thriftymessages); % MatLab can't do matrix multiplication on logical (binary) matrices... must convert them to double beforehand
+        end
+        if (strcmpi(func2str(outop), 'sum') && strcmpi(func2str(inop), 'times'))
+            cnetwork = logical(in_thriftymessages' * in_thriftymessages); % logical = same as min(cnetwork + thriftymessages'*thriftymessages, 1). Matrix multiplication idea by Christophe!
         else
-            d_in_thriftymessages = double(in_thriftymessages); % MatLab can't do matrix multiplication on logical (binary) matrices... must convert them to double beforehand
-            cnetwork = logical(d_in_thriftymessages' * d_in_thriftymessages); % logical = same as min(cnetwork + thriftymessages'*thriftymessages, 1)
+            cnetwork = gmtimes(in_thriftymessages, [], outop, inop);
         end
 
     % Bridge between two networks: we use a different matrix of messages for in and out (which fanals from the in network we will connect to which fanals of the out network)
     else
-        if aux.isOctave()
-            cnetwork = logical(in_thriftymessages' * out_thriftymessages); % Credits go to Christophe for the tip!
+        if ~aux.isOctave()
+            in_thriftymessages = double(in_thriftymessages); % MatLab can't do matrix multiplication on logical (binary) matrices... must convert them to double beforehand
+            out_thriftymessages = double(out_thriftymessages);
+        end
+        if (strcmpi(func2str(outop), 'sum') && strcmpi(func2str(inop), 'times'))
+            cnetwork = logical(in_thriftymessages' * out_thriftymessages);
         else
-            d_in_thriftymessages = double(in_thriftymessages); % MatLab can't do matrix multiplication on logical (binary) matrices... must convert them to double beforehand
-            d_out_thriftymessages = double(out_thriftymessages);
-            cnetwork = logical(d_in_thriftymessages' * d_out_thriftymessages);
+            cnetwork = gmtimes(in_thriftymessages', out_thriftymessages, outop, inop);
         end
     end
 
