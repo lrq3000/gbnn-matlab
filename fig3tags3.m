@@ -1,4 +1,4 @@
-% This example main file shows how to reproduce the figure 3 of the 2014 article.
+% Overlays network: Willshaw vs overlays benchmark
 
 % Clear things up
 clear all;
@@ -15,7 +15,7 @@ markerstylevec = '+o*.xsd^v><ph';
 linestylevec = {'-' ; '--' ; ':' ; '-.'};
 
 % Vars config, tweak the stuff here
-M = 0.005:1.0:5.1; % this is a vector because we will try several values of m (number of messages, which influences the density)
+M = 0.005:1:5.1; % this is a vector because we will try several values of m (number of messages, which influences the density)
 %M = [0.005 5.1]; % to test both limits to check that the range is OK, the first point must be near 0 and the second point must be near 1, at least for one of the curves
 Mcoeff = 10E2;
 miterator = zeros(1,numel(M)); %M/2;
@@ -58,12 +58,12 @@ for t=1:statstries
     for m=1:numel(M) % and for each value of m, we will do a run
         % Launch the run
         if m == 1
-            [cnetwork, thriftymessages, density] = gbnn_learn('m', M(1, 1)*Mcoeff, 'miterator', miterator(1,m), 'l', l, 'c', c, 'Chi', Chi, ...
+            [cnetwork, thriftymessages, density] = gbnn_learn('m', round(M(1, 1)*Mcoeff), 'miterator', miterator(1,m), 'l', l, 'c', c, 'Chi', Chi, ...
                                                                                                         'enable_overlays', enable_overlays, 'overlays_max', overlays_max, 'overlays_interpolation', overlays_interpolation, ...
                                                                                                         'silent', silent);
         else % Optimization trick: instead of relearning the whole network, we will reuse the previous network and just add more messages, this allows to decrease the learning time exponentially, rendering it constant (at each learning, the network will learn the same amount of messages: eg: iteration 1 will learn 1E5 messages, iteration 2 will learn 1E5 messages and reuse 1E5, which will totalize as 2E5, etc...)
             [cnetwork, s2, density] = gbnn_learn('cnetwork', cnetwork, ...
-                                                        'm', (M(1, m)-M(1,m-1))*Mcoeff, 'miterator', miterator(1,m), 'l', l, 'c', c, 'Chi', Chi, ...
+                                                        'm', round((M(1, m)-M(1,m-1))*Mcoeff), 'miterator', miterator(1,m), 'l', l, 'c', c, 'Chi', Chi, ...
                                                         'enable_overlays', enable_overlays, 'overlays_max', overlays_max, 'overlays_interpolation', overlays_interpolation, ...
                                                         'silent', silent);
             thriftymessages = [thriftymessages ; s2]; % append new messages

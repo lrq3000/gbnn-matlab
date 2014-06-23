@@ -45,10 +45,10 @@ for c=1:numel(C) % for each value of c
     for m=1:numel(M) % and for each value of m, we will do a run
         % Launch the run
         if m == 1
-            [cnetwork, thriftymessages, density] = gbnn_learn('m', M(1, m)*Mcoeff, 'miterator', miterator(1,m), 'l', l, 'c', C(1, c), 'Chi', Chi, 'silent', silent);
+            [cnetwork, thriftymessages, density] = gbnn_learn('m', round(M(1, m)*Mcoeff), 'miterator', miterator(1,m), 'l', l, 'c', C(1, c), 'Chi', Chi, 'silent', silent);
         else % Optimization trick: instead of relearning the whole network, we will reuse the previous network and just add more messages, this allows to decrease the learning time exponentially, rendering it constant (at each learning, the network will learn the same amount of messages: eg: iteration 1 will learn 1E5 messages, iteration 2 will learn 1E5 messages and reuse 1E5, which will totalize as 2E5, etc...)
             [cnetwork, s2, density] = gbnn_learn('cnetwork', cnetwork, ...
-                                                        'm', (M(1, m)-M(1,m-1))*Mcoeff, 'miterator', miterator(1,m), 'l', l, 'c', C(1, c), 'Chi', Chi, ...
+                                                        'm', round((M(1, m)-M(1,m-1))*Mcoeff), 'miterator', miterator(1,m), 'l', l, 'c', C(1, c), 'Chi', Chi, ...
                                                         'silent', silent);
             thriftymessages = [thriftymessages ; s2]; % append new messages
         end
