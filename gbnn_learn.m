@@ -42,6 +42,11 @@ arguments_defaults = struct( ...
     'cnetwork', [], ... % Reuse a previously learned network, just append new messages (lower number of messages to learn this way)
     'miterator', 0, ... % Learn messages in small batches to avoid memory overflow
     ...
+    ... % Overlays / Tags extension
+    'enable_overlays', false, ...
+    'overlays_max', 0, ...
+    'overlays_interpolation', 'norm', ...
+    ...
     ... % Debug stuffs
     'silent', false);
 
@@ -87,6 +92,7 @@ if ~exist('cnetwork', 'var') || isempty(cnetwork) || isempty(cnetwork.primary) %
             'n', n, ...
             'sparse_cliques', sparse_cliques) ...
         );
+    if enable_overlays; cnetwork.primary.net = double(cnetwork.primary.net); end; % if we will compute overlays, it's useless to have a logical matrix since it will contain integers
 else
     networkprovided = true;
 end
@@ -184,9 +190,31 @@ for M = 1:mloop
 
     % Moved to gbnn_construct_network.m
     if M == 1 && ~networkprovided % case when network is empty, this is faster
-        cnetwork.primary.net = gbnn_construct_network(thriftymessages);
+        if ~enable_overlays % Standard case: a simple matrix multiplication to create an adjacency matrix
+            cnetwork.primary.net = gbnn_construct_network(thriftymessages);
+        else % Overlays/Tags case: a generalized matrix multiplication max-of-products to assign to each edge the tag id of the latest message learned (instead of always having a tag of 1)
+            overlays_range = (1:m)'; % Assign a unique overlay id to each message. We will reduce the number of overlays/tags later at correction/prediction step, so that we can learn only one network and try several different number of tags or reduction methods without having to relearn another network.
+            %if overlays_max > 1 % if you would rather reduce the number of overlays directly at the learning step instead of correct step, you can do it here like this.
+                %if strcmpi(overlays_interpolation, 'mod')
+                    %overlays_range = mod(overlays_range-1, 3)+1;
+                %end
+            %end
+            cnetwork.primary.net = gbnn_construct_network(bsxfun(@times, double(thriftymessages), overlays_range), double(thriftymessages), @max, @times); % Overlays computation = Generalized matrix multiplication, with max-of-products instead of sum-of-products (so that for each edge we keep the tag id of the latest/most recent message learned, in the order of the messages stack).
+        end
     else % case when we iteratively append new messages (either because of miterator or because user provided a network to reuse), we update the previous network
-        cnetwork.primary.net = or(cnetwork.primary.net, gbnn_construct_network(thriftymessages));
+        if ~enable_overlays % Standard case: a simple matrix multiplication to create an adjacency matrix
+            cnetwork.primary.net = or(cnetwork.primary.net, gbnn_construct_network(thriftymessages)); % use a or() to iteratively append new edges over the old ones
+        else % Overlays/Tags case
+            prev_max_overlay = max(cnetwork.primary.net(:)); % Assign a unique overlay id to each message, same as above...
+            overlays_range = (1+prev_max_overlay:m+prev_max_overlay)'; % Offset because of the miterator
+            cnetwork.primary.net = max(cnetwork.primary.net, gbnn_construct_network(bsxfun(@times, double(thriftymessages), overlays_range), double(thriftymessages), @max, @times)); % same as above...
+        end
+    end
+
+    % Attach overlays arguments in the network structure
+    if enable_overlays
+        cnetwork.primary.args.overlays_max = overlays_max;
+        cnetwork.primary.args.overlays_interpolation = overlays_interpolation;
     end
 
     if ~silent; aux.printtime(toc()); end; % just to show performance, learning the network (adjacency matrix) _was_ the bottleneck
@@ -207,7 +235,7 @@ if ~silent; fprintf('-- Finished learning!\n'); aux.flushout(); end;
 
 
 % == Compute density and some practical and theoretical stats
-real_density = full(  (sum(sum(cnetwork.primary.net)) - sum(diag(cnetwork.primary.net))) / (Chi*(Chi-1) * l^2)  );
+real_density = full(  (nnz(cnetwork.primary.net) - nnz(diag(cnetwork.primary.net))) / (Chi*(Chi-1) * l^2)  );
 cnetwork.primary.args.density = real_density;
 if ~silent
     fprintf('-- Computing density\n'); aux.flushout();

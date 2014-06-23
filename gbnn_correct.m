@@ -98,6 +98,33 @@ if concurrent_cliques > 1 && k > n && ~(strcmpi(filtering_rule, 'WTA') || strcmp
 end
 
 
+% Select the network on which we will work
+net = cnetwork.(cnetwork_choose).net;
+netargs = cnetwork.(cnetwork_choose).args;
+
+% Overlays reduction preprocessing: if enabled, we reduce the number of overlays to a fixed number. To do this, we interpolate the messages ids inside the network by various methods.
+% The goal is to preserve the ids but assign them a new id (which will maybe merge them with other messages, but at least one message isn't broken into parts, see 'uniform' comment for more details).
+% Note: we reduce the number of tags at correction and not at learning just for efficiency sake in experiments: this allows us to learn only one network and then try any number of tags we want with any method without having to recompute the network everytime. Of course, in a real setting, you should do the reduction just after the learning (or even during) to reduce the prediction/correction step footprint (at the cost of a longer learning step).
+if strcmpi(propagation_rule, 'overlays')
+    if netargs.overlays_max > 0 % If overlays_max == 0 then we use all overlays
+        % Modulo reduction: use a sort of roulette to assign new overlay ids. Eg: for overlays_max == 3, the network [1 2 3 ; 4 5 6] will be reduced to [1 2 3 ; 1 2 3]
+        if strcmpi(netargs.overlays_interpolation, 'mod')
+            net = spfun(@(x) mod(x-1, netargs.overlays_max)+1, net);
+        % Renormalization reduction: renormalize all overlays into the reduced range, but preserve their order (old messages will still get the lowest numbers and most recent messages will have highest). Eg: for overlays_max == 3, the network [1 2 3 ; 4 5 6] will be reduced to [1 1 2 ; 2 3 3]
+        elseif strcmpi(netargs.overlays_interpolation, 'norm')
+            maxa = max(nonzeros(net));
+            mina = min(nonzeros(net));
+            net = ceil(spfun(@(x) ((x-(mina-1)) / (maxa-(mina-1))), net) * netargs.overlays_max); % note: we use ceil to make sure that we don't lose any fanal because of rounding (near 0 isn't 0 but is an activable fanal, thus we should not set it to 0)
+        % Random uniform reduction: reassign a random id to every message, in the range of overlays_max. Eg: for overlays_max == 3, the network [1 1 3 3 ; 5 5 7 7] _can_ be reduced to [2 2 1 1 ; 2 2 3 3] or to any other randomly picked set of reassignment. Note that all messages with the same id will be reassigned to the same id (eg: [1 1 1] can be reassigned to [3 3 3] but NOT to [1 2 3] because this breaks the message into parts instead of preserving it).
+        elseif strcmpi(netargs.overlays_interpolation, 'uniform')
+            maxa = max(nonzeros(net));
+            random_map = randi(netargs.overlays_max, maxa, 1);
+            % net = spfun(@(x) random_map(x), net); % SLOWER than direct indexing!
+            net(net > 0) = random_map(nonzeros(net)); % faster!
+        end
+    end
+end
+
 % #### Correction phase
 for iter=1:iterations % To let the network converge towards a stable state...
     if ~silent
@@ -107,9 +134,6 @@ for iter=1:iterations % To let the network converge towards a stable state...
 
     % 1- Update the network's state: Push message and propagate through the network
     % NOTE: this is the CPU bottleneck if you use many messages with c > 8
-
-    % Select the network on which we will work
-    net = cnetwork.(cnetwork_choose).net;
 
     % Propagate on the primary network
     % -- Vectorized version - fastest and low memory overhead
@@ -125,10 +149,19 @@ for iter=1:iterations % To let the network converge towards a stable state...
         else % MatLab cannot do matrix multiplication on logical matrices...
             propag = (double(partial_messages') * double(net))';
         end
+    % Overlays global propagation: compute the mode-of-products and then the sum-of-equalities with the mode. The goal is to activate all fanals in the network which are in the input message, then extract all the edges that will be activated, then look at their tags id and keep the major one (by using a mode). Then we filter all the other edges except the ones having this tag. End of global overlays propagation.
+    % Note the heavy usage of the generalized matrix multiplication.
+    elseif strcmpi(propagation_rule, 'overlays')
+        fastmode = @(x) max(aux.fastmode(nonzeros(x))); % prepare the fastmode function (in case of draw between two values which are both the mode, keep the maximum one = most recent one)
+        winner_overlays = gmtimes(double(partial_messages'), net, fastmode, @times, [mpartial, 1])'; % compute the mode-of-products to fetch the major tag per message
+        partial_messages = partial_messages .* bsxfun(@times, double(partial_messages), winner_overlays); % prepare the input messages with the mode (instead of binary message, each message will be assigned the id of its major tag)
+        propag = gmtimes(partial_messages', net, @sum, @(a,b) and(full(a>0), bsxfun(@eq, a, b))); % finally, compute the sum-of-equalities: we activate only the edges corresponding to the major tag for this message.
+        %@(a,b) and(full(a > 0), eq(full(a),full(b)))
+        propag = propag';
     % Else error, the propagation_rule does not exist
     else
         error('Unrecognized propagation_rule: %s', propagation_rule);
-    % TODO: sum-of-max use spfunc() or arrayfun() to do a custom matrix computation per column: first an and, then a reshape to get only nodes per cluster on one colum, then any, then we have our new message! Or compute sos then diff(sos - som) then sos - diff(sos-sum)
+    % TODO: sum-of-max use spfun() or arrayfun() to do a custom matrix computation per column: first an and, then a reshape to get only nodes per cluster on one column, then any, then we have our new message! Or compute sos then diff(sos - som) then sos - diff(sos-sum)
     % TODO: Sum-of-Max = for each node, compute the sum of incoming link per cluster (thus if a node is connected to 4 other nodes, but 3 of them belong to the same cluster, the score will be 2 = 1 for the node alone in its cluster + 1 for the other 3 belonging to the same cluster).
     % TODO: Normalized Sum-of-Sum = for each node, compute the sum of sum but divide the weight=1 of each incoming link by the number of activated node in the cluster where the link points to (thus if a node is connected to 4 other nodes, but 3 of them belong to the same cluster, the score will be 1 + 1/3 + 1/3 + 1/3 = 2). The score will be different than Sum of Max if concurrent_cliques is enabled (because then the number of activated nodes can be higher and divide more the incoming scores).
     end
@@ -136,7 +169,7 @@ for iter=1:iterations % To let the network converge towards a stable state...
     % Propagate in parallel on the auxiliary network
     mes_echo = [];
     if isfield(cnetwork, 'auxiliary') && strcmpi(cnetwork_choose, 'primary')
-    
+
         if ~silent
             fprintf('Propagating through auxiliary network...\n'); aux.flushout();
             auxpropagtime = cputime();
