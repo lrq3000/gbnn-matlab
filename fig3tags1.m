@@ -1,4 +1,4 @@
-% Overlays network: Berhooz network vs overlays benchmark
+% Overlays network: Berhooz network vs overlays benchmark. Please use Octave >= 3.8.1 for reasonable performances!
 
 % Clear things up
 clear all;

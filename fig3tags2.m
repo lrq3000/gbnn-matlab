@@ -1,4 +1,4 @@
-% Overlays network: overlays number reduction algorithms benchmark
+% Overlays network: overlays number reduction algorithms benchmark. Please use Octave >= 3.8.1 for reasonable performances!
 
 % Clear things up
 clear all;
