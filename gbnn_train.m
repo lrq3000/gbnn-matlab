@@ -1,4 +1,4 @@
-function [cnetwork, real_density_aux, real_density_bridge] = gbnn_train(varargin)
+function [cnetwork, real_density_aux, real_density_bridge, auxfullcell] = gbnn_train(varargin)
 %
 % [cnetwork, thriftymessages, density] = gbnn_learn(cnetwork, thriftymessagestest, ...
 %                                                                       l, c, Chi, ...
@@ -74,6 +74,10 @@ if ~silent; totalperf = cputime(); end; % for total time perfs
 
 varargin = aux.delarg({'l', 'c', 'Chi', 'no_auxiliary_propagation', 'train_on_full_cliques', 'training_batchs'}, varargin);
 
+if nargout >= 4
+    auxfullcell = {[]; []};
+end
+
 if ~silent; fprintf('#### Training phase (try to remember messages and disambiguate conflicting messages with the help of an auxiliary network)\n'); aux.flushout(); end;
 for tb=1:training_batchs
     if ~train_on_full_cliques
@@ -120,6 +124,11 @@ for tb=1:training_batchs
         cnetwork.auxiliary.net = [];
         if ~no_auxiliary_propagation
             cnetwork.auxiliary.net = or(cnetwork.auxiliary.net, gbnn_construct_network(rand_aux_fanals, rand_aux_fanals));
+        end
+
+        if nargout >= 4
+            auxfullcell{1} = [auxfullcell{1}; testset];
+            auxfullcell{2} = [auxfullcell{2}; rand_aux_fanals'];
         end
 
     end
