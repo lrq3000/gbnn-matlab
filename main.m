@@ -118,10 +118,10 @@ l = 64;
 Chi = 100;
 erasures = floor(c/2);
 iterations = 4;
-tampered_messages_per_test = 200;
+tampered_messages_per_test = 2000;
 tests = 1;
 
-enable_guiding = true;
+enable_guiding = false;
 gamma_memory = 0;
 threshold = c-erasures;
 propagation_rule = 'sum'; % TODO: not implemented yet, please always set 0 here
@@ -129,7 +129,7 @@ filtering_rule = 'GWsTA';
 tampering_type = 'erase';
 
 residual_memory = 0;
-concurrent_cliques = 2;
+concurrent_cliques = 1;
 no_concurrent_overlap = true;
 concurrent_successive = false;
 GWTA_first_iteration = false;

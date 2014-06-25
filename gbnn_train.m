@@ -7,7 +7,7 @@ function [cnetwork, real_density_aux, real_density_bridge] = gbnn_train(varargin
 % Trains a network: disambiguate conflicting memorized messages by constructing an auxiliary network everytime a message cannot be retrieved unambiguously (without spurious fanals).
 %
 % This function supports named arguments, use it like this:
-% gbnn_test('cnetwork', mynetwork, 'thriftymessagestest', thriftymessagestest, 'l', 4, 'c', 3)
+% gbnn_train('cnetwork', mynetwork, 'thriftymessagestest', thriftymessagestest, 'l', 4, 'c', 3)
 %
 % NOTE: networks arguments passed here (like l, c, Chi) are the parameters for the auxiliary network, not for the primary! For example, auxiliary's c should be a lot smaller than primary's c.
 %
@@ -134,8 +134,13 @@ if isfield(cnetwork, 'auxiliary')
 
     cnetwork.auxiliary.args.density = real_density_aux;
     cnetwork.auxiliary.args.density_bridge = real_density_bridge;
-    cnetwork.auxiliary.args.mean_links_prim2aux = full(mean(nonzeros(sum(cnetwork.auxiliary.prim2auxnet'))) / c); % mean auxiliary clique per primary fanal
-    cnetwork.auxiliary.args.mean_links_aux2prim = full(mean(nonzeros(sum(cnetwork.auxiliary.prim2auxnet))) / cnetwork.primary.args.c); % mean number of primary clique linked to one auxiliary fanal
+    cnetwork.auxiliary.args.links_prim2aux = full(sum(cnetwork.auxiliary.prim2auxnet'));
+    cnetwork.auxiliary.args.links_aux2prim = full(sum(cnetwork.auxiliary.prim2auxnet));
+    cnetwork.auxiliary.args.cliques_prim2aux = cnetwork.auxiliary.args.links_prim2aux / cnetwork.auxiliary.args.c;
+    cnetwork.auxiliary.args.cliques_aux2prim = cnetwork.auxiliary.args.links_aux2prim / cnetwork.primary.args.c;
+    cnetwork.auxiliary.args.cliques_prim2aux_mean = mean(nonzeros(cnetwork.auxiliary.args.cliques_prim2aux)); % mean auxiliary clique per primary fanal
+    cnetwork.auxiliary.args.cliques_aux2prim_mean = mean(nonzeros(cnetwork.auxiliary.args.cliques_aux2prim)); % mean number of primary clique linked to one auxiliary fanal
+    
 end
 
 if ~silent

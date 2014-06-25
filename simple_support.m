@@ -8,30 +8,30 @@ close all;
 aux = gbnn_aux; % works with both MatLab and Octave
 
 % Primary network params
-m = 500; % 10000;
+m = 1000; % 500; % 10000;
 c = 8; % 8;
 l = 16; % 32;
 Chi = 32; % 64;
 gamma_memory = 1;
-iterations = 1;
+iterations = 4;
 tests = 1;
-tampered_messages_per_test = 200;
+tampered_messages_per_test = m;
 filtering_rule = 'GWsTA';
-erasures = floor(c/2);
+erasures = 1; %floor(c/2);
 enable_guiding = false;
 
 % Training params (auxiliary network)
 train = true;
-c2 = floor(c/3);
-l2 = l*2;
-Chi2 = Chi*2;
+c2 = max(floor(c/3), 2);
+l2 = l*20;
+Chi2 = Chi*5;
 training_batchs = 1;
 trainsetsize = m*training_batchs; %floor(m/trainingbatchs);
-no_auxiliary_propagation = true;
-train_on_full_cliques = false;
+no_auxiliary_propagation = false; % false for concur cliques
+train_on_full_cliques = 0; % false for concur cliques
 
 % Concurrency params
-concurrent_cliques = 1;
+concurrent_cliques = 2;
 no_concurrent_overlap = true;
 
 % Verbose?
@@ -60,12 +60,15 @@ error_rate = gbnn_test('cnetwork', cnetwork, 'thriftymessagestest', thriftymessa
 if ~silent
     aux.printcputime(cputime() - tperf, 'Total cpu time elapsed to do everything: %g seconds.\n'); aux.flushout(); % print total time elapsed
 
-    real_density_aux
-    real_density_bridge
-    if isfield(cnetwork, 'auxiliary')
-        mean_links_prim2aux = cnetwork.auxiliary.args.mean_links_prim2aux
-        mean_links_aux2prim = cnetwork.auxiliary.args.mean_links_aux2prim
+    if train
+        real_density_aux
+        real_density_bridge
+        if isfield(cnetwork, 'auxiliary')
+            cliques_prim2aux_mean = cnetwork.auxiliary.args.cliques_prim2aux_mean
+            cliques_aux2prim_mean = cnetwork.auxiliary.args.cliques_aux2prim_mean
+        end
     end
 end
+
 
 % The end!

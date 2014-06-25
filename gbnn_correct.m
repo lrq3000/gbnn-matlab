@@ -1,4 +1,4 @@
-function partial_messages = gbnn_correct(varargin)
+function [partial_messages, propag] = gbnn_correct(varargin)
 %
 % partial_messages = gbnn_correct(cnetwork, partial_messages, ...
 %                                                                                  iterations, ...
@@ -182,22 +182,45 @@ for iter=1:iterations % To let the network converge towards a stable state...
         else
             mes_echo = (double(mes_echo') * double(cnetwork.auxiliary.prim2auxnet))';
         end
+        % FILTERING -1: binarize the echo: WRONG!
+        %mes_echo = logical(mes_echo); % NEVER just binarize the echo: this will give as much power to spurious auxiliary fanals as to correct auxiliary fanals! Because it's quite rare that all fanals of a primary clique are all linked exclusively to one auxiliary clique, you have great chances that at least one primary fanal will trigger two different auxiliary cliques, and thus produce confusion. By binarizing, all auxiliary cliques will have an equal weight, which is false because false auxiliary cliques have a lower score before binarizing, and we should take that into account!
+        % FILTERING 0: do nothing! Just filter at the echo back!
+        % FILTERING 1
+        %mes_echo = bsxfun(@eq, mes_echo, max(mes_echo)); % GWTA: keep only the max values
+        % FILTERING 1.5 : keep max but keep their original values
+        mes_echo = bsxfun(@eq, mes_echo, max(mes_echo));
+        mes_echo = bsxfun(@times, mes_echo, max(mes_echo));
+        % FILTERING 2
+        %mes_echo(mes_echo < c) = 0;
+        %mes_echo = logical(mes_echo);
+
 
         % Propagate through the auxiliary network to find the correct clique
         if ~isempty(cnetwork.auxiliary.net)
-            mes_echo = logical(mes_echo); % should be logical else it will be converted into thrifty code by gbnn_messages2thrifty.m automatically!
-            mes_echo = gbnn_correct('cnetwork', cnetwork, 'partial_messages', mes_echo, 'cnetwork_choose', 'auxiliary', 'filtering_rule', 'binary', 'silent', true);
+            %mes_echo = logical(mes_echo); % should be logical else it will be converted into thrifty code by gbnn_messages2thrifty.m automatically!
+            mes_echo = bsxfun(@eq, mes_echo, max(mes_echo));
+            mes_echo = gbnn_correct('cnetwork', cnetwork, 'partial_messages', mes_echo, 'cnetwork_choose', 'auxiliary', 'filtering_rule', 'none', 'silent', true);
         end
 
         % Echo back from auxiliary to primary
-        mes_echo = logical(mes_echo);
         if aux.isOctave()
             mes_echo = (mes_echo' * cnetwork.auxiliary.prim2auxnet')';
         else
             mes_echo = (double(mes_echo') * double(cnetwork.auxiliary.prim2auxnet'))';
         end
-
+        % FILTERING -1: binarize
         %mes_echo = logical(mes_echo);
+        % FILTERING 1
+        %mes_echo = bsxfun(@eq, mes_echo, max(mes_echo));
+        % FILTERING 1.5 : keep max but keep their original values
+        %mes_echo = bsxfun(@eq, mes_echo, max(mes_echo));
+        %mes_echo = bsxfun(@times, mes_echo, max(mes_echo));
+        % FILTERING 2
+        mes_echo(mes_echo < cnetwork.auxiliary.args.c) = 0;
+        mes_echo = logical(mes_echo);
+        
+        % BEST COMBINATION: 1.5 + 2
+
         propag = propag + mes_echo; % auxiliary network echo
 
         if ~silent
