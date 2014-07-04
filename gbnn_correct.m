@@ -105,7 +105,7 @@ netargs = cnetwork.(cnetwork_choose).args;
 % Overlays reduction preprocessing: if enabled, we reduce the number of overlays to a fixed number. To do this, we interpolate the messages ids inside the network by various methods.
 % The goal is to preserve the ids but assign them a new id (which will maybe merge them with other messages, but at least one message isn't broken into parts, see 'uniform' comment for more details).
 % Note: we reduce the number of tags at correction and not at learning just for efficiency sake in experiments: this allows us to learn only one network and then try any number of tags we want with any method without having to recompute the network everytime. Of course, in a real setting, you should do the reduction just after the learning (or even during) to reduce the prediction/correction step footprint (at the cost of a longer learning step).
-if strcmpi(propagation_rule, 'overlays')
+if strcmpi(propagation_rule, 'overlays') || strcmpi(propagation_rule, 'overlays_ehsan')
     if netargs.overlays_max > 0 % If overlays_max == 0 then we use all overlays
         % Modulo reduction: use a sort of roulette to assign new overlay ids. Eg: for overlays_max == 3, the network [1 2 3 ; 4 5 6] will be reduced to [1 2 3 ; 1 2 3]
         if strcmpi(netargs.overlays_interpolation, 'mod')
@@ -138,16 +138,16 @@ for iter=1:iterations % To let the network converge towards a stable state...
     % Propagate on the primary network
     % -- Vectorized version - fastest and low memory overhead
     % Sum-of-Sum: we simply compute per node the sum of all incoming activated edges
-    if strcmpi(propagation_rule, 'sum')
+    if strcmpi(propagation_rule, 'sum') || strcmpi(propagation_rule, 'overlays_filter')
         % We use the standard way to compute the propagation in an adjacency matrix: by matrix multiplication
         % Sum-of-Sum / Matrix multiplication is the same as computing the in-degree(a) for each node a, since each connected and activated link to a is equivalent to +1, thus this is equivalent to the total number of connected and activated link to a.
         % This operation may seem daunting but in fact it's quite simple and just does what it sounds like: for each message (row in the transposed partial_messages matrix = in fanal), we check if any of its activated fanal is connect to any of the network's fanal (1 out fanal = 1 column of the net's matrix). The result is the sum or count of the number of in connections for each of the network's fanals.
         % Or you can see the network as a black box: it simply transforms one list of messages into another format conditionally on the network's links.
         if aux.isOctave()
-            propag = (partial_messages' * net)'; % Propagate the previous message state by using a simple matrix product (equivalent to similarity/likelihood? or is it more like a markov chain convergence?). Eg: if network = [0 1 0 ; 1 0 0], partial_messages = [1 1 0] will match quite well: [1 1 0] while partial_messages = [0 0 1] will not match at all: [0 0 0]
+            propag = (partial_messages' * logical(net))'; % Propagate the previous message state by using a simple matrix product (equivalent to similarity/likelihood? or is it more like a markov chain convergence?). Eg: if network = [0 1 0 ; 1 0 0], partial_messages = [1 1 0] will match quite well: [1 1 0] while partial_messages = [0 0 1] will not match at all: [0 0 0]
             % WRONG: net * partial_messages : this works only with non-bridge networks (eg: primary, auxiliary, but not with prim2auxnet !)
         else % MatLab cannot do matrix multiplication on logical matrices...
-            propag = (double(partial_messages') * double(net))';
+            propag = (double(partial_messages') * double(logical(net)))';
         end
     % Overlays global propagation: compute the mode-of-products and then the sum-of-equalities with the mode. The goal is to activate all fanals in the network which are in the input message, then extract all the edges that will be activated, then look at their tags id and keep the major one (by using a mode). Then we filter all the other edges except the ones having this tag. End of global overlays propagation.
     % Note the heavy usage of the generalized matrix multiplication.
@@ -193,13 +193,15 @@ for iter=1:iterations % To let the network converge towards a stable state...
         % FILTERING 2
         %mes_echo(mes_echo < c) = 0;
         %mes_echo = logical(mes_echo);
-
+        % FILTERING 3: inhibition
+        %mes_echo(mes_echo >= cnetwork.auxiliary.args.c) = 0;
+        %mes_echo = logical(mes_echo);
 
         % Propagate through the auxiliary network to find the correct clique
         if ~isempty(cnetwork.auxiliary.net)
             %mes_echo = logical(mes_echo); % should be logical else it will be converted into thrifty code by gbnn_messages2thrifty.m automatically!
             mes_echo = bsxfun(@eq, mes_echo, max(mes_echo));
-            mes_echo = gbnn_correct('cnetwork', cnetwork, 'partial_messages', mes_echo, 'cnetwork_choose', 'auxiliary', 'filtering_rule', 'none', 'silent', true);
+            mes_echo = gbnn_correct('cnetwork', cnetwork, 'partial_messages', mes_echo, 'cnetwork_choose', 'auxiliary', 'filtering_rule', 'gwsta', 'silent', true);
         end
 
         % Echo back from auxiliary to primary
@@ -218,10 +220,14 @@ for iter=1:iterations % To let the network converge towards a stable state...
         % FILTERING 2
         mes_echo(mes_echo < cnetwork.auxiliary.args.c) = 0;
         mes_echo = logical(mes_echo);
+        % FILTERING 3: inhibition
+        %mes_echo(mes_echo >= cnetwork.auxiliary.args.c) = 0;
+        %mes_echo = logical(mes_echo);
         
         % BEST COMBINATION: 1.5 + 2
 
         propag = propag + mes_echo; % auxiliary network echo
+        %propag = propag - mes_echo; % inhibition
 
         if ~silent
             aux.printcputime(cputime - auxpropagtime, 'Elapsed cpu time for auxiliary propagation is %g seconds.\n'); aux.flushout();
@@ -462,10 +468,24 @@ for iter=1:iterations % To let the network converge towards a stable state...
         out = reshape(out, n, mpartial);
     end
 
+    % Overlays filtering: instead of filtering at propagation time, we first propagate, then filter using GWsTA just like usually, and then only we filter by tags, just like a guiding mask but totally unsupervised (this is Ehsan's way)
+    if strcmpi(propagation_rule, 'overlays_filter')
+        fastmode = @(x) max(aux.fastmode(nonzeros(x))); % prepare the fastmode function (in case of draw between two values which are both the mode, keep the maximum one = most recent one)
+        winner_overlays = gmtimes(double(out'), net, fastmode, @times, [mpartial, 1])'; % compute the mode-of-products to fetch the major tag per message
+        out = out .* bsxfun(@times, double(out), winner_overlays); % prepare the input messages with the mode (instead of binary message, each message will be assigned the id of its major tag)
+        out = gmtimes(out', net, @sum, @(a,b) and(full(a>0), bsxfun(@eq, a, b))); % finally, compute the sum-of-equalities: we activate only the edges corresponding to the major tag for this message.
+        %@(a,b) and(full(a > 0), eq(full(a),full(b)))
+        out = out';
+    end
+
     % Residual memory
     if residual_memory > 0
         out = out + (residual_memory .* partial_messages); % residual memory: previously activated nodes lingers a bit (a fraction of their activation score persists) and participate in the next iteration
     end
+    
+    %if isfield(cnetwork, 'auxiliary') && strcmpi(cnetwork_choose, 'primary')
+        %propag = propag + mes_echo;
+    %end
 
     partial_messages = out; % set next messages state as current
     if ~silent; aux.printtime(toc()); end;

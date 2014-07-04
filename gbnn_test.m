@@ -404,18 +404,43 @@ end
 error_rate = err / (tests * tampered_messages_per_test); % NOTE: if you use concurrent_cliques > 1, error_rate is not a good measure, because you artificially increase the probability of having a wrong message by concurrent_cliques times (since you're not testing one but concurrent_cliques messages at the same time), and there's no way to correct this biased estimator since we can't know which clique caused which bit flip (eg: concurrent_cliques = 3 and there are 3 wrong bits: are they caused by the three messages, or by only 1 and the other two are in fact corrects?). You should rather try error_distance in this case.
 % Compute density
 real_density = full(  (nnz(cnetwork.primary.net) - nnz(diag(cnetwork.primary.net))) / (Chi*(Chi-1) * l^2)  );
+%real_density = 0;
+%if ~strcmpi(propagation_rule, 'overlays')
+%    real_density = full(  (nnz(cnetwork.primary.net) - nnz(diag(cnetwork.primary.net))) / (Chi*(Chi-1) * l^2)  );
+%else
+%    alltags = unique(nonzeros(cnetwork.primary.net));
+%    for tg = 1:numel(alltags)
+%        real_density = real_density + full(  (nnz(cnetwork.primary.net == alltags(tg)) - nnz(diag(cnetwork.primary.net == alltags(tg)))) / (Chi*(Chi-1) * l^2)  );
+%    end
+%    real_density = real_density / numel(alltags);
+%end
+
 % Compute theoretical error rate
 theoretical_error_rate = -1;
-if ~enable_guiding % different error rate when guided mask is enabled (and it's lower than blind decoding)
-    %theoretical_error_rate = 1 - (1 - real_density^(c-erasures))^(erasures*(l-1)+l*(Chi-c)); % = spurious_cliques_proba. spurious cliques = nonvalid cliques that we did not memorize and which rests inopportunely on the edges of valid cliques, which we learned and want to remember. In other words: what is the probability of emergence of wrong cliques that we did not learn but which emerges from combinations of cliques we learned? This is influenced heavily by the density (higher density = more errors). Also, error rate is only per one iteration, if you use more iterations to converge the real error may be considerably lower. % NOTE: this is the correct error rate from the 2014 Behrooz paper but works only if concurrent_cliques = 1.
-    theoretical_error_rate = 1 - binocdf(c-erasures-1, concurrent_cliques*(c-erasures), real_density)^(erasures*(l-1)+l*(Chi-c)); % generalization of the error rate given in the 2014 Behrooz paper, this works with any value of concurrent_cliques
+if strcmpi(propagation_rule, 'overlays') && cnetwork.primary.args.overlays_max ~= 1
+    if cnetwork.primary.args.overlays_max == 0
+        coeff = max(max(cnetwork.primary.net));
+    else
+        coeff = cnetwork.primary.args.overlays_max;
+    end
+    real_density = real_density / coeff;
+    if ~enable_guiding
+        theoretical_error_rate = 1 - (1 - real_density)^(erasures*(l-1)+l*(Chi-c));
+    else
+        theoretical_error_rate = 1 - (1 - real_density)^(erasures*(l-1));
+    end
 else
-    %theoretical_error_rate = 1 - (1 - real_density^(c-erasures))^(erasures*(l-1)); % correct error rate from the 2014 Behrooz paper but works only if concurrent_cliques = 1.
-    theoretical_error_rate = 1 - binocdf(c-erasures-1, concurrent_cliques*(c-erasures), real_density)^(erasures*(l-1)); % still the same generalization, but in guided mode so we count less many potentially spurious fanals (since we can exclude all clusters that the mask is excluding)
-end
-if concurrent_cliques > 1
-    %theoretical_error_rate = 1-(1-theoretical_error_rate)^concurrent_cliques; WRONG, this just "doubles" the risk of spurious fanal for each concurrent clique, but it does not account for all possible combinations, you have to use a cumulative binomial distribution to count that!
-    error_rate = 1 - (1 - error_rate)^(1/concurrent_cliques); % unbias approximation the real error rate by averaging, because statistically we exponentiate the error rate by the number of messages: error_rate^concurrent_cliques. Here we try to unbias that by finding the square root and thus to get error_rate per message, and not per concurrent_cliques messages as it is if biased. NOTE: remember that this is an approximation of the unbiased error rate, because we can't know which message caused the error, which would be the only way to get the exact error rate (so that we could know if, with for example concurrent_cliques = 2, if the final recovered mixed message is wrong because of 1 of the messages, or of both. Here we have no way to tell, so we suppose that in general, only one of the messages will fail but not both).
+    if ~enable_guiding % different error rate when guided mask is enabled (and it's lower than blind decoding)
+        %theoretical_error_rate = 1 - (1 - real_density^(c-erasures))^(erasures*(l-1)+l*(Chi-c)); % = spurious_cliques_proba. spurious cliques = nonvalid cliques that we did not memorize and which rests inopportunely on the edges of valid cliques, which we learned and want to remember. In other words: what is the probability of emergence of wrong cliques that we did not learn but which emerges from combinations of cliques we learned? This is influenced heavily by the density (higher density = more errors). Also, error rate is only per one iteration, if you use more iterations to converge the real error may be considerably lower. % NOTE: this is the correct error rate from the 2014 Behrooz paper but works only if concurrent_cliques = 1.
+        theoretical_error_rate = 1 - binocdf(c-erasures-1, concurrent_cliques*(c-erasures), real_density)^(erasures*(l-1)+l*(Chi-c)); % generalization of the error rate given in the 2014 Behrooz paper, this works with any value of concurrent_cliques
+    else
+        %theoretical_error_rate = 1 - (1 - real_density^(c-erasures))^(erasures*(l-1)); % correct error rate from the 2014 Behrooz paper but works only if concurrent_cliques = 1.
+        theoretical_error_rate = 1 - binocdf(c-erasures-1, concurrent_cliques*(c-erasures), real_density)^(erasures*(l-1)); % still the same generalization, but in guided mode so we count less many potentially spurious fanals (since we can exclude all clusters that the mask is excluding)
+    end
+    if concurrent_cliques > 1
+        %theoretical_error_rate = 1-(1-theoretical_error_rate)^concurrent_cliques; WRONG, this just "doubles" the risk of spurious fanal for each concurrent clique, but it does not account for all possible combinations, you have to use a cumulative binomial distribution to count that!
+        error_rate = 1 - (1 - error_rate)^(1/concurrent_cliques); % unbias approximation the real error rate by averaging, because statistically we exponentiate the error rate by the number of messages: error_rate^concurrent_cliques. Here we try to unbias that by finding the square root and thus to get error_rate per message, and not per concurrent_cliques messages as it is if biased. NOTE: remember that this is an approximation of the unbiased error rate, because we can't know which message caused the error, which would be the only way to get the exact error rate (so that we could know if, with for example concurrent_cliques = 2, if the final recovered mixed message is wrong because of 1 of the messages, or of both. Here we have no way to tell, so we suppose that in general, only one of the messages will fail but not both).
+    end
 end
 
 %theoretical_error_correction_proba = 1 - theoretical_error_rate

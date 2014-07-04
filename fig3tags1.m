@@ -10,20 +10,20 @@ aux = gbnn_aux; % works with both MatLab and Octave
 
 % Preparing stuff to automate the plots
 % This will allow us to automatically select a different color and shape for each curve
-colorvec = 'rgbkmc';
+colorvec = 'rgbmc';
 markerstylevec = '+o*.xsd^v><ph';
 linestylevec = {'-' ; '--' ; ':' ; '-.'};
 
 % Vars config, tweak the stuff here
-M = 0.005:1:5.1; % this is a vector because we will try several values of m (number of messages, which influences the density)
+M = 0.05:1:5.05; % this is a vector because we will try several values of m (number of messages, which influences the density)
 %M = [0.005 5.1]; % to test both limits to check that the range is OK, the first point must be near 0 and the second point must be near 1, at least for one of the curves
 Mcoeff = 10E2;
 miterator = zeros(1,numel(M)); %M/2;
-c = 8;
-l = 16;
+c = 6;
+l = 12;
 Chi = 16;
-erasures = 4; %floor(c*0.5);
-iterations = 2; % for convergence
+erasures = 2; %floor(c*0.5);
+iterations = 1; % for convergence
 tampered_messages_per_test = 30;
 tests = 1;
 
@@ -31,6 +31,7 @@ enable_guiding = false;
 gamma_memory = 0;
 threshold = 0;
 filtering_rule = 'GWsTA';
+propagation_rule = 'overlays';
 tampering_type = 'erase';
 
 residual_memory = 0;
@@ -39,17 +40,19 @@ GWTA_last_iteration = false;
 
 % Overlays
 enable_overlays = true;
-overlays_max = [1 2 5 20 100 0];
+%overlays_max = [1 2 5 20 100 0];
+overlays_max = [1 5 0];
 overlays_interpolation = {'mod'};
 
-statstries = 5;
+statstries = 2;
 
 silent = false; % If you don't want to see the progress output
+thnodraw = false; % draw theoretical error rates?
 
 % == Launching the runs
 D = zeros(numel(M), numel(overlays_max)*numel(overlays_interpolation));
 E = zeros(numel(M), numel(overlays_max)*numel(overlays_interpolation));
-TE = zeros(numel(M), 1); % theoretical error rate depends on: Chi, l, c, erasures, enable_guiding and of course the density (theoretical or real) and thus on any parameter that changes the network (thus as the number of messages m to learn)
+TE = zeros(numel(M), numel(overlays_max)); % theoretical error rate depends on: Chi, l, c, erasures, enable_guiding and of course the density (theoretical or real) and thus on any parameter that changes the network (thus as the number of messages m to learn)
 
 for t=1:statstries
     tperf = cputime(); % to show the total time elapsed later
@@ -75,12 +78,12 @@ for t=1:statstries
             for oi=1:numel(overlays_interpolation)
                 cnetwork.primary.args.overlays_interpolation = overlays_interpolation(oi);
 
-                propagation_rule = 'sum';
-                if (enable_overlays && overlays_max(om) ~= 1); propagation_rule = 'overlays'; end;
+                prop_rule = 'sum';
+                if (enable_overlays && overlays_max(om) ~= 1); prop_rule = propagation_rule; end;
                 if (overlays_max(om) == 1); temp = cnetwork; cnetwork.primary.net = logical(cnetwork.primary.net); end;
                 [error_rate, theoretical_error_rate] = gbnn_test('cnetwork', cnetwork, 'thriftymessagestest', thriftymessages, ...
                                                                                       'erasures', erasures, 'iterations', iterations, 'tampered_messages_per_test', tampered_messages_per_test, 'tests', tests, ...
-                                                                                      'enable_guiding', enable_guiding, 'gamma_memory', gamma_memory, 'threshold', threshold, 'propagation_rule', propagation_rule, 'filtering_rule', filtering_rule, 'tampering_type', tampering_type, ...
+                                                                                      'enable_guiding', enable_guiding, 'gamma_memory', gamma_memory, 'threshold', threshold, 'propagation_rule', prop_rule, 'filtering_rule', filtering_rule, 'tampering_type', tampering_type, ...
                                                                                       'residual_memory', residual_memory, 'GWTA_first_iteration', GWTA_first_iteration, 'GWTA_last_iteration', GWTA_last_iteration, ...
                                                                                       'silent', silent);
                 if (overlays_max(om) == 1); cnetwork = temp; end;
@@ -89,7 +92,7 @@ for t=1:statstries
                 %colidx = counter+(size(D,2)/numel(enable_overlays))*(o-1);
                 D(m,counter) = D(m,counter) + density;
                 E(m,counter) = E(m,counter) + error_rate;
-                TE(m) = theoretical_error_rate;
+                TE(m, om) = theoretical_error_rate;
                 if ~silent; fprintf('-----------------------------\n\n'); end;
 
                 counter = counter + 1;
@@ -117,7 +120,7 @@ figure; hold on;
 xlabel(sprintf('Number of stored messages (M) x %.1E', Mcoeff));
 ylabel('Retrieval Error Rate');
 counter = 1; % useful to keep track inside the matrix E. This is guaranteed to be OK since we use the same order of for loops (so be careful, if you move the forloops here in plotting you must also move them the same way in the tests above!)
-for om=1:numel(overlays_max)
+for om=numel(overlays_max):-1:1
     for oi=1:numel(overlays_interpolation)
         colorcounter = om;
         if numel(overlays_interpolation) > 1; colorcounter = oi; end;
@@ -127,7 +130,7 @@ for om=1:numel(overlays_max)
         mstyleidx = mod(counter-1, numel(markerstylevec))+1; % and change marker style per plot
 
         lstyle = linestylevec(lstyleidx, 1); lstyle = lstyle{1}; % for MatLab, can't do that in one command...
-        cur_plot = plot(M, E(:,counter), sprintf('%s%s%s', lstyle, markerstylevec(mstyleidx), colorvec(coloridx))); % plot one line
+        cur_plot = plot(M, E(:,numel(overlays_max)*numel(overlays_interpolation)+1-counter), sprintf('%s%s%s', lstyle, markerstylevec(mstyleidx), colorvec(coloridx))); % plot one line
 
         plot_title = sprintf('%s', filtering_rule);
         if enable_guiding
@@ -151,21 +154,35 @@ end
 
 
 % Plot theoretical error rates
-coloridx = mod(counter, numel(colorvec))+1;
-lstyleidx = mod(counter-1, numel(linestylevec))+1;
-mstyleidx = mod(counter-1, numel(markerstylevec))+1;
+if ~thnodraw
+    %coloridx = mod(counter, numel(colorvec))+1;
+    colornm = 'k';
+    counter = 1;
+    for om=numel(overlays_max):-1:1
+        lstyleidx = mod(counter-1, numel(linestylevec))+1;
+        mstyleidx = mod(counter-1, numel(markerstylevec))+1;
 
-lstyle = linestylevec(lstyleidx, 1); lstyle = lstyle{1}; % for MatLab, can't do that in one command...
-cur_plot = plot(M, TE(:,1), sprintf('%s%s%s', lstyle, markerstylevec(mstyleidx), colorvec(coloridx))); % plot one line
+        lstyle = linestylevec(lstyleidx, 1); lstyle = lstyle{1}; % for MatLab, can't do that in one command...
+        cur_plot = plot(M, TE(:,om), sprintf('%s%s%s', lstyle, markerstylevec(mstyleidx), colornm)); % plot one line
 
-plot_title = '';
-if enable_guiding
-    plot_title = strcat(plot_title, sprintf('Guided'));
-else
-    plot_title = strcat(plot_title, sprintf('Blind'));
+        plot_title = 'Theo. ';
+        if enable_guiding
+            plot_title = strcat(plot_title, sprintf(' - Guided'));
+        else
+            plot_title = strcat(plot_title, sprintf(' - Blind'));
+        end
+        if overlays_max(om) == 1
+                plot_title = strcat(plot_title, sprintf(' - One/No tags'));
+        elseif overlays_max(om) == 0
+            plot_title = strcat(plot_title, sprintf(' - M tags'));
+        else
+            plot_title = strcat(plot_title, sprintf(' - %i tags', overlays_max(om)));
+        end
+        set(cur_plot, 'DisplayName', plot_title); % add the legend per plot, this is the best method, which also works with scatterplots and polar plots, see http://hattb.wordpress.com/2010/02/10/appending-legends-and-plots-in-matlab/
+
+        counter = counter + 1;
+    end
 end
-plot_title = strcat(plot_title, ' (Theo.)');
-set(cur_plot, 'DisplayName', plot_title); % add the legend per plot, this is the best method, which also works with scatterplots and polar plots, see http://hattb.wordpress.com/2010/02/10/appending-legends-and-plots-in-matlab/
 
 % Refresh plot with legends
 legend(get(gca,'children'),get(get(gca,'children'),'DisplayName')); % IMPORTANT: force refreshing to show the legend, else it won't show!

@@ -23,7 +23,7 @@ c = 8;
 l = 1;
 Chi = 256;
 erasures = floor(c*0.25);
-iterations = 1; % for convergence
+iterations = 2; % for convergence
 tampered_messages_per_test = 30;
 tests = 1;
 
@@ -31,7 +31,7 @@ enable_guiding = false;
 gamma_memory = 0;
 threshold = 0;
 filtering_rule = 'GWsTA';
-propagation_rule = 'overlays';
+propagation_rule = 'overlays_filter';
 tampering_type = 'erase';
 
 residual_memory = 0;

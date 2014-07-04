@@ -199,7 +199,9 @@ for M = 1:mloop
                     %overlays_range = mod(overlays_range-1, 3)+1;
                 %end
             %end
-            cnetwork.primary.net = gbnn_construct_network(bsxfun(@times, double(thriftymessages), overlays_range), double(thriftymessages), @max, @times); % Overlays computation = Generalized matrix multiplication, with max-of-products instead of sum-of-products (so that for each edge we keep the tag id of the latest/most recent message learned, in the order of the messages stack).
+            outop = @max;
+            if size(thriftymessages, 1) == 1; outop = @(x) max(x, [], 1); end;
+            cnetwork.primary.net = gbnn_construct_network(bsxfun(@times, double(thriftymessages), overlays_range), double(thriftymessages), outop, @times); % Overlays computation = Generalized matrix multiplication, with max-of-products instead of sum-of-products (so that for each edge we keep the tag id of the latest/most recent message learned, in the order of the messages stack).
         end
     else % case when we iteratively append new messages (either because of miterator or because user provided a network to reuse), we update the previous network
         if ~enable_overlays % Standard case: a simple matrix multiplication to create an adjacency matrix
@@ -207,7 +209,9 @@ for M = 1:mloop
         else % Overlays/Tags case
             prev_max_overlay = max(cnetwork.primary.net(:)); % Assign a unique overlay id to each message, same as above...
             overlays_range = (1+prev_max_overlay:m+prev_max_overlay)'; % Offset because of the miterator
-            cnetwork.primary.net = max(cnetwork.primary.net, gbnn_construct_network(bsxfun(@times, double(thriftymessages), overlays_range), double(thriftymessages), @max, @times)); % same as above...
+            outop = @max;
+            if size(thriftymessages, 1) == 1; outop = @(x) max(x, [], 1); end;
+            cnetwork.primary.net = max(cnetwork.primary.net, gbnn_construct_network(bsxfun(@times, double(thriftymessages), overlays_range), double(thriftymessages), outop, @times)); % same as above...
         end
     end
 
