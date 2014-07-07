@@ -138,7 +138,7 @@ for iter=1:iterations % To let the network converge towards a stable state...
     % Propagate on the primary network
     % -- Vectorized version - fastest and low memory overhead
     % Sum-of-Sum: we simply compute per node the sum of all incoming activated edges
-    if strcmpi(propagation_rule, 'sum') || strcmpi(propagation_rule, 'overlays_filter')
+    if strcmpi(propagation_rule, 'sum') || strcmpi(propagation_rule, 'overlays_filter') || strcmpi(propagation_rule, 'overlays_ehsan')
         % We use the standard way to compute the propagation in an adjacency matrix: by matrix multiplication
         % Sum-of-Sum / Matrix multiplication is the same as computing the in-degree(a) for each node a, since each connected and activated link to a is equivalent to +1, thus this is equivalent to the total number of connected and activated link to a.
         % This operation may seem daunting but in fact it's quite simple and just does what it sounds like: for each message (row in the transposed partial_messages matrix = in fanal), we check if any of its activated fanal is connect to any of the network's fanal (1 out fanal = 1 column of the net's matrix). The result is the sum or count of the number of in connections for each of the network's fanals.
@@ -152,8 +152,8 @@ for iter=1:iterations % To let the network converge towards a stable state...
     % Overlays global propagation: compute the mode-of-products and then the sum-of-equalities with the mode. The goal is to activate all fanals in the network which are in the input message, then extract all the edges that will be activated, then look at their tags id and keep the major one (by using a mode). Then we filter all the other edges except the ones having this tag. End of global overlays propagation.
     % Note the heavy usage of the generalized matrix multiplication.
     elseif strcmpi(propagation_rule, 'overlays')
-        fastmode = @(x) max(aux.fastmode(nonzeros(x))); % prepare the fastmode function (in case of draw between two values which are both the mode, keep the maximum one = most recent one)
-        winner_overlays = gmtimes(double(partial_messages'), net, fastmode, @times, [mpartial, 1])'; % compute the mode-of-products to fetch the major tag per message
+        fastmode = @(x) max(aux.fastmode(nonzeros(x))); % prepare the fastmode function (in case of draw between two values which are both the mode, keep the maximum one = most recent one). It will work globally: we find the mode for all edges weights in the network.
+        winner_overlays = gmtimes(double(partial_messages'), net, fastmode, @times, [mpartial, 1])'; % compute the mode-of-products to fetch the major tag per message (or rather: per network)
         partial_messages = partial_messages .* bsxfun(@times, double(partial_messages), winner_overlays); % prepare the input messages with the mode (instead of binary message, each message will be assigned the id of its major tag)
         propag = gmtimes(partial_messages', net, @sum, @(a,b) and(full(a>0), bsxfun(@eq, a, b))); % finally, compute the sum-of-equalities: we activate only the edges corresponding to the major tag for this message.
         %@(a,b) and(full(a > 0), eq(full(a),full(b)))
@@ -468,7 +468,7 @@ for iter=1:iterations % To let the network converge towards a stable state...
         out = reshape(out, n, mpartial);
     end
 
-    % Overlays filtering: instead of filtering at propagation time, we first propagate, then filter using GWsTA just like usually, and then only we filter by tags, just like a guiding mask but totally unsupervised (this is Ehsan's way)
+    % Overlays filtering: instead of filtering at propagation time, we first propagate, then filter using GWsTA just like usually, and then only we filter by tags, just like a guiding mask but totally unsupervised
     if strcmpi(propagation_rule, 'overlays_filter')
         fastmode = @(x) max(aux.fastmode(nonzeros(x))); % prepare the fastmode function (in case of draw between two values which are both the mode, keep the maximum one = most recent one)
         winner_overlays = gmtimes(double(out'), net, fastmode, @times, [mpartial, 1])'; % compute the mode-of-products to fetch the major tag per message
@@ -476,6 +476,43 @@ for iter=1:iterations % To let the network converge towards a stable state...
         out = gmtimes(out', net, @sum, @(a,b) and(full(a>0), bsxfun(@eq, a, b))); % finally, compute the sum-of-equalities: we activate only the edges corresponding to the major tag for this message.
         %@(a,b) and(full(a > 0), eq(full(a),full(b)))
         out = out';
+    % Overlays filtering ala Ehsan
+    elseif strcmpi(propagation_rule, 'overlays_ehsan') && l > 1
+        %ambiguity_mask = bsxfun(@times, out2, sum(out) >= c); % filter out unambiguous messages (having c fanals activated)
+        % filter out unambiguous clusters (where only one fanal is activated) - we will only use tags to disambiguate ambiguous clusters, for the others we can keep the result of the sum-of-sum propagation
+        out = reshape(out, l, mpartial * Chi);
+        %out(1) = 1; out(2) = 1; % debug
+        ambiguity_mask = repmat(sum(out, 1) >= 2, l, 1); % filter out unambiguous clusters (keep only ambiguous clusters)
+        out = bsxfun(@and, out, sum(out, 1) == 1); % btw filter out ambiguous clusters from the final messages, since we will later repush the disambiguated clusters
+        out = reshape(out, n, mpartial);
+        ambiguity_mask = reshape(ambiguity_mask, n, mpartial);
+
+        if nnz(ambiguity_mask) > 0
+            % DISAMBIGUATION BY TAGS step
+            nnzcolmode = @(x) aux.nnzcolmode(x); % prepare the fastmode function (in case of draw between two values which are both the mode, keep the maximum one = most recent one)
+            % Find the major tag (mode) of incoming edges for each ambiguous fanal
+            %gmtimes(double(partial_messages), bsxfun(@times, ambiguity_mask(:,i)', net), fastmode, @times);
+            out2 = sparse(n, mpartial);
+            parfor i=1:mpartial
+                if nnz(ambiguity_mask(:,i)) > 0
+                    %tt = bsxfun( @times, double(partial_messages(:,1)), bsxfun(@times, double(ambiguity_mask(:,1)'), net) ); tt(1) = 4; tt(2) = 4; % debug
+                    [~, argmode] = nnzcolmode( bsxfun( @times, double(partial_messages(:,i)), bsxfun(@times, double(ambiguity_mask(:,i)'), net) ) );
+                    argmode(isnan(argmode)) = 0;
+                    [I, J, V] = find(argmode);
+                    out2(:,i) = sparse(I, J, V, n, 1);
+                end
+            end
+
+            % Find the fanal with highest number of major tags (the winner of the disambiguation)
+            out2 = reshape(out2, l, mpartial * Chi);
+            winner_overlays = max(out2);
+            nnzidxs = find(winner_overlays); % to avoid finding winners where there in fact are only zeros values
+            out2(:, nnzidxs) = bsxfun(@eq, out2(:, nnzidxs), winner_overlays(nnzidxs)); % Note: there can still be an ambiguity if two fanals have equally the same number of edges with the major tag! (and the tag may be different for both!)
+            out2 = reshape(out2, n, mpartial);
+
+            % Finally, push back the disambiguated clusters
+            out = or(out, out2);
+        end
     end
 
     % Residual memory

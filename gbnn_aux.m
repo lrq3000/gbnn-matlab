@@ -13,6 +13,8 @@ function funs = importFunctions
     funs.getnargs=@getnargs; % to process named optional arguments
     funs.varspull = @varspull; % to load arguments into local namespace/workspace
     funs.fastmode=@fastmode;
+    funs.colmode=@colmode;
+    funs.nnzcolmode=@nnzcolmode;
     funs.flushout=@flushout; % to force refresh the stdout after printing in the console
     funs.printcputime=@printcputime;
     funs.printtime=@printtime;
@@ -200,6 +202,56 @@ function [y, n]=fastmode(x)
     n=max(num);
     % Pull the values from the original sorted vector
     y=sorted(idx(num==n));
+end
+
+function [modd,freq]=colmode(data)
+    % This function calculates column-wise mode values of a matrix
+    % If there are no modes in a column, it returns NaN
+    % column mode values are stored in a cell array
+    % [modd]=mode_calc(data)  gives only mode values
+    % [modd,freq]=mode_calc(data)  gives mode values and their frequencies
+
+    % IT'S NOT VERY PROFESSIONAL, BUT WORKS FINE
+    % Ipek DEVECI KOCAKOC
+    % ipek.deveciatdeu.edu.tr
+    % June 2006
+
+    [k,m]=size(data);
+    data = sort(data)';
+    for i=1:m
+        dist=diff([data(i,:); data(i,end)-1]);
+        idx=find(dist);
+        num=[idx(1); diff(i,idx)];
+        n=max(num);
+        if n~=1
+            y=sorted(idx(num==n));
+        else
+            y=NaN;
+        end
+        freq(:,i)=n;
+        modd{i}=y;
+    end
+end
+
+function [modd,freq] = nnzcolmode(data)
+    % [modd,freq] = nnzcolmode(data)
+    % This is a proxy function to use fastmode per-columns and without zeros
+    % by Stephen Larroque
+    % 7/72014
+
+    m=size(data,2);
+    data = sort(data);
+    modd = cell(m, 1);
+    freq = zeros(m, 1);
+    parfor i=1:m
+        x = nonzeros(data(:,i));
+        if nnz(x) == 0
+            modd{i} = NaN;
+            freq(i) = NaN;
+        else
+            [modd{i}, freq(i)] = fastmode(nonzeros(data(:,i)));
+        end
+    end
 end
 
 function argStruct = getnargs(varargin, defaults, restrict_flag)
