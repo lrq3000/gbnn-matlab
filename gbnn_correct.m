@@ -105,7 +105,7 @@ netargs = cnetwork.(cnetwork_choose).args;
 % Overlays reduction preprocessing: if enabled, we reduce the number of overlays to a fixed number. To do this, we interpolate the messages ids inside the network by various methods.
 % The goal is to preserve the ids but assign them a new id (which will maybe merge them with other messages, but at least one message isn't broken into parts, see 'uniform' comment for more details).
 % Note: we reduce the number of tags at correction and not at learning just for efficiency sake in experiments: this allows us to learn only one network and then try any number of tags we want with any method without having to recompute the network everytime. Of course, in a real setting, you should do the reduction just after the learning (or even during) to reduce the prediction/correction step footprint (at the cost of a longer learning step).
-if strcmpi(propagation_rule, 'overlays') || strcmpi(propagation_rule, 'overlays_ehsan')
+if strcmpi(propagation_rule, 'overlays') || strcmpi(propagation_rule, 'overlays_ehsan') || strcmpi(propagation_rule, 'overlays_ehsan2')
     if netargs.overlays_max > 0 % If overlays_max == 0 then we use all overlays
         % Modulo reduction: use a sort of roulette to assign new overlay ids. Eg: for overlays_max == 3, the network [1 2 3 ; 4 5 6] will be reduced to [1 2 3 ; 1 2 3]
         if strcmpi(netargs.overlays_interpolation, 'mod')
@@ -138,7 +138,7 @@ for iter=1:iterations % To let the network converge towards a stable state...
     % Propagate on the primary network
     % -- Vectorized version - fastest and low memory overhead
     % Sum-of-Sum: we simply compute per node the sum of all incoming activated edges
-    if strcmpi(propagation_rule, 'sum') || strcmpi(propagation_rule, 'overlays_filter') || strcmpi(propagation_rule, 'overlays_ehsan')
+    if strcmpi(propagation_rule, 'sum') || strcmpi(propagation_rule, 'overlays_filter') || strcmpi(propagation_rule, 'overlays_ehsan') || strcmpi(propagation_rule, 'overlays_ehsan2')
         % We use the standard way to compute the propagation in an adjacency matrix: by matrix multiplication
         % Sum-of-Sum / Matrix multiplication is the same as computing the in-degree(a) for each node a, since each connected and activated link to a is equivalent to +1, thus this is equivalent to the total number of connected and activated link to a.
         % This operation may seem daunting but in fact it's quite simple and just does what it sounds like: for each message (row in the transposed partial_messages matrix = in fanal), we check if any of its activated fanal is connect to any of the network's fanal (1 out fanal = 1 column of the net's matrix). The result is the sum or count of the number of in connections for each of the network's fanals.
@@ -314,7 +314,7 @@ for iter=1:iterations % To let the network converge towards a stable state...
         kmax_score(kmax_score == 0) = realmin(); % No false winner trick: better version of the no false winner trick because we replace 0 winner scores by the minimum real value, thus after we will still get a sparse matrix (else if we do the trick only after the bsxfun, we will get a matrix filled by 1 where there are 0 and the winner score is 0, which is a lot of memory used for nothing).
         out = logical(bsxfun(@ge, propag, kmax_score));
         if aux.isOctave(); out = sparse(out); end; % Octave's bsxfun breaks the sparsity...
-        out = and(propag, out); % No false winner trick: avoids that if the kth max score is in fact 0, we choose 0 as activating score (0 scoring nodes will be activated, which is completely wrong!). Here we check against the original propagation matrix: if the node wasn't activated then, it should be now.
+        out = and(propag, out); % No false winner trick: avoids that if the kth max score is in fact 0, we choose 0 as activating score (0 scoring nodes will be activated, which is completely wrong!). Here we check against the original propagation matrix: if the node wasn't activated then, it shouldn't be now after filtering.
 
         % Local WinnerS-take-all: Reshape back the clusters into messages
         if strcmpi(filtering_rule, 'WsTA')
@@ -476,7 +476,7 @@ for iter=1:iterations % To let the network converge towards a stable state...
         out = gmtimes(out', net, @sum, @(a,b) and(full(a>0), bsxfun(@eq, a, b))); % finally, compute the sum-of-equalities: we activate only the edges corresponding to the major tag for this message.
         %@(a,b) and(full(a > 0), eq(full(a),full(b)))
         out = out';
-    % Overlays filtering ala Ehsan
+    % Overlays filtering ala Ehsan - WRONG this is a variation of what he is doing
     elseif strcmpi(propagation_rule, 'overlays_ehsan') && l > 1
         %ambiguity_mask = bsxfun(@times, out2, sum(out) >= c); % filter out unambiguous messages (having c fanals activated)
         % filter out unambiguous clusters (where only one fanal is activated) - we will only use tags to disambiguate ambiguous clusters, for the others we can keep the result of the sum-of-sum propagation
@@ -512,6 +512,31 @@ for iter=1:iterations % To let the network converge towards a stable state...
 
             % Finally, push back the disambiguated clusters
             out = or(out, out2);
+        end
+    % Overlays filtering ala Ehsan, correct and faithful version
+    % this overlays filtering must only be applied after propagation + filtering. This is a post-processing step to remove ambiguity.
+    elseif strcmpi(propagation_rule, 'overlays_ehsan2')
+        for mi = 1:mpartial
+            % Pick one message
+            decoded_fanals = find(out(:, mi));
+
+            % Filter edges going outside the clique
+            decoded_edges = net(decoded_fanals, decoded_fanals) ; % fetch tags of only the edges of the recovered clique (thus edges connected between fanals in the recovered clique but not those that are not part of the clique, ie connected to another fanal outside the clique, won't be included)
+            if nnz(decoded_edges) == 0; continue; end; % if this message is empty then just quit
+
+            % Filter useless fanals (fanals that do not possess as many edges as the maximum - meaning they're not part of the clique). Note: This is a pre-processing enhancement step, but it's not necessary if you use fastmode(nonzeros(decoded_edges)) (the nonzeros will take care of the false 0 tag)
+            fanal_scores = sum(sign(decoded_edges));
+            winning_score = max(fanal_scores);
+            gwta_mask = (fanal_scores == winning_score);
+            decoded_edges = decoded_edges(gwta_mask, :) ;
+
+            % Filter edges having a tag different than the major tag, and then filter out fanals that gets disconnected from the clique (all their incoming edges were filtered because they were of a different tag than the major tag)
+            major_tag = min(aux.fastmode(nonzeros(decoded_edges))) ; % get the major tag (the one which globally appears the most often in this clique). NOTE: nonzeros somewhat slows down the processing BUT it's necessary to ensure that 0 is not chosen as the major tag (since it represents the absence of edge!).
+            decoded_edges(decoded_edges ~= major_tag) = 0 ; % shutdown edges who haven't got the maximum tag
+            decoded_fanals = decoded_fanals(sum(decoded_edges) ~= 0) ; % kick out fanals which have no incoming edges after having deleted edges without major tag (ie: nodes that become isolated because their edges had different tags than the major tag will just be removed, because if these nodes become isolated it's because they obviously are part of another message, else they would have at least one edge with the correct tag).
+
+            % Finally, replace the disambiguated message back into the stack
+            out(:,mi) = sparse(decoded_fanals, 1, 1, n, 1);
         end
     end
 

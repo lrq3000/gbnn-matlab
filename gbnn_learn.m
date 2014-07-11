@@ -199,19 +199,35 @@ for M = 1:mloop
                     %overlays_range = mod(overlays_range-1, 3)+1;
                 %end
             %end
-            outop = @max;
-            if size(thriftymessages, 1) == 1; outop = @(x) max(x, [], 1); end;
-            cnetwork.primary.net = gbnn_construct_network(bsxfun(@times, double(thriftymessages), overlays_range), double(thriftymessages), outop, @times); % Overlays computation = Generalized matrix multiplication, with max-of-products instead of sum-of-products (so that for each edge we keep the tag id of the latest/most recent message learned, in the order of the messages stack).
+
+            % -- Vectorized version, slower but more mathematically justified
+            %outop = @max;
+            %if size(thriftymessages, 1) == 1; outop = @(x) max(x, [], 1); end;
+            %cnetwork.primary.net = gbnn_construct_network(bsxfun(@times, double(thriftymessages), overlays_range), double(thriftymessages), outop, @times); % Overlays computation = Generalized matrix multiplication, with max-of-products instead of sum-of-products (so that for each edge we keep the tag id of the latest/most recent message learned, in the order of the messages stack).
+
+            % -- Loop semi-vectorized indexing version, a lot faster if you have JIT (based on Ehsan's method for learning) - the result is equivalent to the vectorized version
+            for mi = 1:m % loop for each message
+                msgL = find(thriftymessages(mi, :)) ; % pick up a message
+                cnetwork.primary.net(msgL , msgL) = mi ; % Push the message to learn by index and assign the message id as the edges tags
+            end
         end
     else % case when we iteratively append new messages (either because of miterator or because user provided a network to reuse), we update the previous network
         if ~enable_overlays % Standard case: a simple matrix multiplication to create an adjacency matrix
             cnetwork.primary.net = or(cnetwork.primary.net, gbnn_construct_network(thriftymessages)); % use a or() to iteratively append new edges over the old ones
         else % Overlays/Tags case
             prev_max_overlay = max(cnetwork.primary.net(:)); % Assign a unique overlay id to each message, same as above...
-            overlays_range = (1+prev_max_overlay:m+prev_max_overlay)'; % Offset because of the miterator
-            outop = @max;
-            if size(thriftymessages, 1) == 1; outop = @(x) max(x, [], 1); end;
-            cnetwork.primary.net = max(cnetwork.primary.net, gbnn_construct_network(bsxfun(@times, double(thriftymessages), overlays_range), double(thriftymessages), outop, @times)); % same as above...
+
+            % -- Vectorized version, slower but more mathematically justified
+            %overlays_range = (1+prev_max_overlay:m+prev_max_overlay)'; % Offset because of the miterator
+            %outop = @max;
+            %if size(thriftymessages, 1) == 1; outop = @(x) max(x, [], 1); end;
+            %cnetwork.primary.net = max(cnetwork.primary.net, gbnn_construct_network(bsxfun(@times, double(thriftymessages), overlays_range), double(thriftymessages), outop, @times)); % same as above...
+
+            % -- Loop semi-vectorized indexing version, a lot faster if you have JIT (based on Ehsan's method for learning) - the result is equivalent to the vectorized version
+            for mi = 1:m % loop for each message
+                msgL = find(thriftymessages(mi, :)) ; % pick up a message
+                cnetwork.primary.net(msgL , msgL) = mi + prev_max_overlay ; % Push the message to learn by index and assign the message id as the edges tags
+            end
         end
     end
 
