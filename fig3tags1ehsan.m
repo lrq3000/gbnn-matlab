@@ -1,4 +1,4 @@
-% Overlays network: Willshaw vs overlays benchmark. Please use Octave >= 3.8.1 for reasonable performances!
+% Overlays network: Behrooz vs overlays benchmark. Please use Octave >= 3.8.1 for reasonable performances!
 
 % Clear things up
 clear all;
@@ -17,14 +17,14 @@ linestylevec = {'-' ; '--' ; ':' ; '-.'};
 % Vars config, tweak the stuff here
 M = 0.5:1:20.5; % this is a vector because we will try several values of m (number of messages, which influences the density)
 %M = [0.005 5.1]; % to test both limits to check that the range is OK, the first point must be near 0 and the second point must be near 1, at least for one of the curves
-Mcoeff = 1E2;
+Mcoeff = 1E3;
 miterator = zeros(1,numel(M)); %M/2;
 c = 8;
-l = 1;
-Chi = 256;
+l = 64;
+Chi = 16;
 erasures = floor(c/2); %floor(c*0.25);
 iterations = 4; % for convergence
-tampered_messages_per_test = 50;
+tampered_messages_per_test = 30;
 tests = 1;
 
 enable_guiding = false;

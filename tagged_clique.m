@@ -64,7 +64,7 @@ function [err1 , err2 , err3 , time, W_weighted_autoassociative] = weighted_auto
         if length(decod) ~= c % error2: have we recovered as many clusters as there are? (this does NOT check the content of the clusters!)
             err2 = err2 + 1 ;
         end
-        if length(decod) ~= c || any(sort(decod) ~= sort(msgLorig)) % error3: real error in decoding (if one bit doesn't match with the original message, then it's an error)
+        if (length(decod) ~= c) || (any(sort(decod) ~= sort(msgLorig))) % error3: real error in decoding (if one bit doesn't match with the original message, then it's an error)
             err3 = err3 + 1 ;
         end
     end
