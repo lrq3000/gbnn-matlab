@@ -252,7 +252,7 @@ for t=1:tests % TODO: replace by parfor (regression from past versions to allow 
     elseif strcmpi(tampering_type, 'noise')
         % The idea is simple: we generate random indices to be "noised" and we bit-flip them using modulo.
         %idxs = unidrnd(n, [erasures mconcat*tampered_messages_per_test]); % generate random indices to be tampered
-        idxs = unidrnd([1 n], erasures, mconcat*tampered_messages_per_test); % generate random indices to be tampered
+        idxs = randi([1 n], erasures, mconcat*tampered_messages_per_test); % generate random indices to be tampered
         idxs = bsxfun(@plus, idxs, 0:n:n*(tampered_messages_per_test*concurrent_cliques-1) ); % offset indices to take account of the column = message (since sort resets indices count per column)
         inputm(idxs) = mod(inputm(idxs) + 1, 2); % bit-flipping! simply add one to all those entries and modulo one, this will effectively bit-flip them.
     % Else error, the tampering_type does not exist
