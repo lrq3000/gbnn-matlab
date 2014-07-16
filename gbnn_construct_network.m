@@ -1,4 +1,4 @@
-function cnetwork = gbnn_construct_network(in_thriftymessages, out_thriftymessages, outop, inop)
+function cnetwork = gbnn_construct_network(in_thriftymessages, out_thriftymessages, outop, inop, subsampling_p)
 % cnetwork = gbnn_construct_network(in_thriftymessages [, out_thriftymessages])
 % Construct/learns a network using one-shot learning. Can either construct a normal clique network, or an inter-networks map if you supply a different out_thriftymessages (different from in_thriftymessages).
 %
@@ -39,11 +39,17 @@ function cnetwork = gbnn_construct_network(in_thriftymessages, out_thriftymessag
     aux = gbnn_aux;
 
     % Default vars checking
-    if ~exist('inop', 'var')
+    if ~exist('inop', 'var') || isempty(inop)
         inop = @times;
     end
-    if ~exist('outop', 'var')
+    if ~exist('outop', 'var') || isempty(outop)
         outop = @sum;
+    end
+    if ~exist('subsampling_p', 'var') || isempty(subsampling_p) % subsampling: by default, no subsampling
+        subsampling_p = 1;
+        subsampling_func = @(x) x; % create a dummy identity function so that there's no subsampling
+    else
+        subsampling_func = @(x) subsampling(x, subsampling_p); % else we will really subsample
     end
 
     % Preallocating
@@ -63,9 +69,9 @@ function cnetwork = gbnn_construct_network(in_thriftymessages, out_thriftymessag
             in_thriftymessages = double(in_thriftymessages); % MatLab can't do matrix multiplication on logical (binary) matrices... must convert them to double beforehand
         end
         if (strcmpi(func2str(outop), 'sum') && strcmpi(func2str(inop), 'times'))
-            cnetwork = logical(in_thriftymessages' * in_thriftymessages); % logical = same as min(cnetwork + thriftymessages'*thriftymessages, 1). Matrix multiplication idea by Christophe!
+            cnetwork = logical(subsampling_func(in_thriftymessages' * in_thriftymessages)); % logical = same as min(cnetwork + thriftymessages'*thriftymessages, 1). Matrix multiplication idea by Christophe!
         else
-            cnetwork = gmtimes(in_thriftymessages, [], outop, inop);
+            cnetwork = subsampling_func(gmtimes(in_thriftymessages, [], outop, inop));
         end
 
     % Bridge between two networks: we use a different matrix of messages for in and out (which fanals from the in network we will connect to which fanals of the out network)
@@ -75,9 +81,9 @@ function cnetwork = gbnn_construct_network(in_thriftymessages, out_thriftymessag
             out_thriftymessages = double(out_thriftymessages);
         end
         if (strcmpi(func2str(outop), 'sum') && strcmpi(func2str(inop), 'times'))
-            cnetwork = logical(in_thriftymessages' * out_thriftymessages);
+            cnetwork = logical(subsampling_func(in_thriftymessages' * out_thriftymessages));
         else
-            cnetwork = gmtimes(in_thriftymessages', out_thriftymessages, outop, inop);
+            cnetwork = subsampling_func(gmtimes(in_thriftymessages', out_thriftymessages, outop, inop));
         end
     end
 

@@ -34,6 +34,10 @@ arguments_defaults = struct( ...
     'train_on_full_cliques', false, ...
     'training_batchs', 1, ...
     ...
+    'subsampling_p', [], ...
+    'enable_dropconnect', false, ...
+    'dropconnect_p', 0.5, ...
+    ...
     ... % Debug stuffs
     'silent', false);
 
@@ -72,7 +76,7 @@ if ~silent; totalperf = cputime(); end; % for total time perfs
 %pairs = [fieldnames(cnetwork.auxiliary), struct2cell(cnetwork.auxiliary); fieldnames(arguments), struct2cell(arguments)].';
 %cnetwork.auxiliary = struct(pairs{:});
 
-varargin = aux.delarg({'l', 'c', 'Chi', 'no_auxiliary_propagation', 'train_on_full_cliques', 'training_batchs'}, varargin);
+varargin = aux.delarg({'l', 'c', 'Chi', 'no_auxiliary_propagation', 'train_on_full_cliques', 'training_batchs', 'enable_dropconnect', 'dropconnect_p', 'subsampling_p',}, varargin);
 
 if nargout >= 4
     auxfullcell = {[]; []};
@@ -107,7 +111,9 @@ for tb=1:training_batchs
                     'l', l, ...
                     'c', c, ...
                     'Chi', Chi, ...
-                    'n', n) ...
+                    'n', n, ...
+                    'enable_dropconnect', enable_dropconnect, ...
+                    'dropconnect_p', dropconnect_p) ...
                 );
             %varargin = aux.editarg('cnetwork', cnetwork, varargin);
         end
@@ -120,8 +126,7 @@ for tb=1:training_batchs
         rand_aux_fanals = aux.shake(sparse(I, J, vals, m, Chi), 2);
         rand_aux_fanals = gbnn_messages2thrifty(rand_aux_fanals, l);
 
-        cnetwork.auxiliary.prim2auxnet = or(cnetwork.auxiliary.prim2auxnet, gbnn_construct_network(testset', rand_aux_fanals));
-        cnetwork.auxiliary.net = [];
+        cnetwork.auxiliary.prim2auxnet = or(cnetwork.auxiliary.prim2auxnet, gbnn_construct_network(testset', rand_aux_fanals, [], [], subsampling_p));
         if ~no_auxiliary_propagation
             cnetwork.auxiliary.net = or(cnetwork.auxiliary.net, gbnn_construct_network(rand_aux_fanals, rand_aux_fanals));
         end
@@ -138,8 +143,8 @@ end
 real_density_aux = 0;
 real_density_bridge = 0;
 if isfield(cnetwork, 'auxiliary')
-    real_density = full(  (nnz(cnetwork.auxiliary.net) - nnz(diag(cnetwork.auxiliary.net))) / (Chi*(Chi-1) * l^2)  );
-    real_density_bridge = full(  (nnz(cnetwork.auxiliary.prim2auxnet) - nnz(diag(cnetwork.auxiliary.prim2auxnet))) / (cnetwork.primary.args.Chi*(Chi-1) * (cnetwork.primary.args.l * l))  );
+    real_density = full(  (nnz(cnetwork.auxiliary.net) - nnz(diag(cnetwork.auxiliary.net))) / (max(Chi*(Chi-1),1) * l^2)  );
+    real_density_bridge = full(  (nnz(cnetwork.auxiliary.prim2auxnet) - nnz(diag(cnetwork.auxiliary.prim2auxnet))) / (max(cnetwork.primary.args.Chi*(Chi-1), 1) * (cnetwork.primary.args.l * l))  );
 
     cnetwork.auxiliary.args.density = real_density_aux;
     cnetwork.auxiliary.args.density_bridge = real_density_bridge;

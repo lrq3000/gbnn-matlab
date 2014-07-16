@@ -38,6 +38,8 @@ arguments_defaults = struct( ...
     'GWTA_first_iteration', false, ...
     'GWTA_last_iteration', false, ...
     'k', 1, ...
+    'enable_dropconnect', false, ...
+    'dropconnect_p', 0.5, ...
     ...
     'cnetwork_choose', 'primary', ...
     ...
@@ -125,11 +127,19 @@ if strcmpi(propagation_rule, 'overlays') || strcmpi(propagation_rule, 'overlays_
     end
 end
 
+if enable_dropconnect
+    orig_net = net;
+end
+
 % #### Correction phase
 for iter=1:iterations % To let the network converge towards a stable state...
     if ~silent
         fprintf('-- Propagation iteration %i\n', iter); aux.flushout();
         tic();
+    end
+
+    if enable_dropconnect
+        net = dropconnect(orig_net, dropconnect_p);
     end
 
     % 1- Update the network's state: Push message and propagate through the network
@@ -175,12 +185,17 @@ for iter=1:iterations % To let the network converge towards a stable state...
             auxpropagtime = cputime();
         end
 
+        prim2auxnet = cnetwork.auxiliary.prim2auxnet;
+        if cnetwork.auxiliary.args.enable_dropconnect
+            prim2auxnet = dropconnect(prim2auxnet, cnetwork.auxiliary.args.dropconnect_p);
+        end
+
         % Echo from primary to auxiliary
         mes_echo = partial_messages;
         if aux.isOctave()
-            mes_echo = (mes_echo' * cnetwork.auxiliary.prim2auxnet)';
+            mes_echo = (mes_echo' * prim2auxnet)';
         else
-            mes_echo = (double(mes_echo') * double(cnetwork.auxiliary.prim2auxnet))';
+            mes_echo = (double(mes_echo') * double(prim2auxnet))';
         end
         % FILTERING -1: binarize the echo: WRONG!
         %mes_echo = logical(mes_echo); % NEVER just binarize the echo: this will give as much power to spurious auxiliary fanals as to correct auxiliary fanals! Because it's quite rare that all fanals of a primary clique are all linked exclusively to one auxiliary clique, you have great chances that at least one primary fanal will trigger two different auxiliary cliques, and thus produce confusion. By binarizing, all auxiliary cliques will have an equal weight, which is false because false auxiliary cliques have a lower score before binarizing, and we should take that into account!
@@ -200,15 +215,21 @@ for iter=1:iterations % To let the network converge towards a stable state...
         % Propagate through the auxiliary network to find the correct clique
         if ~isempty(cnetwork.auxiliary.net)
             %mes_echo = logical(mes_echo); % should be logical else it will be converted into thrifty code by gbnn_messages2thrifty.m automatically!
-            mes_echo = bsxfun(@eq, mes_echo, max(mes_echo));
-            mes_echo = gbnn_correct('cnetwork', cnetwork, 'partial_messages', mes_echo, 'cnetwork_choose', 'auxiliary', 'filtering_rule', 'gwsta', 'silent', true);
+            mes_echo = bsxfun(@eq, mes_echo, max(mes_echo)); % another way of converting into logical but without losing all infos (should be logical else it will be converted into thrifty code by gbnn_messages2thrifty.m automatically!)
+            %mes_echo = gbnn_correct('cnetwork', cnetwork, 'partial_messages', mes_echo, 'cnetwork_choose', 'auxiliary', 'filtering_rule', 'gwsta', 'enable_dropconnect', cnetwork.auxiliary.args.enable_dropconnect, 'dropconnect_p', cnetwork.auxiliary.args.dropconnect_p, 'silent', true); % with dropconnect
+            mes_echo = gbnn_correct('cnetwork', cnetwork, 'partial_messages', mes_echo, 'cnetwork_choose', 'auxiliary', 'filtering_rule', 'gwsta', 'silent', true); % without dropconnect
+        end
+
+        prim2auxnet = cnetwork.auxiliary.prim2auxnet;
+        if cnetwork.auxiliary.args.enable_dropconnect
+            prim2auxnet = dropconnect(prim2auxnet, cnetwork.auxiliary.args.dropconnect_p);
         end
 
         % Echo back from auxiliary to primary
         if aux.isOctave()
-            mes_echo = (mes_echo' * cnetwork.auxiliary.prim2auxnet')';
+            mes_echo = (mes_echo' * prim2auxnet')';
         else
-            mes_echo = (double(mes_echo') * double(cnetwork.auxiliary.prim2auxnet'))';
+            mes_echo = (double(mes_echo') * double(prim2auxnet'))';
         end
         % FILTERING -1: binarize
         %mes_echo = logical(mes_echo);

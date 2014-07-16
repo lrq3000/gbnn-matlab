@@ -9,9 +9,9 @@ aux = gbnn_aux; % works with both MatLab and Octave
 
 % Primary network params
 m = 1000; % 500; % 10000;
-c = 8; % 8;
+c = 6; % 8;
 l = 16; % 32;
-Chi = 32; % 64;
+Chi = 12; % 64;
 gamma_memory = 1;
 iterations = 4;
 tests = 1;
@@ -19,19 +19,24 @@ tampered_messages_per_test = m;
 filtering_rule = 'GWsTA';
 erasures = 1; %floor(c/2);
 enable_guiding = false;
+enable_dropconnect = false;
+dropconnect_p = 0;
 
 % Training params (auxiliary network)
 train = true;
-c2 = max(floor(c/3), 2);
-l2 = l*20;
-Chi2 = Chi*5;
+c2 = 1;
+l2 = l*400;
+Chi2 = 1;
 training_batchs = 1;
 trainsetsize = m*training_batchs; %floor(m/trainingbatchs);
 no_auxiliary_propagation = false; % false for concur cliques
 train_on_full_cliques = 0; % false for concur cliques
+train_enable_dropconnect = false;
+train_dropconnect_p = 0.9;
+train_subsampling_p = []; % [] to disable, value between 0 and 1 to enable
 
 % Concurrency params
-concurrent_cliques = 2;
+concurrent_cliques = 1;
 no_concurrent_overlap = true;
 
 % Verbose?
@@ -47,6 +52,7 @@ if train
                                              'tampered_messages_per_test', trainsetsize, 'training_batchs', training_batchs, 'no_auxiliary_propagation', no_auxiliary_propagation, 'train_on_full_cliques', train_on_full_cliques, ...
                                              'iterations', iterations, 'enable_guiding', enable_guiding, 'gamma_memory', gamma_memory, 'filtering_rule', filtering_rule, 'erasures', erasures, ...
                                              'concurrent_cliques', concurrent_cliques, 'no_concurrent_overlap', no_concurrent_overlap, ...
+                                             'enable_dropconnect', train_enable_dropconnect, 'dropconnect_p', train_dropconnect_p, 'subsampling_p', train_subsampling_p, ...
                                              'silent', true);
 end
 
@@ -55,6 +61,7 @@ error_rate = gbnn_test('cnetwork', cnetwork, 'thriftymessagestest', thriftymessa
                                                                                   'tests', tests, 'tampered_messages_per_test', tampered_messages_per_test, ...
                                                                                   'enable_guiding', enable_guiding, 'filtering_rule', filtering_rule, 'erasures', erasures, 'gamma_memory', gamma_memory, ...
                                                                                   'concurrent_cliques', concurrent_cliques, 'no_concurrent_overlap', no_concurrent_overlap, ...
+                                                                                  'enable_dropconnect', enable_dropconnect, 'dropconnect_p', dropconnect_p, ...
                                                                                   'silent', silent);
 
 if ~silent
