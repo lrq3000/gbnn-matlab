@@ -1,4 +1,8 @@
 % Example of the simplest call script for the gbnn network
+% Results so far: the excitatory auxiliary support network can reduce the error if the auxiliary network is big enough, but finally it's less efficient since you can lower down the error a lot more by allocating these auxiliary fanals into the primary network.
+% This is because the support network will support cliques which have been trained, but it has no means to discriminate and know which clique is the one to recover: it will always support the one it knows but not the other cliques which haven't been trained.
+% However, this excitatory support network may be useful if it has a supervised or multi-modal cue to guide it, so that the auxiliary network may know which clique it has to support.
+% In an unsupervised fashion, it's likely that an inhibitory network may be a better fit.
 
 % Clear things up
 clear all; % don't forget to clear all; before, else some variables or sourcecode change may not be refreshed and the code you will run is the one from the cache, not the latest edition you did!
@@ -11,7 +15,7 @@ aux = gbnn_aux; % works with both MatLab and Octave
 m = 10; % 500; % 10000;
 c = 3; % 8;
 l = 3; % 32;
-Chi = 6; % 64;
+Chi = 6*2; % 64;
 gamma_memory = 1;
 iterations = 4;
 tests = 1;
@@ -23,10 +27,10 @@ enable_dropconnect = false;
 dropconnect_p = 0;
 
 % Training params (auxiliary network)
-train = true;
-c2 = 1;
+train = false;
+c2 = 2;
 l2 = Chi;
-Chi2 = 1;
+Chi2 = 2;
 training_batchs = 1;
 trainsetsize = m*training_batchs; %floor(m/trainingbatchs);
 no_auxiliary_propagation = false; % false for concur cliques
@@ -56,7 +60,7 @@ if train
                                              'silent', true);
 end
 
-error_rate = gbnn_test('cnetwork', cnetwork, 'thriftymessagestest', thriftymessages, ...
+[error_rate, ~, ~, error_per_message, testset] = gbnn_test('cnetwork', cnetwork, 'thriftymessagestest', thriftymessages, ...
                                                                                   'iterations', iterations, ...
                                                                                   'tests', tests, 'tampered_messages_per_test', tampered_messages_per_test, ...
                                                                                   'enable_guiding', enable_guiding, 'filtering_rule', filtering_rule, 'erasures', erasures, 'gamma_memory', gamma_memory, ...
