@@ -132,8 +132,8 @@ for tb=1:training_batchs
         end
 
         if nargout >= 4
-            auxfullcell{1} = [auxfullcell{1}; testset];
-            auxfullcell{2} = [auxfullcell{2}; rand_aux_fanals'];
+            auxfullcell{1} = [auxfullcell{1} testset];
+            auxfullcell{2} = [auxfullcell{2} rand_aux_fanals'];
         end
 
     end

@@ -8,10 +8,10 @@ close all;
 aux = gbnn_aux; % works with both MatLab and Octave
 
 % Primary network params
-m = 1000; % 500; % 10000;
-c = 6; % 8;
-l = 16; % 32;
-Chi = 12; % 64;
+m = 10; % 500; % 10000;
+c = 3; % 8;
+l = 3; % 32;
+Chi = 6; % 64;
 gamma_memory = 1;
 iterations = 4;
 tests = 1;
@@ -25,7 +25,7 @@ dropconnect_p = 0;
 % Training params (auxiliary network)
 train = true;
 c2 = 1;
-l2 = l*400;
+l2 = Chi;
 Chi2 = 1;
 training_batchs = 1;
 trainsetsize = m*training_batchs; %floor(m/trainingbatchs);
@@ -73,13 +73,14 @@ if ~silent
         if isfield(cnetwork, 'auxiliary')
             cliques_prim2aux_mean = cnetwork.auxiliary.args.cliques_prim2aux_mean
             cliques_aux2prim_mean = cnetwork.auxiliary.args.cliques_aux2prim_mean
+
+            % DEBUG MACROS
+            dispc = @(x) {full(auxfullcell{1}(:,x)), full(auxfullcell{2}(:,x))}; % displays first learned messages with first auxiliary support message
+            dispf = @(x){full(auxfullcell{1}), full(auxfullcell{2})};
+            disp1 = [cnetwork.auxiliary.args.links_prim2aux; cnetwork.auxiliary.args.cliques_prim2aux];
+            disp2 = [cnetwork.auxiliary.args.links_aux2prim; cnetwork.auxiliary.args.cliques_aux2prim];
+            % simple_support; dispc(1)
         end
-        
-        dispc = @(x) {full(auxfullcell{1}(:,x)), full(auxfullcell{2}(:,x))}; % displays first learned messages with first auxiliary support message
-        dispf = @(x){full(auxfullcell{1}), full(auxfullcell{2})};
-        disp1 = [cnetwork.auxiliary.args.links_prim2aux; cnetwork.auxiliary.args.cliques_prim2aux];
-        disp2 = [cnetwork.auxiliary.args.links_aux2prim; cnetwork.auxiliary.args.cliques_aux2prim];
-        % simple_support; dispc(1)
     end
 end
 
