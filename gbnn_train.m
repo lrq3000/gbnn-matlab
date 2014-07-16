@@ -143,8 +143,8 @@ end
 real_density_aux = 0;
 real_density_bridge = 0;
 if isfield(cnetwork, 'auxiliary')
-    real_density = full(  (nnz(cnetwork.auxiliary.net) - nnz(diag(cnetwork.auxiliary.net))) / (max(Chi*(Chi-1),1) * l^2)  );
-    real_density_bridge = full(  (nnz(cnetwork.auxiliary.prim2auxnet) - nnz(diag(cnetwork.auxiliary.prim2auxnet))) / (max(cnetwork.primary.args.Chi*(Chi-1), 1) * (cnetwork.primary.args.l * l))  );
+    real_density = full(  (nnz(cnetwork.auxiliary.net) - nnz(diag(cnetwork.auxiliary.net))) / (Chi*max((Chi-1),1) * l^2)  ); % or divide by prod(size(cnetwork.auxiliary.net))
+    real_density_bridge = full(  nnz(cnetwork.auxiliary.prim2auxnet) / (cnetwork.primary.args.Chi*max((Chi-1), 1) * (cnetwork.primary.args.l * l))  ); % or divide by prod(size(cnetwork.auxiliary.prim2auxnet))
 
     cnetwork.auxiliary.args.density = real_density_aux;
     cnetwork.auxiliary.args.density_bridge = real_density_bridge;
