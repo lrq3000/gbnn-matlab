@@ -471,6 +471,105 @@ for iter=1:iterations % To let the network converge towards a stable state...
         else
             out = logical(bsxfun(@ge, propag2, maxscores));
         end
+    % Maximum likelihood or Exhaustive search (Depth-First Search or Breadth-First Search)
+    % This will find the k-clique where k = c, in other words it will reconstruct one node at a time a clique of order c, and if it can't find such a clique, then it returns an empty message (we failed, there's no clique). If there's a clique of length c, this algorithm will find it and return it. If there are multiple cliques of length c, this algorithm will find just one and returns it, whether it's the one we are looking for or not (thus it does not handly ambiguity).
+    % How it works: we consider that we are in a graph, where every node in this graph corresponds to a submessage containing a subset of the nodes of the full message. In the ascending approach, the first node is totally empty, and each subnodes has one fanal, then each subsubnodes has two fanals, then each subsubsubnodes has three fanals, etc... until at the end we get nodes where the messages contain c fanals (we can go deeper but we stop at this level since we are trying to find a kclique and not the maximum clique). Thus we can consider this problem to be a simple tree search by walking, thus as Depth-First Search or Breadth-First Search or even AStar.
+    % Finding a k-clique is a NP-hard problem, thus this algorithm will be slow, but it's enhanced with tricks from Constraints Programming thus as backtracking and domain-elimination (if a combination of node A-B-C does not form a clique, then we avoid exploring this subtree entirely, meaning that we will avoid A-B-C-D, A-B-C-E, A-B-C-D-E, etc.).
+    % Note that this is the only filtering algorithm that isn't a heuristic, since it does not use scores at all, but rather try all combinations of nodes until it finds a clique of order c. Thus, this algorithm does not suffer from spurious fanals (which have a score above correct fanals), but only suffers from spurious cliques (for this algorithm to be confused, there must be an ambiguity = two cliques of order c, so to have an ambiguity, a spurious fanal must be connected to at least (c-1) correct fanals so that it really forms a clique).
+    % TODO: try to use a SAT solver, similarly to the knapsack problem? This should be a lot faster than doing it manually.
+    elseif strcmpi(filtering_rule, 'ML') || strcmpi(filtering_rule, 'DFS') || strcmpi(filtering_rule, 'BFS')
+        propag(propag < (c-1)) = 0; % Filter out all useless nodes (ie: if they have a score below the length of a message, then these nodes can't possibly be part of a clique of length c, which is what we are looking for)
+        out = logical(sparse(size(propag,1), size(propag,2))); % Init the output messages. By default if we can't find a k-clique, we will set the message to all 0's
+        % Loop for each tampered message to test
+        for i=1:mpartial
+            msg = propag(:,i); % Extract the message
+            found_flag = false; % Flag is true if we have found a k-clique (or if concurrent_cliques > 1, until we find at least concurrent_cliques k-cliques)
+            resign_flag = false; % Flag is true if we have expanded all nodes (open is empty) and we still haven't found any k-clique
+            % Check that the message has at least enough nodes to form a k-clique of order c, because else that means we can't even possibly find a clique of order c for this message. We just skip it
+            if nnz(msg) < c % The message does not have enough nodes to form a clique
+                out(:,i) = logical(msg); % If there's not enough nodes to form a k-clique of order c, then we keep this message as-is and skip it for the next iteration (if there's only one iteration, this message will obviously be wrong anyway, but with multiple iterations it may converge)
+            else % Else the message has enough nodes to form a clique
+                activated_fanals = sparse(find(msg), 1:nnz(msg), 1, n, nnz(msg)); % Extract the list of separate nodes (this will generate as many submessages as there are activated fanals, so that each submessage contains only one fanal)
+                open = activated_fanals(:,randperm(nnz(msg))); % open contains the list of nodes to explore next. At each iteration, we will pull the first node in the list. To init, we use the list of separate nodes in a random permutation
+                closed = sparse([]); % List of already visited nodes (so that we won't visit the same node twice)
+                dead_ends = sparse([]); % List of nodes that won't lead to a clique by using domain-elimination (if a combination of node A-B-C does not form a clique, then we avoid exploring this subtree entirely, meaning that we will avoid A-B-C-D, A-B-C-E, A-B-C-D-E, etc.).
+                kcliques = sparse([]); % List of found k-cliques (we must maintain a list if we try to find several concurrent_cliques. With only one clique, it's useless, but with more than one, we must find each clique separately, and then at the end, we concatenate all the cliques together to form the final message we return)
+                % Main loop: try to find a k-clique until we have found one or we explored the whole tree and couldn't find any k-clique
+                while ~found_flag && ~resign_flag
+                    % Nothing remaining to explore? Then stop, there's no clique
+                    if isempty(open)
+                        resign_flag = true;
+                        break; % KO stopping criterion: we couldn't find enough (=concurrent_cliques) cliques with c fanals, we just stop here.
+                    % Else we still have nodes to explore
+                    else
+                        cur_node = open(:,1); % Pop the first submessage to explore
+                        open(:,1) = []; % And remove it from the open list
+                        closed = [closed, cur_node]; % Add this node to the list of visited nodes
+
+                        if nnz(cur_node) <= c % if number of nodes is above c then we've got nothing to do because we have more nodes than required for a clique, so this is surely not a good track to follow
+                            % Get the links
+                            pidxs = find(cur_node); % extract links by network matrix indexing (the crossover between indexes in column and rows will give us the links for this list of nodes)
+                            propag_links = net(pidxs, pidxs); % Get the sub-matrix of all links between all nodes in our message
+                            % If this isn't a clique, then it's a dead end, we add it to the list of paths that should never be expanded (any specialization of this message - meaning any message containing at least the same nodes as this message, but it can contain more - will be discarded as a dead end)
+                            if ~(nnz(propag_links) == numel(propag_links)) % to check that this is a clique, we just check that the number of activated connections (= number of non-zeros entries) is equal to the total number of possible connections in this sub-matrix (= total number of elements in this submatrix)
+                                dead_ends = [dead_ends cur_node];
+                            % Else this is a clique (all fanals are interconnected, there's no 0 anywhere in the links submatrix), then we will proceed on by either expanding the sub nodes or by finishing if this clique has c nodes
+                            else
+                                % If the number of fanals in this clique is below c, then we need to explore further and add more fanals, so we can explore the sub-nodes of the current node
+                                if nnz(cur_node) < c
+                                    % sub_nodes = all combinations of current message with base characters (TODO: only add characters not in the same clique to optimize?)
+                                    sub_nodes = or(repmat(cur_node, 1, size(activated_fanals, 2)), activated_fanals);
+                                    % remove sub nodes that are the same as the current node
+                                    sub_nodes = sub_nodes(:, sum(sub_nodes) > sum(cur_node));
+                                    % remove sub messages where we added a fanal in the same cluster as another already activated fanal in this sub message (ie: it's useless to explore this sub node because a clique cannot have two fanals in the same cluster, thus we are sure this will be a dead end)
+                                    sub_nodes = sub_nodes(:, ~any(reshape(sum(reshape(sub_nodes, l, []), 1) > 1, Chi, []), 1));
+                                    % no twice visit of the same nodes
+                                    interesting_sub_nodes = ~any(bsxfun(@ge, (sub_nodes' * closed)', sum(sub_nodes)), 1); % Compare each sub node with the list of previously visited nodes (inside the closed list)
+                                    if isempty(interesting_sub_nodes) || ~any(interesting_sub_nodes) % All sub messages were deleted? So we don't have any sub node to happen, let's walk another branch of the tree
+                                        sub_nodes = [];
+                                    else % Else we have some interesting sub nodes to extract
+                                        sub_nodes = sub_nodes(:, interesting_sub_nodes);
+                                    end
+                                    % Domain filtering
+                                    interesting_sub_nodes = [];
+                                    if ~isempty(dead_ends) && ~isempty(sub_nodes)
+                                        interesting_sub_nodes = ~any(bsxfun(@ge, (sub_nodes' * dead_ends)', sum(dead_ends)'), 1); % Compare each sub node and see if a dead end match with these sub nodes (ie: if all the fanals of a dead end are contained in one of those sub messages, it is discarded, even if it contains more fanals that the dead end, this is because a message with c fanals will always be more general than another message with c+x fanals if they both have the same c fanals)
+                                    end
+                                    if isempty(interesting_sub_nodes) || ~any(interesting_sub_nodes) % All sub messages were deleted? So we don't have any sub node to happen, let's walk another branch of the tree
+                                        sub_nodes = [];
+                                    else % Else we have some interesting sub nodes to extract
+                                        sub_nodes = sub_nodes(:, interesting_sub_nodes);
+                                    end
+                                    % Append new nodes to explore if any
+                                    if ~isempty(sub_nodes)
+                                        % Depth-First Search: we first explore the sub nodes of the current node then later we will explore sibling nodes of current node
+                                        if strcmpi(filtering_rule, 'ML') || strcmpi(filtering_rule, 'DFS')
+                                            open = [sub_nodes, open];
+                                        % Breadth-First Search: we first explore sibling nodes (nodes at the same level as current node) and then after we will explore sub nodes of current node
+                                        elseif strcmpi(filtering_rule, 'BFS')
+                                            open = [open, sub_nodes];
+                                        end
+                                    end
+                                % Else if number of nodes equal to c: we just found a clique!
+                                elseif nnz(cur_node) == c
+                                    kcliques = [kcliques, cur_node]; % add the current sub message into the list of found cliques
+                                    % If we have reached the number of cliques to find (= concurrent_cliques), then we can construct the out message and stop here
+                                    if size(kcliques, 2) == concurrent_cliques % we can't know if the concurrent_cliques have to overlap or not, so as long as we find 2 different cliques, we take it as a result (we are guaranteed to find different cliques everytime because of the expanded hashmap which prevent us from exploring what's already been explored)
+                                        out(:,i) = any(kcliques, 2); % concatenate all found cliques into one single message
+                                        found_flag = true;
+                                        break; % OK stopping criterion: found the cliques, they may be the wrong ones if multiple cliques are available and thus there's some kind of confusion, but at least we've found something!
+                                    end
+                                end
+                            end
+                        end
+                    end
+                end
+            end
+
+            %if found_flag
+            %    out(:,i) = any(kcliques, 2);
+            %end % else do nothing, since out is already zero'ed, this means that the current message will be all 0's meaning we didn't find a solution (clique)
+        end
     % Else error, the filtering_rule does not exist
     else
         error('Unrecognized filtering_rule: %s', filtering_rule);
@@ -479,6 +578,7 @@ for iter=1:iterations % To let the network converge towards a stable state...
     % 3- Some post-processing
 
     % Guiding mask
+    % TODO: better performances if we place guiding mask processing in-between propagation and filtering steps?
     if ~isempty(guiding_mask) % Apply guiding mask to filter out useless clusters. TODO: the filtering should be directly inside the propagation rule at the moment of the matrix product to avoid useless computations (but this is difficult to do this in MatLab in a vectorized way...).
         out = reshape(out, l, mpartial * Chi);
         if ~aux.isOctave()
