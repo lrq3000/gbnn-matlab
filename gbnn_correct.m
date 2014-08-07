@@ -506,9 +506,10 @@ for iter=1:iterations % To let the network converge towards a stable state...
             if nnz(msg) < c % The message does not have enough nodes to form a clique
                 out(:,i) = logical(msg); % If there's not enough nodes to form a k-clique of order c, then we keep this message as-is and skip it for the next iteration (if there's only one iteration, this message will obviously be wrong anyway, but with multiple iterations it may converge)
             else % Else the message has enough nodes to form a clique
-                activated_fanals = sparse(find(msg), 1:nnz(msg), 1, n, nnz(msg)); % Extract the list of separate nodes (this will generate as many submessages as there are activated fanals, so that each submessage contains only one fanal)
+                % Extract all the links submatrix (= the adjacency matrix for this message)
                 pidxs = find(msg);
                 propag_links = net(pidxs, pidxs);
+                activated_fanals = sparse(find(msg), 1:nnz(msg), 1, n, nnz(msg)); % Extract the list of separate nodes (this will generate as many submessages as there are activated fanals, so that each submessage contains only one fanal)
                 [~, sorted_idxs] = sort(sum(propag_links), 'descend'); % Pre-sort fanals to explore first depending on number of total active links
                 activated_fanals = activated_fanals(:, sorted_idxs); % this pre-sorting will be used everytime we expand sub-nodes to explore first the nodes with highest scores
                 open = activated_fanals; % and we use this pre-sorting at the start
@@ -537,7 +538,7 @@ for iter=1:iterations % To let the network converge towards a stable state...
                     if just_found == true
                         % First we resort by putting last the fanals that are in the found kcliques
                         matched_fanals = (activated_fanals' * kcliques)';
-                        activated_fanals = activated_fanals(:, [find(matched_fanals) find(matched_fanals)]);
+                        activated_fanals = activated_fanals(:, [find(~matched_fanals) find(matched_fanals)]);
                         % Then reinit open list with the fanals reordered
                         open = activated_fanals;
                         just_found = false;
@@ -607,7 +608,7 @@ for iter=1:iterations % To let the network converge towards a stable state...
                                         just_found = true;
                                     end
                                     % If we have reached the number of cliques to find (= concurrent_cliques), then we can construct the out message and stop here
-                                    if size(kcliques, 2) == concurrent_cliques % we can't know if the concurrent_cliques have to overlap or not, so as long as we find 2 different cliques, we take it as a result (we are guaranteed to find different cliques everytime because of the expanded hashmap which prevent us from exploring what's already been explored)
+                                    if size(kcliques, 2) == concurrent_cliques % we can't know if the concurrent_cliques have to overlap or not, so as long as we find 2 different cliques, we take it as a result (we are guaranteed to find different cliques everytime because we add all found kcliques in the dead_ends just above)
                                         out(:,i) = any(kcliques, 2); % concatenate all found cliques into one single message
                                         found_flag = true;
                                         break; % OK stopping criterion: found the cliques, they may be the wrong ones if multiple cliques are available and thus there's some kind of confusion, but at least we've found something!
