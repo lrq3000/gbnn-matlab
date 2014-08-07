@@ -476,7 +476,10 @@ for iter=1:iterations % To let the network converge towards a stable state...
     % How it works: we consider that we are in a graph, where every node in this graph corresponds to a submessage containing a subset of the nodes of the full message. In the ascending approach, the first node is totally empty, and each subnodes has one fanal, then each subsubnodes has two fanals, then each subsubsubnodes has three fanals, etc... until at the end we get nodes where the messages contain c fanals (we can go deeper but we stop at this level since we are trying to find a kclique and not the maximum clique). Thus we can consider this problem to be a simple tree search by walking, thus as Depth-First Search or Breadth-First Search or even AStar.
     % Finding a k-clique is a NP-hard problem, thus this algorithm will be slow, but it's enhanced with tricks from Constraints Programming thus as backtracking and domain-elimination (if a combination of node A-B-C does not form a clique, then we avoid exploring this subtree entirely, meaning that we will avoid A-B-C-D, A-B-C-E, A-B-C-D-E, etc.).
     % Note that this is the only filtering algorithm that isn't a heuristic, since it does not use scores at all, but rather try all combinations of nodes until it finds a clique of order c. Thus, this algorithm does not suffer from spurious fanals (which have a score above correct fanals), but only suffers from spurious cliques (for this algorithm to be confused, there must be an ambiguity = two cliques of order c, so to have an ambiguity, a spurious fanal must be connected to at least (c-1) correct fanals so that it really forms a clique).
-    % TODO: try to use a SAT solver, similarly to the knapsack problem? This should be a lot faster than doing it manually.
+    % TODO: try to use a SAT solver, similarly to the knapsack problem? This should be a lot faster than doing it manually. NO: rather use efficient algorithms specifically to find maximum cliques, like Constraint Programming Régin, J. C. (2003, January). Using constraint programming to solve the maximum clique problem. In Principles and Practice of Constraint Programming–CP 2003 (pp. 634-648). Springer Berlin Heidelberg.
+    % or MCS or BBMC (BB-MaxClique): http://arxiv.org/pdf/1207.4616.pdf Pablo San Segundo, Diego Rodr´iguez-Losada, and August´in Jim´enez. An exact bit-parallel algorithm for the maximum clique problem. Computers and Operations Research, 38:571–581, 2011.
+    % See also: https://www.cs.purdue.edu/homes/agebreme/publications/fastClq-WAW13.pdf
+    % http://www.mathworks.com/matlabcentral/fileexchange/30413-bron-kerbosch-maximal-clique-finding-algorithm
     elseif strcmpi(filtering_rule, 'ML') || strcmpi(filtering_rule, 'DFS') || strcmpi(filtering_rule, 'BFS')
         erasures = c - (mode(sum(partial_messages)) / concurrent_cliques); % try to heuristically find the number of erasures
         propag(propag < (c-erasures)) = 0; % Filter out all useless nodes (ie: if they have a score below the length of a message, then these nodes can't possibly be part of a clique of length c, which is what we are looking for)
@@ -494,15 +497,22 @@ for iter=1:iterations % To let the network converge towards a stable state...
         no_double_visit = false;
         % Loop for each tampered message to test
         for i=1:mpartial
+            if ~silent; printf('ML message %i/%i\n', i, mpartial); aux.flushout(); end;
             msg = propag(:,i); % Extract the message
             found_flag = false; % Flag is true if we have found a k-clique (or if concurrent_cliques > 1, until we find at least concurrent_cliques k-cliques)
             resign_flag = false; % Flag is true if we have expanded all nodes (open is empty) and we still haven't found any k-clique
+            just_found = false;
             % Check that the message has at least enough nodes to form a k-clique of order c, because else that means we can't even possibly find a clique of order c for this message. We just skip it
             if nnz(msg) < c % The message does not have enough nodes to form a clique
                 out(:,i) = logical(msg); % If there's not enough nodes to form a k-clique of order c, then we keep this message as-is and skip it for the next iteration (if there's only one iteration, this message will obviously be wrong anyway, but with multiple iterations it may converge)
             else % Else the message has enough nodes to form a clique
                 activated_fanals = sparse(find(msg), 1:nnz(msg), 1, n, nnz(msg)); % Extract the list of separate nodes (this will generate as many submessages as there are activated fanals, so that each submessage contains only one fanal)
-                open = activated_fanals(:,randperm(nnz(msg))); % open contains the list of nodes to explore next. At each iteration, we will pull the first node in the list. To init, we use the list of separate nodes in a random permutation
+                pidxs = find(msg);
+                propag_links = net(pidxs, pidxs);
+                [~, sorted_idxs] = sort(sum(propag_links), 'descend'); % Pre-sort fanals to explore first depending on number of total active links
+                activated_fanals = activated_fanals(:, sorted_idxs); % this pre-sorting will be used everytime we expand sub-nodes to explore first the nodes with highest scores
+                open = activated_fanals; % and we use this pre-sorting at the start
+                %open = activated_fanals(:,randperm(nnz(msg))); % open contains the list of nodes to explore next. At each iteration, we will pull the first node in the list. To init, we use the list of separate nodes in a random permutation
                 if no_double_visit; closed = sparse([]); end; % List of already visited nodes (so that we won't visit the same node twice)
                 dead_ends = sparse([]); % List of nodes that won't lead to a clique by using domain-elimination (if a combination of node A-B-C does not form a clique, then we avoid exploring this subtree entirely, meaning that we will avoid A-B-C-D, A-B-C-E, A-B-C-D-E, etc.).
                 kcliques = sparse([]); % List of found k-cliques (we must maintain a list if we try to find several concurrent_cliques. With only one clique, it's useless, but with more than one, we must find each clique separately, and then at the end, we concatenate all the cliques together to form the final message we return)
@@ -513,7 +523,25 @@ for iter=1:iterations % To let the network converge towards a stable state...
                 % bsxfun(@times, pidxs, double(~propag_links));
 
                 % Main loop: try to find a k-clique until we have found one or we explored the whole tree and couldn't find any k-clique
+                counter = 0;
                 while ~found_flag && ~resign_flag
+                    counter = counter + 1;
+                    % if this is too slow to converge, we randomize things up
+                    if counter > 10000
+                        %break;
+                        open = open(:,randperm(size(open,2)));
+                        counter = 0;
+                        %keyboard; % sum(open)
+                    end
+                    % If we just found a clique, and concurrent_cliques > 1 (so we are looking for another clique), we restart from the beginning to avoid exploring all siblings of current kclique which is highly unlikely to give another kclique (they are probably very different, ie they do not share many nodes, unless density is very very high)
+                    if just_found == true
+                        % First we resort by putting last the fanals that are in the found kcliques
+                        matched_fanals = (activated_fanals' * kcliques)';
+                        activated_fanals = activated_fanals(:, [find(matched_fanals) find(matched_fanals)]);
+                        % Then reinit open list with the fanals reordered
+                        open = activated_fanals;
+                        just_found = false;
+                    end
                     % Nothing remaining to explore? Then stop, there's no clique
                     if isempty(open)
                         resign_flag = true;
@@ -575,6 +603,8 @@ for iter=1:iterations % To let the network converge towards a stable state...
                                 elseif nnz(cur_node) == c
                                     if concurrent_cliques == 1 || ( isempty(kcliques) || ~any(bsxfun(@eq, (cur_node' * kcliques), sum(kcliques))) ) % Important: Check that the k-clique we just found is not a duplicate of a k-clique we found previously (only useful if we have to find several k-cliques, ie: when concurrent_cliques > 1)
                                         kcliques = [kcliques, cur_node]; % add the current sub message into the list of found cliques
+                                        dead_ends = [dead_ends, cur_node]; % avoid re-exploring this same solution twice
+                                        just_found = true;
                                     end
                                     % If we have reached the number of cliques to find (= concurrent_cliques), then we can construct the out message and stop here
                                     if size(kcliques, 2) == concurrent_cliques % we can't know if the concurrent_cliques have to overlap or not, so as long as we find 2 different cliques, we take it as a result (we are guaranteed to find different cliques everytime because of the expanded hashmap which prevent us from exploring what's already been explored)
