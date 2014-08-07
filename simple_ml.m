@@ -8,11 +8,11 @@ close all;
 aux = gbnn_aux; % works with both MatLab and Octave
 
 % Vars config, tweak the stuff here
-m = 0.5E5;
-c = 12;
-l = 64;
-Chi = 100;
-erasures = 3;
+m = 20;
+c = 4;
+l = 10;
+Chi = 10;
+erasures = 2;
 
 tampered_messages_per_test = 100;
 concurrent_cliques = 2;
