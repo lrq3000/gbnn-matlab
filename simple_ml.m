@@ -8,10 +8,10 @@ close all;
 aux = gbnn_aux; % works with both MatLab and Octave
 
 % Vars config, tweak the stuff here
-m = 3E2;
+m = 5E4;
 c = 12;
-l = 16;
-Chi = 32;
+l = 32;
+Chi = 64;
 erasures = 3;
 
 tampered_messages_per_test = 5;

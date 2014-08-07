@@ -479,7 +479,8 @@ for iter=1:iterations % To let the network converge towards a stable state...
     % TODO: try to use a SAT solver, similarly to the knapsack problem? This should be a lot faster than doing it manually. NO: rather use efficient algorithms specifically to find maximum cliques, like Constraint Programming Régin, J. C. (2003, January). Using constraint programming to solve the maximum clique problem. In Principles and Practice of Constraint Programming–CP 2003 (pp. 634-648). Springer Berlin Heidelberg.
     % or MCS or BBMC (BB-MaxClique): http://arxiv.org/pdf/1207.4616.pdf Pablo San Segundo, Diego Rodr´iguez-Losada, and August´in Jim´enez. An exact bit-parallel algorithm for the maximum clique problem. Computers and Operations Research, 38:571–581, 2011.
     % See also: https://www.cs.purdue.edu/homes/agebreme/publications/fastClq-WAW13.pdf
-    % http://www.mathworks.com/matlabcentral/fileexchange/30413-bron-kerbosch-maximal-clique-finding-algorithm
+    % NOTE: on performances: one k-clique is easy enough to find and quite quick, but it's a lot harder to find multiple k-cliques, because the algorithm might get stuck in the subtree leading to only the k-clique we already found, the other k-cliques being on different subtrees altogether. To avoid this, there is a re-sort after each k-clique is just found (see just_found variable), which allows to explore altogether different subtrees as a first guess. However, this brings another harder (and hardest) case: when the different k-cliques overlap, you have to explore in the middle of the tree, and this is the hardest case since you have fanals from the already found k-clique overlapping with the next k-clique to find, thus we can't just explore an altogether different subtree, but rather the middle of the tree which is a mix between the new k-clique and the already found one.
+    % TODO: try to use a genetic algorithm? Or a cuckoo search?
     elseif strcmpi(filtering_rule, 'ML') || strcmpi(filtering_rule, 'DFS') || strcmpi(filtering_rule, 'BFS')
         erasures = c - (mode(sum(partial_messages)) / concurrent_cliques); % try to heuristically find the number of erasures
         propag(propag < (c-erasures)) = 0; % Filter out all useless nodes (ie: if they have a score below the length of a message, then these nodes can't possibly be part of a clique of length c, which is what we are looking for)
@@ -495,6 +496,8 @@ for iter=1:iterations % To let the network converge towards a stable state...
         end
         % Other modes settings
         no_double_visit = false;
+        % Total number of dropped messages (because they were too long to converge)
+        dropped_count = 0;
         % Loop for each tampered message to test
         for i=1:mpartial
             if ~silent; printf('ML message %i/%i\n', i, mpartial); aux.flushout(); end;
@@ -525,14 +528,25 @@ for iter=1:iterations % To let the network converge towards a stable state...
 
                 % Main loop: try to find a k-clique until we have found one or we explored the whole tree and couldn't find any k-clique
                 counter = 0;
+                countermax = 500;
+                counter2 = 0;
+                counterlimit = 1E4;
                 while ~found_flag && ~resign_flag
                     counter = counter + 1;
+                    counter2 = counter2 + 1;
                     % if this is too slow to converge, we randomize things up
-                    if counter > 10000
-                        %break;
+                    if counter > countermax
+                        if ~silent; printf('Reshuffling stack...\n', i, mpartial); aux.flushout(); end;
                         open = open(:,randperm(size(open,2)));
+                        activated_fanals = activated_fanals(:,randperm(size(activated_fanals,2)));
                         counter = 0;
+                        countermax = countermax * 2; % not too many shuffles, lengthen the number of iterations required for a shuffle
                         %keyboard; % sum(open)
+                    end
+                    if counter2 > counterlimit
+                        if ~silent; printf('ML dropping message %i: too many iterations...\n', i); aux.flushout(); end;
+                        dropped_count = dropped_count + 1;
+                        break;
                     end
                     % If we just found a clique, and concurrent_cliques > 1 (so we are looking for another clique), we restart from the beginning to avoid exploring all siblings of current kclique which is highly unlikely to give another kclique (they are probably very different, ie they do not share many nodes, unless density is very very high)
                     if just_found == true
@@ -624,6 +638,9 @@ for iter=1:iterations % To let the network converge towards a stable state...
             %    out(:,i) = any(kcliques, 2);
             %end % else do nothing, since out is already zero'ed, this means that the current message will be all 0's meaning we didn't find a solution (clique)
         end
+
+        if ~silent; printf('ML total number of dropped messages: %i/%i\n', dropped_count, mpartial); aux.flushout(); end;
+
     % Else error, the filtering_rule does not exist
     else
         error('Unrecognized filtering_rule: %s', filtering_rule);
