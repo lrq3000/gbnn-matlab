@@ -433,6 +433,8 @@ if strcmpi(propagation_rule, 'overlays') && cnetwork.primary.args.overlays_max ~
     else
         theoretical_error_rate = 1 - (1 - real_density)^(erasures*(l-1));
     end
+elseif strcmpi(propagation_rule, 'overlays_ehsan2') && cnetwork.primary.args.overlays_max ~= 1
+    theoretical_error_rate = 1-(1-real_density^(c-1))^c;
 else
     if ~enable_guiding % different error rate when guided mask is enabled (and it's lower than blind decoding)
         %theoretical_error_rate = 1 - (1 - real_density^(c-erasures))^(erasures*(l-1)+l*(Chi-c)); % = spurious_cliques_proba. spurious cliques = nonvalid cliques that we did not memorize and which rests inopportunely on the edges of valid cliques, which we learned and want to remember. In other words: what is the probability of emergence of wrong cliques that we did not learn but which emerges from combinations of cliques we learned? This is influenced heavily by the density (higher density = more errors). Also, error rate is only per one iteration, if you use more iterations to converge the real error may be considerably lower. % NOTE: this is the correct error rate from the 2014 Behrooz paper but works only if concurrent_cliques = 1.

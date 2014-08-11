@@ -8,11 +8,11 @@ close all;
 aux = gbnn_aux; % works with both MatLab and Octave
 
 % Primary network params
-m = 500; % 10000;
+m = 3000; % 10000;
 miterator = 0;
 c = 8; % 8;
-l = 256; % 32;
-Chi = 8; % 64;
+l = 16; % 32;
+Chi = 16; % 64;
 gamma_memory = 0;
 iterations = 1;
 tests = 1;
@@ -24,7 +24,7 @@ enable_guiding = false;
 
 % Overlays / Tags
 enable_overlays = true;
-if enable_overlays; propagation_rule = 'overlays'; end;
+if enable_overlays; propagation_rule = 'overlays_ehsan2'; end;
 
 % Concurrency params
 concurrent_cliques = 1;
