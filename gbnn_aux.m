@@ -22,6 +22,7 @@ function funs = importFunctions
     funs.delarg=@delarg;
     funs.addarg=@addarg;
     funs.rl_decode=@rl_decode;
+    funs.interleave=@interleave;
 end
 
 
@@ -415,3 +416,22 @@ function vec = rl_decode(len,val)
     vec=val(lc);
 end
 
+function C = interleave(A, B, mode)
+% Concatenate two matrices by interleaving them, either by row (mode == 1) or by column (mode == 2)
+% Thank's to Peter Yu http://www.peteryu.ca/tutorials/matlab/interleave_matrices
+
+    if size(A) ~= size(B)
+        error('Size of the two supplied matrices does not match.')
+        return;
+    end
+    if ~exist('mode', 'var') || isempty(mode)
+        mode == 1
+    end
+    % Interleave by row
+    if mode == 1
+        C = reshape([A(:) B(:)]', 2*size(A,1), [])
+    % Interleave by column
+    else
+        C = reshape([A'(:) B'(:)]', 2*size(A',1), [])';
+    end
+end
