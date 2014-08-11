@@ -21,6 +21,7 @@ function funs = importFunctions
     funs.editarg=@editarg;
     funs.delarg=@delarg;
     funs.addarg=@addarg;
+    funs.rl_decode=@rl_decode;
 end
 
 
@@ -387,3 +388,30 @@ end
 function varargin = addarg(varname, varvalue, varargin)
     varargin = {varargin ; varname ; varvalue};
 end
+
+function vec = rl_decode(len,val)
+% vectorized run-length decoder
+% from rude on FEX by us: http://www.mathworks.com/matlabcentral/fileexchange/6436-rude--a-pedestrian-run-length-decoder-encoder
+    lx=and(len>0, ~(len==inf));
+    if	~any(lx)
+        vec=[];
+        return;
+    end
+    if	numel(len) ~= numel(val)
+        error(...
+        sprintf(['rl-decoder: length mismatch\n',...
+             'len = %-1d\n',...
+             'val = %-1d'],...
+              numel(len),numel(val)));
+    end
+    len=len(lx);
+    val=val(lx);
+    val=val(:).';
+    len=len(:);
+    lc=cumsum(len);
+    lx=zeros(1,lc(end));
+    lx([1;lc(1:end-1)+1])=1;
+    lc=cumsum(lx);
+    vec=val(lc);
+end
+

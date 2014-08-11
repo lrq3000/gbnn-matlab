@@ -500,9 +500,11 @@ for iter=1:iterations % To let the network converge towards a stable state...
             mode_asc = 0;
         end
         % Other modes settings
-        no_double_visit = false;
+        no_double_visit = false; % prevent generating sub nodes which we already visited in the past?
+        precompute_dead_ends = true; % precompute all possible dead ends (domain elimination) before exploring solutions? This is very memory intensive but will speed up the exploration a lot.
         % Total number of dropped messages (because they were too long to converge)
         dropped_count = 0;
+        resign_count = 0;
         % Loop for each tampered message to test
         for i=1:mpartial
             if ~silent; printf('ML message %i/%i\n', i, mpartial); aux.flushout(); end;
@@ -513,11 +515,31 @@ for iter=1:iterations % To let the network converge towards a stable state...
             % Check that the message has at least enough nodes to form a k-clique of order c, because else that means we can't even possibly find a clique of order c for this message. We just skip it
             if nnz(msg) < c % The message does not have enough nodes to form a clique
                 out(:,i) = logical(msg); % If there's not enough nodes to form a k-clique of order c, then we keep this message as-is and skip it for the next iteration (if there's only one iteration, this message will obviously be wrong anyway, but with multiple iterations it may converge)
+                if ~silent; printf('ML not enough k-cliques found, resign!\n'); aux.flushout(); end;
+                resign_count = resign_count + 1;
             else % Else the message has enough nodes to form a clique
                 % Extract all the links submatrix (= the adjacency matrix for this message)
                 pidxs = find(msg);
                 propag_links = net(pidxs, pidxs);
-                activated_fanals = sparse(find(msg), 1:nnz(msg), 1, n, nnz(msg)); % Extract the list of separate nodes (this will generate as many submessages as there are activated fanals, so that each submessage contains only one fanal)
+
+                % Extract the list of separate nodes (this will generate as many submessages as there are activated fanals, so that each submessage contains only one fanal)
+                activated_fanals = sparse(find(msg), 1:nnz(msg), 1, n, nnz(msg));
+
+                % Precompute dead ends at the beginning by computing all combinations of two activated fanals with no link between
+                % Note: this must be done before resorting activated_fanals
+                % NOTE2: this is VERY memory consuming, thus you may need to disable it on big datasets
+                if mode_asc && precompute_dead_ends
+                    repeat_nbs = size(propag_links, 1) - sum(propag_links); % get the number of missing links per fanal
+                    if any(repeat_nbs) % if there's any missing link, we continue, else it's already a clique!
+                        idxs = aux.rl_decode(repeat_nbs, 1:size(activated_fanals,2)); % pre-generate the number of dead ends (we here generate the indexes of the first fanal)
+                        idxs_2nd_fanal = nonzeros(bsxfun(@times, pidxs, double(~propag_links)))'; % now generate the indexes of the second fanal to which the first fanals aren't linked to
+                        idxs_2nd_fanal = idxs_2nd_fanal + [0:n:(n*(numel(idxs)-1))]; % offset the indexes to easily apply them in matlab style
+                        dead_ends = activated_fanals(:, idxs); % generate the dead ends and fill them with the first fanals (repeated as many as there are missing links)
+                        dead_ends(idxs_2nd_fanal) = 1; % activate the second fanals to which there is a missing link
+                    end
+                end
+
+                % Pre-sort fanals to better explore the tree of solutions
                 if mode_asc
                     [~, sorted_idxs] = sort(sum(propag_links), 'descend'); % Pre-sort fanals to explore first depending on number of total active links (highest number of links first)
                     activated_fanals = activated_fanals(:, sorted_idxs); % this pre-sorting will be used everytime we expand sub-nodes to explore first the nodes with highest scores
@@ -531,11 +553,6 @@ for iter=1:iterations % To let the network converge towards a stable state...
                 if no_double_visit; closed = sparse([]); end; % List of already visited nodes (so that we won't visit the same node twice)
                 dead_ends = sparse([]); % List of nodes that won't lead to a clique by using domain-elimination (if a combination of node A-B-C does not form a clique, then we avoid exploring this subtree entirely, meaning that we will avoid A-B-C-D, A-B-C-E, A-B-C-D-E, etc.).
                 kcliques = sparse([]); % List of found k-cliques (we must maintain a list if we try to find several concurrent_cliques. With only one clique, it's useless, but with more than one, we must find each clique separately, and then at the end, we concatenate all the cliques together to form the final message we return)
-                % Construct dead ends at the beginning by computing all combinations of two activated fanals with no link between
-                % NOTE: not possible, would consume too much memory!
-                % pidxs = find(msg);
-                % propag_links = net(pidxs, pidxs);
-                % bsxfun(@times, pidxs, double(~propag_links));
 
                 % Main loop: try to find a k-clique until we have found one or we explored the whole tree and couldn't find any k-clique
                 counter = 0;
@@ -577,6 +594,7 @@ for iter=1:iterations % To let the network converge towards a stable state...
                     % Nothing remaining to explore? Then stop, there's no clique
                     if isempty(open)
                         if ~silent; printf('ML not enough k-cliques found, resign!\n'); aux.flushout(); end;
+                        resign_count = resign_count + 1;
                         resign_flag = true;
                         break; % KO stopping criterion: we couldn't find enough (=concurrent_cliques) cliques with c fanals, we just stop here.
                     % Else we still have nodes to explore
@@ -672,7 +690,11 @@ for iter=1:iterations % To let the network converge towards a stable state...
             %end % else do nothing, since out is already zero'ed, this means that the current message will be all 0's meaning we didn't find a solution (clique)
         end
 
-        if ~silent; printf('ML total number of dropped messages: %i/%i\n', dropped_count, mpartial); aux.flushout(); end;
+        if ~silent
+            printf('ML total number of dropped messages: %i/%i\n', dropped_count, mpartial);
+            printf('ML total number of resigned messages: %i/%i\n', resign_count, mpartial);
+            aux.flushout();
+        end
 
     % Else error, the filtering_rule does not exist
     else
