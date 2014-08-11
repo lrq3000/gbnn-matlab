@@ -23,6 +23,7 @@ function funs = importFunctions
     funs.addarg=@addarg;
     funs.rl_decode=@rl_decode;
     funs.interleave=@interleave;
+    funs.interleaven=@interleaven;
 end
 
 
@@ -432,6 +433,28 @@ function C = interleave(A, B, mode)
         C = reshape([A(:) B(:)]', 2*size(A,1), [])
     % Interleave by column
     else
-        C = reshape([A'(:) B'(:)]', 2*size(A',1), [])';
+        A = A';
+        B = B';
+        C = reshape([A(:) B(:)]', 2*size(A,1), [])';
+    end
+end
+
+function C = interleaven(mode, varargin)
+% Concatenate n matrices by interleaving them, either by row (mode == 1) or by column (mode == 2)
+% Thank's to Peter Yu http://www.peteryu.ca/tutorials/matlab/interleave_matrices
+
+    if ~exist('mode', 'var') || isempty(mode)
+        mode == 1
+    end
+
+    % Interleave by row
+    if mode == 1
+        C = reshape(horzcat(varargin{:}), numel(varargin{1}), []); % we want to concatenate all vectorized versions of the matrices, same as cellfun(@(a) a(:), varargin, 'UniformOutput', false)
+        C = reshape(C', numel(varargin)*size(varargin{1},1), []);
+    % Interleave by column
+    else
+        varargin = cellfun(@transpose, varargin, 'UniformOutput', false);
+        C = reshape(horzcat(varargin{:}), numel(varargin{1}), []);
+        C = reshape(C', numel(varargin)*size(varargin{1},1), [])';
     end
 end
