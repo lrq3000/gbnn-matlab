@@ -640,7 +640,7 @@ for diter=1:diterations
                             resign_count = resign_count + 1;
                             resign_flag = true;
                             break; % KO stopping criterion: we couldn't find enough (=concurrent_cliques) cliques with c fanals, we just stop here.
-                        % Else we still have nodes to explore
+                        % Else we still have nodes to explore, so we proceed onto the exploration
                         else
                             cur_node = open(:,1); % Pop the first submessage to explore
                             open(:,1) = []; % And remove it from the open list
@@ -656,6 +656,7 @@ for diter=1:diterations
                                 % Else this is a clique (all fanals are interconnected, there's no 0 anywhere in the links submatrix), then we will proceed on by either expanding the sub nodes or by finishing if this clique has c nodes
                                 else
                                     % If the number of fanals in this clique is below c, then we need to explore further and add more fanals, so we can explore the sub-nodes of the current node
+                                    % This is the main subsection, this is where we generate subnodes to explore and smartly filter useless subnodes and thus guide the search to more efficiently explore
                                     if (mode_asc && nnz(cur_node) < c) || (~mode_asc && nnz(cur_node) > c)
                                         sub_nodes = sparse([]);
                                         if mode_asc
@@ -676,6 +677,10 @@ for diter=1:diterations
                                             % remove sub nodes that are the same as the current node (they don't have one less fanal than current message)
                                             sub_nodes = sub_nodes(:, sum(sub_nodes) < sum(cur_node)); % since we are adding one fanal at a time in each submessage, if one or several submessages have the same size as the current message, then it means that the fanal we added overlaps a fanal that was already active in the current message, thus we can without a doubt discard it as a duplicate
                                         end
+                                        % Open list no duplication: do not add subnodes that are already in the open list
+                                        open_nodes_dup = find(any(bsxfun(@ge, (sub_nodes' * open)', sum(sub_nodes)), 2)); % find all sub_nodes that match the nodes in the open list
+                                        if ~isempty(open_nodes_dup); open(:, open_nodes_dup) = []; end; % remove them (if any)
+                                        clear open_nodes_dup; % clear some memory
                                         % No double visit of the same nodes
                                         % Note that it can cost a lot of memory, and cause a memory overflow on Octave since we have to remember all nodes ever visited!
                                         if no_double_visit
