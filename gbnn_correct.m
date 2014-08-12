@@ -565,6 +565,13 @@ for diter=1:diterations
                     pidxs = find(msg);
                     propag_links = net(pidxs, pidxs);
 
+                    % Special case: this message is already a clique, we can keep it as-is and continue onto the next message
+                    % Note: if concurrent_cliques > 1, this means that the two cliques are totally overlapping here. So we need to process it in a special case because else we will try to find two different cliques, which is not possible since they are totally overlapping.
+                    if nnz(propag_links) == numel(propag_links)
+                        out(:,i) = logical(msg);
+                        continue;
+                    end
+
                     % Extract the list of separate nodes (this will generate as many submessages as there are activated fanals, so that each submessage contains only one fanal)
                     activated_fanals = sparse(find(msg), 1:nnz(msg), 1, n, nnz(msg));
 
