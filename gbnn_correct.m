@@ -35,9 +35,10 @@ arguments_defaults = struct( ...
     'propagation_rule', 'sum', ...
     'filtering_rule', 'wta', ...
     'concurrent_cliques', 1, ... % 1 is disabled, > 1 enables and specify the number of concurrent messages/cliques to decode concurrently
+    'concurrent_disequilibrium', false, ...
     'GWTA_first_iteration', false, ...
     'GWTA_last_iteration', false, ...
-    'k', 1, ...
+    'k', 0, ...
     'enable_dropconnect', false, ...
     'dropconnect_p', 0.5, ...
     ...
@@ -88,6 +89,17 @@ end
 
 mpartial = size(partial_messages, 2); % mpartial = number of messages to reconstruct. This is also equal to tampered_messages_per_test in gbnn_test.m
 
+% Setup correct values for k (this is an automatic guess, but a manual value can be better depending on your dataset)
+if k < 1
+    k = c*concurrent_cliques; % with propagation_rules GWTA and k-GWTA, usually we are looking to find at least as many winners as there are characters in the initial messages, which is at most c*concurrent_cliques (it can be less if the concurrent_cliques share some nodes, but this is unlikely if the density is low)
+    if strcmpi(filtering_rule, 'kWTA') || strcmpi(filtering_rule, 'kLKO') || strcmpi(filtering_rule, 'WsTA') % for all k local algorithms (k-WTA, k-LKO, WsTA, ...), k should be equal to the number of concurrent_cliques, since per cluster (remember that the rule here is local, thus per cluster) there is at most as many different characters per cluster as there are concurrent_cliques (since one clique can only use one node per cluster).
+        k = concurrent_cliques;
+    end
+    if concurrent_cliques > 1 && concurrent_disequilibrium
+        k = c;
+    end
+end
+
 % -- A few error checks
 if numel(c) ~= 1 && numel(c) ~= 2
     error('c contains too many values! numel(c) should be equal to 1 or 2.');
@@ -127,677 +139,726 @@ if strcmpi(propagation_rule, 'overlays') || strcmpi(propagation_rule, 'overlays_
     end
 end
 
+% -- A few more preparations just before starting the correction loop
+
+% Backup the full network if we use dropconnect, because we will randomly erase connections at each iteration
 if enable_dropconnect
     orig_net = net;
 end
 
+% Backup the initial messages if we use disequilibrium trick in concurrent case because we will erase one fanal at each diter
+diterations = 1;
+concurrent_cliques_bak = concurrent_cliques;
+if concurrent_cliques > 1 && concurrent_disequilibrium
+    diterations = concurrent_cliques_bak;
+    partial_messages_bak = partial_messages;
+    out_final = logical(sparse(size(partial_messages,1), size(partial_messages,2)));
+    concurrent_cliques = 1;
+end
+
 % #### Correction phase
-for iter=1:iterations % To let the network converge towards a stable state...
-    if ~silent
-        fprintf('-- Propagation iteration %i\n', iter); aux.flushout();
-        tic();
+for diter=1:diterations
+    % Disequilibrium trick pre-processing: we randomly erase one fanal, thus this will disequilibrate the message and thus one clique will get the upper hand
+    % NOTE: this does not work if the cliques are heavily overlapping, because erasing one fanal will probably erase a shared fanal and thus there won't be any disequilibrium. But anyway if the cliques are heavily overlapping, this means that the density is super high and anyway we can't do anything about the error rate.
+    % TODO: works only for 2 concurrent_cliques, how to generalize to n cliques?
+    if concurrent_cliques_bak > 1 && concurrent_disequilibrium && diter < diterations % do not erase a fanal at the last iteration, because we already erased all the other cliques thus we don't need to disequilibrate at the last step
+        % get the number of activated fanals per message
+        franges = sum(partial_messages);
+        % select a random fanal to erase per message
+        erase_idxs = ceil(franges .* rand(1, numel(franges)));
+        % adjust offset to get matlab style indexes (instead of per column index, we get indexes counting from 1 at the start of the matrix to numel at the end of the matrix)
+        franges = cumsum(franges);
+        franges = [0 franges(1:end-1)];
+        erase_idxs = erase_idxs + franges;
+        % Erase those fanals
+        idxs = find(partial_messages);
+        partial_messages(idxs(erase_idxs)) = 0;
     end
 
-    if enable_dropconnect
-        net = dropconnect(orig_net, dropconnect_p);
-    end
-
-    % 1- Update the network's state: Push message and propagate through the network
-    % NOTE: this is the CPU bottleneck if you use many messages with c > 8
-
-    % Propagate on the primary network
-    % -- Vectorized version - fastest and low memory overhead
-    % Sum-of-Sum: we simply compute per node the sum of all incoming activated edges
-    if strcmpi(propagation_rule, 'sum') || strcmpi(propagation_rule, 'overlays_filter') || strcmpi(propagation_rule, 'overlays_ehsan') || strcmpi(propagation_rule, 'overlays_ehsan2')
-        % We use the standard way to compute the propagation in an adjacency matrix: by matrix multiplication
-        % Sum-of-Sum / Matrix multiplication is the same as computing the in-degree(a) for each node a, since each connected and activated link to a is equivalent to +1, thus this is equivalent to the total number of connected and activated link to a.
-        % This operation may seem daunting but in fact it's quite simple and just does what it sounds like: for each message (row in the transposed partial_messages matrix = in fanal), we check if any of its activated fanal is connect to any of the network's fanal (1 out fanal = 1 column of the net's matrix). The result is the sum or count of the number of in connections for each of the network's fanals.
-        % Or you can see the network as a black box: it simply transforms one list of messages into another format conditionally on the network's links.
-        if aux.isOctave()
-            propag = (partial_messages' * logical(net))'; % Propagate the previous message state by using a simple matrix product (equivalent to similarity/likelihood? or is it more like a markov chain convergence?). Eg: if network = [0 1 0 ; 1 0 0], partial_messages = [1 1 0] will match quite well: [1 1 0] while partial_messages = [0 0 1] will not match at all: [0 0 0]
-            % WRONG: net * partial_messages : this works only with non-bridge networks (eg: primary, auxiliary, but not with prim2auxnet !)
-        else % MatLab cannot do matrix multiplication on logical matrices...
-            propag = (double(partial_messages') * double(logical(net)))';
-        end
-    % Overlays global propagation: compute the mode-of-products and then the sum-of-equalities with the mode. The goal is to activate all fanals in the network which are in the input message, then extract all the edges that will be activated, then look at their tags id and keep the major one (by using a mode). Then we filter all the other edges except the ones having this tag. End of global overlays propagation.
-    % Note the heavy usage of the generalized matrix multiplication.
-    elseif strcmpi(propagation_rule, 'overlays')
-        fastmode = @(x) max(aux.fastmode(nonzeros(x))); % prepare the fastmode function (in case of draw between two values which are both the mode, keep the maximum one = most recent one). It will work globally: we find the mode for all edges weights in the network.
-        winner_overlays = gmtimes(double(partial_messages'), net, fastmode, @times, [mpartial, 1])'; % compute the mode-of-products to fetch the major tag per message (or rather: per network)
-        partial_messages = partial_messages .* bsxfun(@times, double(partial_messages), winner_overlays); % prepare the input messages with the mode (instead of binary message, each message will be assigned the id of its major tag)
-        propag = gmtimes(partial_messages', net, @sum, @(a,b) and(full(a>0), bsxfun(@eq, a, b))); % finally, compute the sum-of-equalities: we activate only the edges corresponding to the major tag for this message.
-        %@(a,b) and(full(a > 0), eq(full(a),full(b)))
-        propag = propag';
-    % Else error, the propagation_rule does not exist
-    else
-        error('Unrecognized propagation_rule: %s', propagation_rule);
-    % TODO: sum-of-max use spfun() or arrayfun() to do a custom matrix computation per column: first an and, then a reshape to get only nodes per cluster on one column, then any, then we have our new message! Or compute sos then diff(sos - som) then sos - diff(sos-sum)
-    % TODO: Sum-of-Max = for each node, compute the sum of incoming link per cluster (thus if a node is connected to 4 other nodes, but 3 of them belong to the same cluster, the score will be 2 = 1 for the node alone in its cluster + 1 for the other 3 belonging to the same cluster).
-    % TODO: Normalized Sum-of-Sum = for each node, compute the sum of sum but divide the weight=1 of each incoming link by the number of activated node in the cluster where the link points to (thus if a node is connected to 4 other nodes, but 3 of them belong to the same cluster, the score will be 1 + 1/3 + 1/3 + 1/3 = 2). The score will be different than Sum of Max if concurrent_cliques is enabled (because then the number of activated nodes can be higher and divide more the incoming scores).
-    end
-
-    % Propagate in parallel on the auxiliary network
-    mes_echo = [];
-    if isfield(cnetwork, 'auxiliary') && strcmpi(cnetwork_choose, 'primary')
-
+    for iter=1:iterations % To let the network converge towards a stable state...
         if ~silent
-            fprintf('Propagating through auxiliary network...\n'); aux.flushout();
-            auxpropagtime = cputime();
+            fprintf('-- Propagation iteration %i\n', iter); aux.flushout();
+            tic();
         end
 
-        prim2auxnet = cnetwork.auxiliary.prim2auxnet;
-        if cnetwork.auxiliary.args.enable_dropconnect
-            prim2auxnet = dropconnect(prim2auxnet, cnetwork.auxiliary.args.dropconnect_p);
+        if enable_dropconnect
+            net = dropconnect(orig_net, dropconnect_p);
         end
 
-        % Echo from primary to auxiliary
-        mes_echo = partial_messages;
-        if aux.isOctave()
-            mes_echo = (mes_echo' * prim2auxnet)';
-        else
-            mes_echo = (double(mes_echo') * double(prim2auxnet))';
-        end
-        % FILTERING -1: binarize the echo: WRONG!
-        %mes_echo = logical(mes_echo); % NEVER just binarize the echo: this will give as much power to spurious auxiliary fanals as to correct auxiliary fanals! Because it's quite rare that all fanals of a primary clique are all linked exclusively to one auxiliary clique, you have great chances that at least one primary fanal will trigger two different auxiliary cliques, and thus produce confusion. By binarizing, all auxiliary cliques will have an equal weight, which is false because false auxiliary cliques have a lower score before binarizing, and we should take that into account!
-        % FILTERING 0: do nothing! Just filter at the echo back!
-        % FILTERING 1
-        %mes_echo = bsxfun(@eq, mes_echo, max(mes_echo)); % GWTA: keep only the max values
-        % FILTERING 1.5 : keep max but keep their original values
-        mes_echo = bsxfun(@eq, mes_echo, max(mes_echo));
-        mes_echo = bsxfun(@times, mes_echo, max(mes_echo));
-        % FILTERING 2
-        %mes_echo(mes_echo < c) = 0;
-        %mes_echo = logical(mes_echo);
-        % FILTERING 3: inhibition
-        %mes_echo(mes_echo >= cnetwork.auxiliary.args.c) = 0;
-        %mes_echo = logical(mes_echo);
+        % 1- Update the network's state: Push message and propagate through the network
+        % NOTE: this is the CPU bottleneck if you use many messages with c > 8
 
-        % Propagate through the auxiliary network to find the correct clique
-        if ~isempty(cnetwork.auxiliary.net)
-            %mes_echo = logical(mes_echo); % should be logical else it will be converted into thrifty code by gbnn_messages2thrifty.m automatically!
-            mes_echo = bsxfun(@eq, mes_echo, max(mes_echo)); % another way of converting into logical but without losing all infos (should be logical else it will be converted into thrifty code by gbnn_messages2thrifty.m automatically!)
-            %mes_echo = gbnn_correct('cnetwork', cnetwork, 'partial_messages', mes_echo, 'cnetwork_choose', 'auxiliary', 'filtering_rule', 'gwsta', 'enable_dropconnect', cnetwork.auxiliary.args.enable_dropconnect, 'dropconnect_p', cnetwork.auxiliary.args.dropconnect_p, 'silent', true); % with dropconnect
-            mes_echo = gbnn_correct('cnetwork', cnetwork, 'partial_messages', mes_echo, 'cnetwork_choose', 'auxiliary', 'filtering_rule', 'gwsta', 'silent', true); % without dropconnect
-        end
-
-        prim2auxnet = cnetwork.auxiliary.prim2auxnet;
-        if cnetwork.auxiliary.args.enable_dropconnect
-            prim2auxnet = dropconnect(prim2auxnet, cnetwork.auxiliary.args.dropconnect_p);
-        end
-
-        % Echo back from auxiliary to primary
-        if aux.isOctave()
-            mes_echo = (mes_echo' * prim2auxnet')';
-        else
-            mes_echo = (double(mes_echo') * double(prim2auxnet'))';
-        end
-        % FILTERING -1: binarize
-        %mes_echo = logical(mes_echo);
-        % FILTERING 1
-        %mes_echo = bsxfun(@eq, mes_echo, max(mes_echo));
-        % FILTERING 1.5 : keep max but keep their original values
-        %mes_echo = bsxfun(@eq, mes_echo, max(mes_echo));
-        %mes_echo = bsxfun(@times, mes_echo, max(mes_echo));
-        % FILTERING 2
-        mes_echo(mes_echo < cnetwork.auxiliary.args.c) = 0;
-        mes_echo = logical(mes_echo);
-        % FILTERING 3: inhibition
-        %mes_echo(mes_echo >= cnetwork.auxiliary.args.c) = 0;
-        %mes_echo = logical(mes_echo);
-        
-        % BEST COMBINATION: 1.5 + 2
-
-        propag = propag + mes_echo; % auxiliary network echo
-        %propag = propag - mes_echo; % inhibition
-
-        if ~silent
-            aux.printcputime(cputime - auxpropagtime, 'Elapsed cpu time for auxiliary propagation is %g seconds.\n'); aux.flushout();
-        end
-    end
-
-    if gamma_memory > 0
-        propag = propag + (gamma_memory .* partial_messages); % memory effect: keep a bit of the previous nodes scores
-    end
-    if threshold > 0 % activation threshold: set to 0 all nodes with a score lower than the activation threshold (ie: those nodes won't emit a spike)
-        propag(propag < threshold) = 0;
-    end;
-
-
-    % 2- Filtering rules aka activation rules (apply a rule to filter out useless/interfering nodes)
-
-    % -- Vectorized versions - fastest!
-    out = logical(sparse(size(partial_messages,1), size(partial_messages,2))); % empty binary sparse matrix, it will later store the next network state after winner-takes-all is applied
-    if strcmpi(filtering_rule, 'none') % Do nothing, useful for auxiliary network since it's just a reverberation
-        out = propag;
-    elseif strcmpi(filtering_rule, 'binary') % Just make sure the values are binary
-        out = logical(propag);
-    % Winner-take-all : per cluster, keep only the maximum score node active (if multiple nodes share the max score, we keep them all activated). Thus the WTA is based on score value, contrarywise to k-WTA which is based on the number of active node k.
-    elseif strcmpi(filtering_rule, 'wta')
-        % The idea is that we will break the clusters and stack them along as a single long cluster spanning several messages, so that we can do a WTA in one pass (with a single max), and then we will unstack them back to their correct places in the messages
-        propag = reshape(propag, l, mpartial * Chi); % reshape so that we can do the WTA by a simple column-wise WTA (and it's efficient in MatLab since matrices - and even more with sparse matrices - are stored as column vectors, thus it efficiently use the memory cache since this is the most limiting factor above CPU power). See also: Locality of reference.
-        winner_value = max(propag); % what is the maximum output value (considering all the nodes in this character)
-        if ~aux.isOctave()
-            out = logical(bsxfun(@eq, propag, winner_value)); % Get the winners by filtering out nodes that aren't equal to the max score. Use bsxfun(@eq) instead of ismember.
-        else
-            out = logical(sparse(bsxfun(@eq, propag, winner_value))); % Octave does not overload bsxfun with sparse by default, so bsxfun removes the sparsity, thus the propagation at iteration > 1 will be horribly slow! Thus we have to put it back manually. MatLab DOES overload bsxfun with sparsity so this only applies to Octave. See: http://octave.1599824.n4.nabble.com/bsxfun-and-sparse-matrices-in-Matlab-td3867746.html
-        end
-        out = and(propag, out); % IMPORTANT NO FALSE WINNER TRICK: if sparse_cliques or variable_length, we deactivate winning nodes that have 0 score (but were chosen because there's no other activated node in this cluster, and max will always return the id of one node! Thus we have to compare with the original propagation matrix and see if the node was really activated before being selected as a winner).
-        out = reshape(out, n, mpartial);
-    % k-Winner-take-all : keep the best first k nodes having the maximum score, over the whole message. This is kind of a cheat because we must know the original length of the messages, the variable k is a way to tell the algorithm some information we have to help convergence
-    elseif strcmpi(filtering_rule, 'kwta')
-        propag = reshape(propag, l, mpartial * Chi); % reshape so that we can do the WTA by a simple column-wise WTA (and it's efficient in MatLab since matrices - and even more with sparse matrices - are stored as column vectors, thus it efficiently use the memory cache since this is the most limiting factor above CPU power). See also: Locality of reference.
-        [~, idxs] = sort(propag, 'descend');
-        idxs = bsxfun( @plus, idxs, 0:l:((mpartial * n)-1) );
-        [I, J] = ind2sub(size(propag), idxs(1:k, :));
-        out = logical(sparse(I, J, 1, l, mpartial * Chi));
-        out = and(propag, out); % IMPORTANT NO FALSE WINNER TRICK: if sparse_cliques or variable_length, filter out winning nodes with 0 score (selected because there's no other node with any score in this cluster, see above in filtering_rule = 0)
-        out = reshape(out, n, mpartial);
-    % One Global Winner-take-all: only keep one value, but at the last iteration keep them all
-    elseif strcmpi(filtering_rule, 'ogwta') && iter < iterations
-        [~, winner_idxs] = max(propag); % get indices of the max score for each message
-        winner_idxs = bsxfun(@plus, winner_idxs,  0:n:n*(mpartial-1)); % indices returned by max are per-column, here we add the column size to offset the indices, so that we get true MatLab indices
-        winner_idxs = winner_idxs(propag(winner_idxs) > 0); % No false winner trick: we check the values returned by the k best indices in propag, and keep only indices which are linked to a non null value.
-        if nnz(winner_idxs) > 0 % If there is at least one non null value (there's at least one remaining index after the no false winner trick)
-            [I, J] = ind2sub(size(propag), winner_idxs); % extract the sparse matrix non null values indices
-            out = logical(sparse(I, J, 1, n, mpartial)); % create the logical sparse matrix
-        else % Else there's not even one non null value, this means that all messages have 0 max score (the network shut down), then we just have to create an empty output
-            out = logical(sparse(n, mpartial)); % create an empty logical sparse matrix
-        end
-    % Global Winner-take-all: keep only nodes which have maximum score over the whole message. Same as WTA but instead of doing inhibition per-cluster, it's per the whole message/network.
-    elseif strcmpi(filtering_rule, 'gwta') || (strcmpi(filtering_rule, 'ogwta') && iter == iterations) || (GWTA_first_iteration && iter == 1) || (GWTA_last_iteration && iter == iterations)
-        winner_vals = max(propag); % get global max scores for each message
-        if ~aux.isOctave()
-            out = logical(bsxfun(@eq, winner_vals, propag));
-        else
-            out = logical(sparse(bsxfun(@eq, winner_vals, propag)));
-        end
-        out = and(propag, out); % No false winner trick
-    % Global k-Winners-take-all: keep the best k first nodes having the maximum score over the whole message (same as k-WTA but at the message level instead of per-cluster).
-    elseif strcmpi(filtering_rule, 'GkWTA')
-        % Instead of removing indices of scores that are below the k-max scores, we will rather find the indices of these k-max scores and recreate a logical sparse matrix from scratch, this is a lot faster and memory efficient
-        [~, idxs] = sort(propag, 'descend'); % Sort scores with best scores first
-        idxs = idxs(1:k,:); % extract the k best scores indices (for propag)
-        idxs = bsxfun(@plus, idxs,  0:n:n*(mpartial-1)); % indices returned by sort are per-column, here we add the column size to offset the indices, so that we get true MatLab indices
-        winner_idxs = idxs(propag(idxs) > 0); % No false winner trick: we check the values returned by the k best indices in propag, and keep only indices which are linked to a non null value.
-        [I, J] = ind2sub(size(propag), winner_idxs); % extract the necessary I and J (row and columns) indices vectors to create a sparse matrix
-        out = logical(sparse(I, J, 1, n, mpartial)); % finally create a logical sparse matrix
-    % WinnerS-take-all: per cluster, select the kth best score, and accept all nodes with a score greater or equal to this score - similar to kWTA but all nodes with the kth score are accepted, not only a fixed number k of nodes
-    % Global WinnerS-take-all: same as WsTA but per the whole message
-    % Both are implemented the same way, the only difference is that for global we process winners per message, and with local we process them per cluster
-    elseif strcmpi(filtering_rule, 'WsTA') || strcmpi(filtering_rule, 'GWsTA')
-        % Local WinnerS-take-all: Reshape to get only one cluster per column (instead of one message per column)
-        if strcmpi(filtering_rule, 'WsTA')
-            propag = reshape(propag, l, mpartial * Chi);
-        end
-
-        max_scores = sort(propag,'descend');
-        kmax_score = max_scores(k, :);
-        kmax_score(kmax_score == 0) = realmin(); % No false winner trick: better version of the no false winner trick because we replace 0 winner scores by the minimum real value, thus after we will still get a sparse matrix (else if we do the trick only after the bsxfun, we will get a matrix filled by 1 where there are 0 and the winner score is 0, which is a lot of memory used for nothing).
-        out = logical(bsxfun(@ge, propag, kmax_score));
-        if aux.isOctave(); out = sparse(out); end; % Octave's bsxfun breaks the sparsity...
-        out = and(propag, out); % No false winner trick: avoids that if the kth max score is in fact 0, we choose 0 as activating score (0 scoring nodes will be activated, which is completely wrong!). Here we check against the original propagation matrix: if the node wasn't activated then, it shouldn't be now after filtering.
-
-        % Local WinnerS-take-all: Reshape back the clusters into messages
-        if strcmpi(filtering_rule, 'WsTA')
-            out = reshape(out, n, mpartial);
-        end
-
-    % Loser-kicked-out (locally, per cluster, we kick loser nodes with min score except if min == max of this cluster).
-    % Global Loser-Kicked-Out (deactivate all nodes with min score in the message)
-    % Both are implemented the same way, the only difference is that for global we process losers per message, and with local we process them per cluster
-    elseif strcmpi(filtering_rule, 'LKO') || strcmpi(filtering_rule, 'GLKO')
-        % Local Losers-Kicked-Out: Reshape to get only one cluster per column (instead of one message per column)
-        if strcmpi(filtering_rule, 'LKO')
-            propag = reshape(propag, l, mpartial * Chi);
-        end
-
-        % get sorted indices (with 0's at the end)
-        sorted = sort(propag);
-
-        % Re-Sort in descending way but use the previous ascended sort to place 0 at the end, while updating idxs to reflect the resorting, so that we still get the correct indexing for propag (everything is computed relatively to propag)
-        out = sort(propag, 'descend'); % resort by descending order (so the max is first and zeros at the end)
-        [I, J] = find(out ~= 0); % find everwhere there is a non-zero
-        out(out ~= 0) = sorted(sorted ~= 0); % get the resorted scores matrix by resorting the non-zeros in an ascending way (but only those, we don't care about zeros!)
-
-        % Get the losers (min scoring nodes)
-        losers_vals = out(1,:);
-
-        % No false loser trick: remove losers that in fact have the maximum score
-        % compare the losers scores against max score and find indices where losers scores equal max scores (per cluster)
-        false_losers = (losers_vals == max(propag)); % find all losers scores that are equal to the maximum of the cluster
-        false_losers = and(false_losers, losers_vals); % trim out null scores (where there is in fact no activated node, for example a sparse cluster, represented here by a column filled with 0s in losers_vals or propag)
-        false_losers = find(false_losers); % get indices of the false losers
-        if nnz(false_losers) > 0 % if there is at least one false loser
-            losers_vals(false_losers) = -1; % in-place remove the false losers: A(idxs) = [] allows to remove an entry altogether
-        end
-
-        % Finally, deactivate losers from the propag matrix, this will be our new out messages matrix
-        out = logical(propag);
-        if ~aux.isOctave()
-            out(bsxfun(@eq, propag, losers_vals)) = 0;
-        else
-            out(logical(sparse(bsxfun(@eq, propag, losers_vals)))) = 0;
-        end
-
-        % Local Losers-Kicked-Out: Reshape back the clusters into messages
-        if strcmpi(filtering_rule, 'LKO')
-            out = reshape(out, n, mpartial);
-        end
-    % k-Losers-kicked-out (locally, per cluster, we kick exactly k loser nodes with min score except if min == max of this cluster).
-    % Global-k-Losers-Kicked-Out: deactivate k nodes with the minimum score, per the whole message
-    % Optimal/One Loser-Kicked-Out (only one node with min score is kicked) and Optimal Global Loser-Kicked-Out
-    % Both are implemented the same way, the only difference is that for global we process losers per message, and with local we process per cluster
-    elseif strcmpi(filtering_rule, 'kLKO') || strcmpi(filtering_rule, 'GkLKO') || ...
-                strcmpi(filtering_rule, 'oLKO') || strcmpi(filtering_rule, 'oGLKO')
-        %[~, loser_idx] = min(propag(propag > 0)); % propag(propag > 0) is faster than nonzeros(propag)
-        %propag(loser_idx) = 0;
-
-        %loser_val = min(propag(propag > 0));
-        %out = logical(propag);
-        %out(find(propag == loser_val)(1)) = 0;
-
-        % Local k-Losers-Kicked-Out: Reshape to get only one cluster per column (instead of one message per column)
-        if strcmpi(filtering_rule, 'kLKO') || strcmpi(filtering_rule, 'oLKO')
-            propag = reshape(propag, l, mpartial * Chi);
-        end
-
-        % get sorted indices
-        [sorted, idxs] = sort(propag);
-        idxs = bsxfun(@plus, idxs, 0:size(propag,1):(numel(propag)-size(propag,1))); % offset to get real indices since sort returns per-column indices (reset to 0 for each column)
-
-        % Re-Sort to place 0 at the end, while updating idxs to reflect the resorting, so that we still get the correct indexing for propag (everything is computed relatively to propag)
-        out = sort(propag, 'descend'); % resort by descending order (so the max is first and zeros at the end)
-        [I, J] = find(out ~= 0); % find everwhere there is a non-zero
-        losers_idxs = sparse(I, J, 1, size(propag,1), size(propag,2)); % create a new indices matrix with 1's where the non-zeros will be
-        %out(out ~= 0) = sorted(sorted ~= 0); % get the resorted scores matrix
-        losers_idxs(losers_idxs ~= 0) = idxs(sorted ~= 0); % get the final resorted indices matrix, by replacing the sparse non-zeros with the non-zeros from the first sort (first sort was with ascending order but there were 0 at the beginning, so now we don't care about 0, we just overwrite the values with the same ones but in ascending order).
-        if strcmpi(filtering_rule, 'oLKO') || strcmpi(filtering_rule, 'oGLKO')
-            losers_idxs = losers_idxs(1, :); % special case: oLKO = kLKO with k = 1 exactly
-        else
-            losers_idxs = losers_idxs(1:k, :); % keep only the indices of the k-worst scores (k min scores)
-        end
-
-        % No false loser trick: remove losers that in fact have the maximum score
-        winners_vals = max(propag); % get max score per cluster
-        % fetch k-losers scores (values) per cluster by using the indices
-        losers_vals = losers_idxs;
-        losers_vals(losers_vals ~= 0) = propag(losers_idxs(losers_idxs ~= 0)); % this is the trick: we keep the shape of the losers_idxs matrix but we replace the non zeros values by the scores from propag
-        % compare the losers scores against max score and find indices where losers scores equal max scores (per cluster)
-        false_losers = bsxfun(@eq, losers_vals, winners_vals); % find all losers scores that are equal to the maximum of the cluster
-        false_losers = and(false_losers, losers_vals); % trim out null scores (where there is in fact no activated node, for example a sparse cluster, represented here by a column filled with 0s in losers_vals or propag)
-        false_losers = find(false_losers); % get indices of the false losers
-        if nnz(false_losers) > 0 % if there is at least one false loser
-            losers_idxs(false_losers) = []; % in-place remove the false losers: A(idxs) = [] allows to remove an entry altogether
-        end
-
-        % Finally, deactivate losers from the propag matrix, this will be our new out messages matrix
-        out = logical(propag);
-        losers_idxs(losers_idxs == 0) = []; % make sure that there's no empty indices by removing them (for sparse cliques, where there are some cliques where there's absolutely no character)
-        if nnz(losers_idxs) > 0 % check that there's still at least one index to set to 0
-            out(losers_idxs) = 0;
-        end
-
-        % Local k-Losers-Kicked-Out: Reshape back the clusters into messages
-        if strcmpi(filtering_rule, 'kLKO') || strcmpi(filtering_rule, 'oLKO')
-            out = reshape(out, n, mpartial);
-        end
-    % Concurrent Global k-Winners-take-all
-    % CkGWTA = kGWTA + trimming out all scores that are below the k-th max score (so that if there are shared nodes between multiple messages, we will get less than c active nodes at the end)
-    elseif strcmpi(filtering_rule, 'CGkWTA')
-        % 1- kGWTA
-        [~, idxs] = sort(propag, 'descend'); % Sort scores with best scores first
-        idxs = idxs(1:k,:); % extract the k best scores indices (for propag)
-        idxs = bsxfun(@plus, idxs,  0:n:n*(mpartial-1)); % indices returned by sort are per-column, here we add the column size to offset the indices, so that we get true MatLab indices
-        winner_idxs = idxs(propag(idxs) > 0); % No false winner trick: we check the values returned by the k best indices in propag, and keep only indices which are linked to a non null value.
-        [I, J] = ind2sub(size(propag), winner_idxs); % extract the necessary I and J (row and columns) indices vectors to create a sparse matrix
-        temp = propag(idxs); % MatLab compatibility...
-        propag2 = sparse(I, J, temp(temp > 0), n, mpartial); % finally create a sparse matrix, but contrarywise to the original implementation of kGWTA, we keep the full scores here, we don't turn it yet into binary, so that we can continue processing in the second stage.
-
-        % 2- Trimming below k-th max scores
-        temp = propag2;
-        maxscores = max(temp);
-        for i=1:concurrent_cliques-1
+        % Propagate on the primary network
+        % -- Vectorized version - fastest and low memory overhead
+        % Sum-of-Sum: we simply compute per node the sum of all incoming activated edges
+        if strcmpi(propagation_rule, 'sum') || strcmpi(propagation_rule, 'overlays_filter') || strcmpi(propagation_rule, 'overlays_ehsan') || strcmpi(propagation_rule, 'overlays_ehsan2')
+            % We use the standard way to compute the propagation in an adjacency matrix: by matrix multiplication
+            % Sum-of-Sum / Matrix multiplication is the same as computing the in-degree(a) for each node a, since each connected and activated link to a is equivalent to +1, thus this is equivalent to the total number of connected and activated link to a.
+            % This operation may seem daunting but in fact it's quite simple and just does what it sounds like: for each message (row in the transposed partial_messages matrix = in fanal), we check if any of its activated fanal is connect to any of the network's fanal (1 out fanal = 1 column of the net's matrix). The result is the sum or count of the number of in connections for each of the network's fanals.
+            % Or you can see the network as a black box: it simply transforms one list of messages into another format conditionally on the network's links.
             if aux.isOctave()
-                temp = sparse(bsxfun(@mod, full(temp), maxscores));
-            else
-                temp = bsxfun(@mod, temp, maxscores);
+                propag = (partial_messages' * logical(net))'; % Propagate the previous message state by using a simple matrix product (equivalent to similarity/likelihood? or is it more like a markov chain convergence?). Eg: if network = [0 1 0 ; 1 0 0], partial_messages = [1 1 0] will match quite well: [1 1 0] while partial_messages = [0 0 1] will not match at all: [0 0 0]
+                % WRONG: net * partial_messages : this works only with non-bridge networks (eg: primary, auxiliary, but not with prim2auxnet !)
+            else % MatLab cannot do matrix multiplication on logical matrices...
+                propag = (double(partial_messages') * double(logical(net)))';
             end
-            maxscores = max(temp);
-        end
-        clear temp;
-        maxscores(maxscores == 0) = 1;
-        if aux.isOctave()
-            out = logical(sparse(bsxfun(@ge, propag2, maxscores)));
+        % Overlays global propagation: compute the mode-of-products and then the sum-of-equalities with the mode. The goal is to activate all fanals in the network which are in the input message, then extract all the edges that will be activated, then look at their tags id and keep the major one (by using a mode). Then we filter all the other edges except the ones having this tag. End of global overlays propagation.
+        % Note the heavy usage of the generalized matrix multiplication.
+        elseif strcmpi(propagation_rule, 'overlays')
+            fastmode = @(x) max(aux.fastmode(nonzeros(x))); % prepare the fastmode function (in case of draw between two values which are both the mode, keep the maximum one = most recent one). It will work globally: we find the mode for all edges weights in the network.
+            winner_overlays = gmtimes(double(partial_messages'), net, fastmode, @times, [mpartial, 1])'; % compute the mode-of-products to fetch the major tag per message (or rather: per network)
+            partial_messages = partial_messages .* bsxfun(@times, double(partial_messages), winner_overlays); % prepare the input messages with the mode (instead of binary message, each message will be assigned the id of its major tag)
+            propag = gmtimes(partial_messages', net, @sum, @(a,b) and(full(a>0), bsxfun(@eq, a, b))); % finally, compute the sum-of-equalities: we activate only the edges corresponding to the major tag for this message.
+            %@(a,b) and(full(a > 0), eq(full(a),full(b)))
+            propag = propag';
+        % Else error, the propagation_rule does not exist
         else
-            out = logical(bsxfun(@ge, propag2, maxscores));
+            error('Unrecognized propagation_rule: %s', propagation_rule);
+        % TODO: sum-of-max use spfun() or arrayfun() to do a custom matrix computation per column: first an and, then a reshape to get only nodes per cluster on one column, then any, then we have our new message! Or compute sos then diff(sos - som) then sos - diff(sos-sum)
+        % TODO: Sum-of-Max = for each node, compute the sum of incoming link per cluster (thus if a node is connected to 4 other nodes, but 3 of them belong to the same cluster, the score will be 2 = 1 for the node alone in its cluster + 1 for the other 3 belonging to the same cluster).
+        % TODO: Normalized Sum-of-Sum = for each node, compute the sum of sum but divide the weight=1 of each incoming link by the number of activated node in the cluster where the link points to (thus if a node is connected to 4 other nodes, but 3 of them belong to the same cluster, the score will be 1 + 1/3 + 1/3 + 1/3 = 2). The score will be different than Sum of Max if concurrent_cliques is enabled (because then the number of activated nodes can be higher and divide more the incoming scores).
         end
-    % Maximum likelihood or Exhaustive search (Depth-First Search or Breadth-First Search)
-    % This will find the k-clique where k = c, in other words it will reconstruct one node at a time a clique of order c, and if it can't find such a clique, then it returns an empty message (we failed, there's no clique). If there's a clique of length c, this algorithm will find it and return it. If there are multiple cliques of length c, this algorithm will find just one and returns it, whether it's the one we are looking for or not (thus it does not handly ambiguity).
-    % How it works: we consider that we are in a graph, where every node in this graph corresponds to a submessage containing a subset of the nodes of the full message. In the ascending approach, the first node is totally empty, and each subnodes has one fanal, then each subsubnodes has two fanals, then each subsubsubnodes has three fanals, etc... until at the end we get nodes where the messages contain c fanals (we can go deeper but we stop at this level since we are trying to find a kclique and not the maximum clique). Thus we can consider this problem to be a simple tree search by walking, thus as Depth-First Search or Breadth-First Search or even AStar (also called Branch and Bound, and this is what is used to find maximal clique usually).
-    % Finding a k-clique is a NP-hard problem, thus this algorithm will be slow, but it's enhanced with tricks from Constraints Programming thus as backtracking and domain-elimination (if a combination of node A-B-C does not form a clique, then we avoid exploring this subtree entirely, meaning that we will avoid A-B-C-D, A-B-C-E, A-B-C-D-E, etc.).
-    % Note that this is the only filtering algorithm that isn't a heuristic, since it does not use scores at all, but rather try all combinations of nodes until it finds a clique of order c. Thus, this algorithm does not suffer from spurious fanals (which have a score above correct fanals), but only suffers from spurious cliques (for this algorithm to be confused, there must be an ambiguity = two cliques of order c, so to have an ambiguity, a spurious fanal must be connected to at least (c-1) correct fanals so that it really forms a clique).
-    % TODO: try to use a SAT solver, similarly to the knapsack problem? This should be a lot faster than doing it manually. NO: rather use efficient algorithms specifically to find maximum cliques, like Constraint Programming Régin, J. C. (2003, January). Using constraint programming to solve the maximum clique problem. In Principles and Practice of Constraint Programming–CP 2003 (pp. 634-648). Springer Berlin Heidelberg.
-    % or MCS or BBMC (BB-MaxClique): http://arxiv.org/pdf/1207.4616.pdf Pablo San Segundo, Diego Rodr´iguez-Losada, and August´in Jim´enez. An exact bit-parallel algorithm for the maximum clique problem. Computers and Operations Research, 38:571–581, 2011.
-    % See also: https://www.cs.purdue.edu/homes/agebreme/publications/fastClq-WAW13.pdf
-    % NOTE: on performances: one k-clique is easy enough to find and quite quick, but it's a lot harder to find multiple k-cliques, because the algorithm might get stuck in the subtree leading to only the k-clique we already found, the other k-cliques being on different subtrees altogether. To avoid this, there is a re-sort after each k-clique is just found (see just_found variable), which allows to explore altogether different subtrees as a first guess. However, this brings another harder (and hardest) case: when the different k-cliques overlap, you have to explore in the middle of the tree, and this is the hardest case since you have fanals from the already found k-clique overlapping with the next k-clique to find, thus we can't just explore an altogether different subtree, but rather the middle of the tree which is a mix between the new k-clique and the already found one.
-    % TODO: try to use a genetic algorithm? Or a cuckoo search?
-    elseif strcmpi(filtering_rule, 'ML') || strcmpi(filtering_rule, 'DFS') || strcmpi(filtering_rule, 'BFS') || strcmpi(filtering_rule, 'MLD')
-        erasures = c - (mode(sum(partial_messages)) / concurrent_cliques); % try to heuristically find the number of erasures
-        propag(propag < (c-erasures)) = 0; % Filter out all useless nodes (ie: if they have a score below the length of a message, then these nodes can't possibly be part of a clique of length c, which is what we are looking for)
-        out = logical(sparse(size(propag,1), size(propag,2))); % Init the output messages. By default if we can't find a k-clique, we will set the message to all 0's
-        % Presetting the search mode into a simple boolean, it will speed things up instead of comparing strings everytime inside the loop
-        mode_search = 0;
-        % Depth-First Search: we first explore the sub nodes of the current node then later we will explore sibling nodes of current node
-        if strcmpi(filtering_rule, 'ML') || strcmpi(filtering_rule, 'DFS')
-            mode_search = 0;
-        % Breadth-First Search: we first explore sibling nodes (nodes at the same level as current node) and then after we will explore sub nodes of current node
-        elseif strcmpi(filtering_rule, 'BFS')
-            mode_search = 1;
+
+        % Propagate in parallel on the auxiliary network
+        mes_echo = [];
+        if isfield(cnetwork, 'auxiliary') && strcmpi(cnetwork_choose, 'primary')
+
+            if ~silent
+                fprintf('Propagating through auxiliary network...\n'); aux.flushout();
+                auxpropagtime = cputime();
+            end
+
+            prim2auxnet = cnetwork.auxiliary.prim2auxnet;
+            if cnetwork.auxiliary.args.enable_dropconnect
+                prim2auxnet = dropconnect(prim2auxnet, cnetwork.auxiliary.args.dropconnect_p);
+            end
+
+            % Echo from primary to auxiliary
+            mes_echo = partial_messages;
+            if aux.isOctave()
+                mes_echo = (mes_echo' * prim2auxnet)';
+            else
+                mes_echo = (double(mes_echo') * double(prim2auxnet))';
+            end
+            % FILTERING -1: binarize the echo: WRONG!
+            %mes_echo = logical(mes_echo); % NEVER just binarize the echo: this will give as much power to spurious auxiliary fanals as to correct auxiliary fanals! Because it's quite rare that all fanals of a primary clique are all linked exclusively to one auxiliary clique, you have great chances that at least one primary fanal will trigger two different auxiliary cliques, and thus produce confusion. By binarizing, all auxiliary cliques will have an equal weight, which is false because false auxiliary cliques have a lower score before binarizing, and we should take that into account!
+            % FILTERING 0: do nothing! Just filter at the echo back!
+            % FILTERING 1
+            %mes_echo = bsxfun(@eq, mes_echo, max(mes_echo)); % GWTA: keep only the max values
+            % FILTERING 1.5 : keep max but keep their original values
+            mes_echo = bsxfun(@eq, mes_echo, max(mes_echo));
+            mes_echo = bsxfun(@times, mes_echo, max(mes_echo));
+            % FILTERING 2
+            %mes_echo(mes_echo < c) = 0;
+            %mes_echo = logical(mes_echo);
+            % FILTERING 3: inhibition
+            %mes_echo(mes_echo >= cnetwork.auxiliary.args.c) = 0;
+            %mes_echo = logical(mes_echo);
+
+            % Propagate through the auxiliary network to find the correct clique
+            if ~isempty(cnetwork.auxiliary.net)
+                %mes_echo = logical(mes_echo); % should be logical else it will be converted into thrifty code by gbnn_messages2thrifty.m automatically!
+                mes_echo = bsxfun(@eq, mes_echo, max(mes_echo)); % another way of converting into logical but without losing all infos (should be logical else it will be converted into thrifty code by gbnn_messages2thrifty.m automatically!)
+                %mes_echo = gbnn_correct('cnetwork', cnetwork, 'partial_messages', mes_echo, 'cnetwork_choose', 'auxiliary', 'filtering_rule', 'gwsta', 'enable_dropconnect', cnetwork.auxiliary.args.enable_dropconnect, 'dropconnect_p', cnetwork.auxiliary.args.dropconnect_p, 'silent', true); % with dropconnect
+                mes_echo = gbnn_correct('cnetwork', cnetwork, 'partial_messages', mes_echo, 'cnetwork_choose', 'auxiliary', 'filtering_rule', 'gwsta', 'silent', true); % without dropconnect
+            end
+
+            prim2auxnet = cnetwork.auxiliary.prim2auxnet;
+            if cnetwork.auxiliary.args.enable_dropconnect
+                prim2auxnet = dropconnect(prim2auxnet, cnetwork.auxiliary.args.dropconnect_p);
+            end
+
+            % Echo back from auxiliary to primary
+            if aux.isOctave()
+                mes_echo = (mes_echo' * prim2auxnet')';
+            else
+                mes_echo = (double(mes_echo') * double(prim2auxnet'))';
+            end
+            % FILTERING -1: binarize
+            %mes_echo = logical(mes_echo);
+            % FILTERING 1
+            %mes_echo = bsxfun(@eq, mes_echo, max(mes_echo));
+            % FILTERING 1.5 : keep max but keep their original values
+            %mes_echo = bsxfun(@eq, mes_echo, max(mes_echo));
+            %mes_echo = bsxfun(@times, mes_echo, max(mes_echo));
+            % FILTERING 2
+            mes_echo(mes_echo < cnetwork.auxiliary.args.c) = 0;
+            mes_echo = logical(mes_echo);
+            % FILTERING 3: inhibition
+            %mes_echo(mes_echo >= cnetwork.auxiliary.args.c) = 0;
+            %mes_echo = logical(mes_echo);
+            
+            % BEST COMBINATION: 1.5 + 2
+
+            propag = propag + mes_echo; % auxiliary network echo
+            %propag = propag - mes_echo; % inhibition
+
+            if ~silent
+                aux.printcputime(cputime - auxpropagtime, 'Elapsed cpu time for auxiliary propagation is %g seconds.\n'); aux.flushout();
+            end
         end
-        % Ascending or descending search? (from an empty message we go up and construct a clique one fanal at a time, or we descend from the full message and remove one fanal at a time until we have a clique?)
-        mode_asc = 1;
-        if strcmpi(filtering_rule, 'MLD')
-            mode_asc = 0;
+
+        if gamma_memory > 0
+            propag = propag + (gamma_memory .* partial_messages); % memory effect: keep a bit of the previous nodes scores
         end
-        % Other modes settings
-        no_double_visit = false; % prevent generating sub nodes which we already visited in the past?
-        precompute_dead_ends = true; % precompute all possible dead ends (domain elimination) before exploring solutions? This is very memory intensive but will speed up the exploration a lot.
-        % Total number of dropped messages (because they were too long to converge)
-        dropped_count = 0;
-        resign_count = 0;
-        % Loop for each tampered message to test
-        for i=1:mpartial
-            if ~silent; printf('ML message %i/%i\n', i, mpartial); aux.flushout(); end;
-            msg = logical(propag(:,i)); % Extract the message
-            found_flag = false; % Flag is true if we have found a k-clique (or if concurrent_cliques > 1, until we find at least concurrent_cliques k-cliques)
-            resign_flag = false; % Flag is true if we have expanded all nodes (open is empty) and we still haven't found any k-clique
-            just_found = false;
-            % Check that the message has at least enough nodes to form a k-clique of order c, because else that means we can't even possibly find a clique of order c for this message. We just skip it
-            if nnz(msg) < c % The message does not have enough nodes to form a clique
-                out(:,i) = logical(msg); % If there's not enough nodes to form a k-clique of order c, then we keep this message as-is and skip it for the next iteration (if there's only one iteration, this message will obviously be wrong anyway, but with multiple iterations it may converge)
-                if ~silent; printf('ML not enough k-cliques found, resign!\n'); aux.flushout(); end;
-                resign_count = resign_count + 1;
-            else % Else the message has enough nodes to form a clique
-                % Extract all the links submatrix (= the adjacency matrix for this message)
-                pidxs = find(msg);
-                propag_links = net(pidxs, pidxs);
+        if threshold > 0 % activation threshold: set to 0 all nodes with a score lower than the activation threshold (ie: those nodes won't emit a spike)
+            propag(propag < threshold) = 0;
+        end;
 
-                % Extract the list of separate nodes (this will generate as many submessages as there are activated fanals, so that each submessage contains only one fanal)
-                activated_fanals = sparse(find(msg), 1:nnz(msg), 1, n, nnz(msg));
 
-                % Precompute dead ends at the beginning by computing all combinations of two activated fanals with no link between
-                % Note: this must be done before resorting activated_fanals
-                % NOTE2: this is VERY memory consuming, thus you may need to disable it on big datasets
-                if mode_asc && precompute_dead_ends
-                    repeat_nbs = size(propag_links, 1) - sum(propag_links); % get the number of missing links per fanal
-                    if any(repeat_nbs) % if there's any missing link, we continue, else it's already a clique!
-                        idxs = aux.rl_decode(repeat_nbs, 1:size(activated_fanals,2)); % pre-generate the number of dead ends (we here generate the indexes of the first fanal)
-                        idxs_2nd_fanal = nonzeros(bsxfun(@times, pidxs, double(~propag_links)))'; % now generate the indexes of the second fanal to which the first fanals aren't linked to
-                        idxs_2nd_fanal = idxs_2nd_fanal + [0:n:(n*(numel(idxs)-1))]; % offset the indexes to easily apply them in matlab style
-                        dead_ends = activated_fanals(:, idxs); % generate the dead ends and fill them with the first fanals (repeated as many as there are missing links)
-                        dead_ends(idxs_2nd_fanal) = 1; % activate the second fanals to which there is a missing link
-                    end
-                end
+        % 2- Filtering rules aka activation rules (apply a rule to filter out useless/interfering nodes)
 
-                % Pre-sort fanals to better explore the tree of solutions
-                if mode_asc
-                    [~, sorted_idxs] = sort(sum(propag_links), 'descend'); % Pre-sort fanals to explore first depending on number of total active links (highest number of links first)
-                    activated_fanals = activated_fanals(:, sorted_idxs); % this pre-sorting will be used everytime we expand sub-nodes to explore first the nodes with highest scores
-                    open = activated_fanals; % and we use this pre-sorting at the start
-                %open = activated_fanals(:,randperm(nnz(msg))); % open contains the list of nodes to explore next. At each iteration, we will pull the first node in the list. To init, we use the list of separate nodes in a random permutation
+        % -- Vectorized versions - fastest!
+        out = logical(sparse(size(partial_messages,1), size(partial_messages,2))); % empty binary sparse matrix, it will later store the next network state after winner-takes-all is applied
+        if strcmpi(filtering_rule, 'none') % Do nothing, useful for auxiliary network since it's just a reverberation
+            out = propag;
+        elseif strcmpi(filtering_rule, 'binary') % Just make sure the values are binary
+            out = logical(propag);
+        % Winner-take-all : per cluster, keep only the maximum score node active (if multiple nodes share the max score, we keep them all activated). Thus the WTA is based on score value, contrarywise to k-WTA which is based on the number of active node k.
+        elseif strcmpi(filtering_rule, 'wta')
+            % The idea is that we will break the clusters and stack them along as a single long cluster spanning several messages, so that we can do a WTA in one pass (with a single max), and then we will unstack them back to their correct places in the messages
+            propag = reshape(propag, l, mpartial * Chi); % reshape so that we can do the WTA by a simple column-wise WTA (and it's efficient in MatLab since matrices - and even more with sparse matrices - are stored as column vectors, thus it efficiently use the memory cache since this is the most limiting factor above CPU power). See also: Locality of reference.
+            winner_value = max(propag); % what is the maximum output value (considering all the nodes in this character)
+            if ~aux.isOctave()
+                out = logical(bsxfun(@eq, propag, winner_value)); % Get the winners by filtering out nodes that aren't equal to the max score. Use bsxfun(@eq) instead of ismember.
+            else
+                out = logical(sparse(bsxfun(@eq, propag, winner_value))); % Octave does not overload bsxfun with sparse by default, so bsxfun removes the sparsity, thus the propagation at iteration > 1 will be horribly slow! Thus we have to put it back manually. MatLab DOES overload bsxfun with sparsity so this only applies to Octave. See: http://octave.1599824.n4.nabble.com/bsxfun-and-sparse-matrices-in-Matlab-td3867746.html
+            end
+            out = and(propag, out); % IMPORTANT NO FALSE WINNER TRICK: if sparse_cliques or variable_length, we deactivate winning nodes that have 0 score (but were chosen because there's no other activated node in this cluster, and max will always return the id of one node! Thus we have to compare with the original propagation matrix and see if the node was really activated before being selected as a winner).
+            out = reshape(out, n, mpartial);
+        % k-Winner-take-all : keep the best first k nodes having the maximum score, over the whole message. This is kind of a cheat because we must know the original length of the messages, the variable k is a way to tell the algorithm some information we have to help convergence
+        elseif strcmpi(filtering_rule, 'kwta')
+            propag = reshape(propag, l, mpartial * Chi); % reshape so that we can do the WTA by a simple column-wise WTA (and it's efficient in MatLab since matrices - and even more with sparse matrices - are stored as column vectors, thus it efficiently use the memory cache since this is the most limiting factor above CPU power). See also: Locality of reference.
+            [~, idxs] = sort(propag, 'descend');
+            idxs = bsxfun( @plus, idxs, 0:l:((mpartial * n)-1) );
+            [I, J] = ind2sub(size(propag), idxs(1:k, :));
+            out = logical(sparse(I, J, 1, l, mpartial * Chi));
+            out = and(propag, out); % IMPORTANT NO FALSE WINNER TRICK: if sparse_cliques or variable_length, filter out winning nodes with 0 score (selected because there's no other node with any score in this cluster, see above in filtering_rule = 0)
+            out = reshape(out, n, mpartial);
+        % One Global Winner-take-all: only keep one value, but at the last iteration keep them all
+        elseif strcmpi(filtering_rule, 'ogwta') && iter < iterations
+            [~, winner_idxs] = max(propag); % get indices of the max score for each message
+            winner_idxs = bsxfun(@plus, winner_idxs,  0:n:n*(mpartial-1)); % indices returned by max are per-column, here we add the column size to offset the indices, so that we get true MatLab indices
+            winner_idxs = winner_idxs(propag(winner_idxs) > 0); % No false winner trick: we check the values returned by the k best indices in propag, and keep only indices which are linked to a non null value.
+            if nnz(winner_idxs) > 0 % If there is at least one non null value (there's at least one remaining index after the no false winner trick)
+                [I, J] = ind2sub(size(propag), winner_idxs); % extract the sparse matrix non null values indices
+                out = logical(sparse(I, J, 1, n, mpartial)); % create the logical sparse matrix
+            else % Else there's not even one non null value, this means that all messages have 0 max score (the network shut down), then we just have to create an empty output
+                out = logical(sparse(n, mpartial)); % create an empty logical sparse matrix
+            end
+        % Global Winner-take-all: keep only nodes which have maximum score over the whole message. Same as WTA but instead of doing inhibition per-cluster, it's per the whole message/network.
+        elseif strcmpi(filtering_rule, 'gwta') || (strcmpi(filtering_rule, 'ogwta') && iter == iterations) || (GWTA_first_iteration && iter == 1) || (GWTA_last_iteration && iter == iterations)
+            winner_vals = max(propag); % get global max scores for each message
+            if ~aux.isOctave()
+                out = logical(bsxfun(@eq, winner_vals, propag));
+            else
+                out = logical(sparse(bsxfun(@eq, winner_vals, propag)));
+            end
+            out = and(propag, out); % No false winner trick
+        % Global k-Winners-take-all: keep the best k first nodes having the maximum score over the whole message (same as k-WTA but at the message level instead of per-cluster).
+        elseif strcmpi(filtering_rule, 'GkWTA')
+            % Instead of removing indices of scores that are below the k-max scores, we will rather find the indices of these k-max scores and recreate a logical sparse matrix from scratch, this is a lot faster and memory efficient
+            [~, idxs] = sort(propag, 'descend'); % Sort scores with best scores first
+            idxs = idxs(1:k,:); % extract the k best scores indices (for propag)
+            idxs = bsxfun(@plus, idxs,  0:n:n*(mpartial-1)); % indices returned by sort are per-column, here we add the column size to offset the indices, so that we get true MatLab indices
+            winner_idxs = idxs(propag(idxs) > 0); % No false winner trick: we check the values returned by the k best indices in propag, and keep only indices which are linked to a non null value.
+            [I, J] = ind2sub(size(propag), winner_idxs); % extract the necessary I and J (row and columns) indices vectors to create a sparse matrix
+            out = logical(sparse(I, J, 1, n, mpartial)); % finally create a logical sparse matrix
+        % WinnerS-take-all: per cluster, select the kth best score, and accept all nodes with a score greater or equal to this score - similar to kWTA but all nodes with the kth score are accepted, not only a fixed number k of nodes
+        % Global WinnerS-take-all: same as WsTA but per the whole message
+        % Both are implemented the same way, the only difference is that for global we process winners per message, and with local we process them per cluster
+        elseif strcmpi(filtering_rule, 'WsTA') || strcmpi(filtering_rule, 'GWsTA')
+            % Local WinnerS-take-all: Reshape to get only one cluster per column (instead of one message per column)
+            if strcmpi(filtering_rule, 'WsTA')
+                propag = reshape(propag, l, mpartial * Chi);
+            end
+
+            max_scores = sort(propag,'descend');
+            kmax_score = max_scores(k, :);
+            kmax_score(kmax_score == 0) = realmin(); % No false winner trick: better version of the no false winner trick because we replace 0 winner scores by the minimum real value, thus after we will still get a sparse matrix (else if we do the trick only after the bsxfun, we will get a matrix filled by 1 where there are 0 and the winner score is 0, which is a lot of memory used for nothing).
+            out = logical(bsxfun(@ge, propag, kmax_score));
+            if aux.isOctave(); out = sparse(out); end; % Octave's bsxfun breaks the sparsity...
+            out = and(propag, out); % No false winner trick: avoids that if the kth max score is in fact 0, we choose 0 as activating score (0 scoring nodes will be activated, which is completely wrong!). Here we check against the original propagation matrix: if the node wasn't activated then, it shouldn't be now after filtering.
+
+            % Local WinnerS-take-all: Reshape back the clusters into messages
+            if strcmpi(filtering_rule, 'WsTA')
+                out = reshape(out, n, mpartial);
+            end
+
+        % Loser-kicked-out (locally, per cluster, we kick loser nodes with min score except if min == max of this cluster).
+        % Global Loser-Kicked-Out (deactivate all nodes with min score in the message)
+        % Both are implemented the same way, the only difference is that for global we process losers per message, and with local we process them per cluster
+        elseif strcmpi(filtering_rule, 'LKO') || strcmpi(filtering_rule, 'GLKO')
+            % Local Losers-Kicked-Out: Reshape to get only one cluster per column (instead of one message per column)
+            if strcmpi(filtering_rule, 'LKO')
+                propag = reshape(propag, l, mpartial * Chi);
+            end
+
+            % get sorted indices (with 0's at the end)
+            sorted = sort(propag);
+
+            % Re-Sort in descending way but use the previous ascended sort to place 0 at the end, while updating idxs to reflect the resorting, so that we still get the correct indexing for propag (everything is computed relatively to propag)
+            out = sort(propag, 'descend'); % resort by descending order (so the max is first and zeros at the end)
+            [I, J] = find(out ~= 0); % find everwhere there is a non-zero
+            out(out ~= 0) = sorted(sorted ~= 0); % get the resorted scores matrix by resorting the non-zeros in an ascending way (but only those, we don't care about zeros!)
+
+            % Get the losers (min scoring nodes)
+            losers_vals = out(1,:);
+
+            % No false loser trick: remove losers that in fact have the maximum score
+            % compare the losers scores against max score and find indices where losers scores equal max scores (per cluster)
+            false_losers = (losers_vals == max(propag)); % find all losers scores that are equal to the maximum of the cluster
+            false_losers = and(false_losers, losers_vals); % trim out null scores (where there is in fact no activated node, for example a sparse cluster, represented here by a column filled with 0s in losers_vals or propag)
+            false_losers = find(false_losers); % get indices of the false losers
+            if nnz(false_losers) > 0 % if there is at least one false loser
+                losers_vals(false_losers) = -1; % in-place remove the false losers: A(idxs) = [] allows to remove an entry altogether
+            end
+
+            % Finally, deactivate losers from the propag matrix, this will be our new out messages matrix
+            out = logical(propag);
+            if ~aux.isOctave()
+                out(bsxfun(@eq, propag, losers_vals)) = 0;
+            else
+                out(logical(sparse(bsxfun(@eq, propag, losers_vals)))) = 0;
+            end
+
+            % Local Losers-Kicked-Out: Reshape back the clusters into messages
+            if strcmpi(filtering_rule, 'LKO')
+                out = reshape(out, n, mpartial);
+            end
+        % k-Losers-kicked-out (locally, per cluster, we kick exactly k loser nodes with min score except if min == max of this cluster).
+        % Global-k-Losers-Kicked-Out: deactivate k nodes with the minimum score, per the whole message
+        % Optimal/One Loser-Kicked-Out (only one node with min score is kicked) and Optimal Global Loser-Kicked-Out
+        % Both are implemented the same way, the only difference is that for global we process losers per message, and with local we process per cluster
+        elseif strcmpi(filtering_rule, 'kLKO') || strcmpi(filtering_rule, 'GkLKO') || ...
+                    strcmpi(filtering_rule, 'oLKO') || strcmpi(filtering_rule, 'oGLKO')
+            %[~, loser_idx] = min(propag(propag > 0)); % propag(propag > 0) is faster than nonzeros(propag)
+            %propag(loser_idx) = 0;
+
+            %loser_val = min(propag(propag > 0));
+            %out = logical(propag);
+            %out(find(propag == loser_val)(1)) = 0;
+
+            % Local k-Losers-Kicked-Out: Reshape to get only one cluster per column (instead of one message per column)
+            if strcmpi(filtering_rule, 'kLKO') || strcmpi(filtering_rule, 'oLKO')
+                propag = reshape(propag, l, mpartial * Chi);
+            end
+
+            % get sorted indices
+            [sorted, idxs] = sort(propag);
+            idxs = bsxfun(@plus, idxs, 0:size(propag,1):(numel(propag)-size(propag,1))); % offset to get real indices since sort returns per-column indices (reset to 0 for each column)
+
+            % Re-Sort to place 0 at the end, while updating idxs to reflect the resorting, so that we still get the correct indexing for propag (everything is computed relatively to propag)
+            out = sort(propag, 'descend'); % resort by descending order (so the max is first and zeros at the end)
+            [I, J] = find(out ~= 0); % find everwhere there is a non-zero
+            losers_idxs = sparse(I, J, 1, size(propag,1), size(propag,2)); % create a new indices matrix with 1's where the non-zeros will be
+            %out(out ~= 0) = sorted(sorted ~= 0); % get the resorted scores matrix
+            losers_idxs(losers_idxs ~= 0) = idxs(sorted ~= 0); % get the final resorted indices matrix, by replacing the sparse non-zeros with the non-zeros from the first sort (first sort was with ascending order but there were 0 at the beginning, so now we don't care about 0, we just overwrite the values with the same ones but in ascending order).
+            if strcmpi(filtering_rule, 'oLKO') || strcmpi(filtering_rule, 'oGLKO')
+                losers_idxs = losers_idxs(1, :); % special case: oLKO = kLKO with k = 1 exactly
+            else
+                losers_idxs = losers_idxs(1:k, :); % keep only the indices of the k-worst scores (k min scores)
+            end
+
+            % No false loser trick: remove losers that in fact have the maximum score
+            winners_vals = max(propag); % get max score per cluster
+            % fetch k-losers scores (values) per cluster by using the indices
+            losers_vals = losers_idxs;
+            losers_vals(losers_vals ~= 0) = propag(losers_idxs(losers_idxs ~= 0)); % this is the trick: we keep the shape of the losers_idxs matrix but we replace the non zeros values by the scores from propag
+            % compare the losers scores against max score and find indices where losers scores equal max scores (per cluster)
+            false_losers = bsxfun(@eq, losers_vals, winners_vals); % find all losers scores that are equal to the maximum of the cluster
+            false_losers = and(false_losers, losers_vals); % trim out null scores (where there is in fact no activated node, for example a sparse cluster, represented here by a column filled with 0s in losers_vals or propag)
+            false_losers = find(false_losers); % get indices of the false losers
+            if nnz(false_losers) > 0 % if there is at least one false loser
+                losers_idxs(false_losers) = []; % in-place remove the false losers: A(idxs) = [] allows to remove an entry altogether
+            end
+
+            % Finally, deactivate losers from the propag matrix, this will be our new out messages matrix
+            out = logical(propag);
+            losers_idxs(losers_idxs == 0) = []; % make sure that there's no empty indices by removing them (for sparse cliques, where there are some cliques where there's absolutely no character)
+            if nnz(losers_idxs) > 0 % check that there's still at least one index to set to 0
+                out(losers_idxs) = 0;
+            end
+
+            % Local k-Losers-Kicked-Out: Reshape back the clusters into messages
+            if strcmpi(filtering_rule, 'kLKO') || strcmpi(filtering_rule, 'oLKO')
+                out = reshape(out, n, mpartial);
+            end
+        % Concurrent Global k-Winners-take-all
+        % CkGWTA = kGWTA + trimming out all scores that are below the k-th max score (so that if there are shared nodes between multiple messages, we will get less than c active nodes at the end)
+        elseif strcmpi(filtering_rule, 'CGkWTA')
+            % 1- kGWTA
+            [~, idxs] = sort(propag, 'descend'); % Sort scores with best scores first
+            idxs = idxs(1:k,:); % extract the k best scores indices (for propag)
+            idxs = bsxfun(@plus, idxs,  0:n:n*(mpartial-1)); % indices returned by sort are per-column, here we add the column size to offset the indices, so that we get true MatLab indices
+            winner_idxs = idxs(propag(idxs) > 0); % No false winner trick: we check the values returned by the k best indices in propag, and keep only indices which are linked to a non null value.
+            [I, J] = ind2sub(size(propag), winner_idxs); % extract the necessary I and J (row and columns) indices vectors to create a sparse matrix
+            temp = propag(idxs); % MatLab compatibility...
+            propag2 = sparse(I, J, temp(temp > 0), n, mpartial); % finally create a sparse matrix, but contrarywise to the original implementation of kGWTA, we keep the full scores here, we don't turn it yet into binary, so that we can continue processing in the second stage.
+
+            % 2- Trimming below k-th max scores
+            temp = propag2;
+            maxscores = max(temp);
+            for i=1:concurrent_cliques-1
+                if aux.isOctave()
+                    temp = sparse(bsxfun(@mod, full(temp), maxscores));
                 else
-                    [~, sorted_idxs] = sort(sum(propag_links), 'ascend'); % Pre-sort fanals to explore first depending on number of total active links (lowest number of links first)
-                    activated_fanals = activated_fanals(:, sorted_idxs); % this pre-sorting will be used everytime we expand sub-nodes to explore first the nodes with highest scores
-                    open = msg;
+                    temp = bsxfun(@mod, temp, maxscores);
                 end
-                if no_double_visit; closed = sparse([]); end; % List of already visited nodes (so that we won't visit the same node twice)
-                dead_ends = sparse([]); % List of nodes that won't lead to a clique by using domain-elimination (if a combination of node A-B-C does not form a clique, then we avoid exploring this subtree entirely, meaning that we will avoid A-B-C-D, A-B-C-E, A-B-C-D-E, etc.).
-                kcliques = sparse([]); % List of found k-cliques (we must maintain a list if we try to find several concurrent_cliques. With only one clique, it's useless, but with more than one, we must find each clique separately, and then at the end, we concatenate all the cliques together to form the final message we return)
+                maxscores = max(temp);
+            end
+            clear temp;
+            maxscores(maxscores == 0) = 1;
+            if aux.isOctave()
+                out = logical(sparse(bsxfun(@ge, propag2, maxscores)));
+            else
+                out = logical(bsxfun(@ge, propag2, maxscores));
+            end
+        % Maximum likelihood or Exhaustive search (Depth-First Search or Breadth-First Search)
+        % This will find the k-clique where k = c, in other words it will reconstruct one node at a time a clique of order c, and if it can't find such a clique, then it returns an empty message (we failed, there's no clique). If there's a clique of length c, this algorithm will find it and return it. If there are multiple cliques of length c, this algorithm will find just one and returns it, whether it's the one we are looking for or not (thus it does not handly ambiguity).
+        % How it works: we consider that we are in a graph, where every node in this graph corresponds to a submessage containing a subset of the nodes of the full message. In the ascending approach, the first node is totally empty, and each subnodes has one fanal, then each subsubnodes has two fanals, then each subsubsubnodes has three fanals, etc... until at the end we get nodes where the messages contain c fanals (we can go deeper but we stop at this level since we are trying to find a kclique and not the maximum clique). Thus we can consider this problem to be a simple tree search by walking, thus as Depth-First Search or Breadth-First Search or even AStar (also called Branch and Bound, and this is what is used to find maximal clique usually).
+        % Finding a k-clique is a NP-hard problem, thus this algorithm will be slow, but it's enhanced with tricks from Constraints Programming thus as backtracking and domain-elimination (if a combination of node A-B-C does not form a clique, then we avoid exploring this subtree entirely, meaning that we will avoid A-B-C-D, A-B-C-E, A-B-C-D-E, etc.).
+        % Note that this is the only filtering algorithm that isn't a heuristic, since it does not use scores at all, but rather try all combinations of nodes until it finds a clique of order c. Thus, this algorithm does not suffer from spurious fanals (which have a score above correct fanals), but only suffers from spurious cliques (for this algorithm to be confused, there must be an ambiguity = two cliques of order c, so to have an ambiguity, a spurious fanal must be connected to at least (c-1) correct fanals so that it really forms a clique).
+        % TODO: try to use a SAT solver, similarly to the knapsack problem? This should be a lot faster than doing it manually. NO: rather use efficient algorithms specifically to find maximum cliques, like Constraint Programming Régin, J. C. (2003, January). Using constraint programming to solve the maximum clique problem. In Principles and Practice of Constraint Programming–CP 2003 (pp. 634-648). Springer Berlin Heidelberg.
+        % or MCS or BBMC (BB-MaxClique): http://arxiv.org/pdf/1207.4616.pdf Pablo San Segundo, Diego Rodr´iguez-Losada, and August´in Jim´enez. An exact bit-parallel algorithm for the maximum clique problem. Computers and Operations Research, 38:571–581, 2011.
+        % See also: https://www.cs.purdue.edu/homes/agebreme/publications/fastClq-WAW13.pdf
+        % NOTE: on performances: one k-clique is easy enough to find and quite quick, but it's a lot harder to find multiple k-cliques, because the algorithm might get stuck in the subtree leading to only the k-clique we already found, the other k-cliques being on different subtrees altogether. To avoid this, there is a re-sort after each k-clique is just found (see just_found variable), which allows to explore altogether different subtrees as a first guess. However, this brings another harder (and hardest) case: when the different k-cliques overlap, you have to explore in the middle of the tree, and this is the hardest case since you have fanals from the already found k-clique overlapping with the next k-clique to find, thus we can't just explore an altogether different subtree, but rather the middle of the tree which is a mix between the new k-clique and the already found one.
+        % TODO: try to use a genetic algorithm? Or a cuckoo search?
+        elseif strcmpi(filtering_rule, 'ML') || strcmpi(filtering_rule, 'DFS') || strcmpi(filtering_rule, 'BFS') || strcmpi(filtering_rule, 'MLD')
+            erasures = c - (mode(sum(partial_messages)) / concurrent_cliques); % try to heuristically find the number of erasures
+            propag(propag < (c-erasures)) = 0; % Filter out all useless nodes (ie: if they have a score below the length of a message, then these nodes can't possibly be part of a clique of length c, which is what we are looking for)
+            out = logical(sparse(size(propag,1), size(propag,2))); % Init the output messages. By default if we can't find a k-clique, we will set the message to all 0's
+            % Presetting the search mode into a simple boolean, it will speed things up instead of comparing strings everytime inside the loop
+            mode_search = 0;
+            % Depth-First Search: we first explore the sub nodes of the current node then later we will explore sibling nodes of current node
+            if strcmpi(filtering_rule, 'ML') || strcmpi(filtering_rule, 'DFS')
+                mode_search = 0;
+            % Breadth-First Search: we first explore sibling nodes (nodes at the same level as current node) and then after we will explore sub nodes of current node
+            elseif strcmpi(filtering_rule, 'BFS')
+                mode_search = 1;
+            end
+            % Ascending or descending search? (from an empty message we go up and construct a clique one fanal at a time, or we descend from the full message and remove one fanal at a time until we have a clique?)
+            mode_asc = 1;
+            if strcmpi(filtering_rule, 'MLD')
+                mode_asc = 0;
+            end
+            % Other modes settings
+            no_double_visit = false; % prevent generating sub nodes which we already visited in the past?
+            precompute_dead_ends = true; % precompute all possible dead ends (domain elimination) before exploring solutions? This is very memory intensive but will speed up the exploration a lot.
+            % Total number of dropped messages (because they were too long to converge)
+            dropped_count = 0;
+            resign_count = 0;
+            % Loop for each tampered message to test
+            for i=1:mpartial
+                if ~silent; printf('ML message %i/%i\n', i, mpartial); aux.flushout(); end;
+                msg = logical(propag(:,i)); % Extract the message
+                found_flag = false; % Flag is true if we have found a k-clique (or if concurrent_cliques > 1, until we find at least concurrent_cliques k-cliques)
+                resign_flag = false; % Flag is true if we have expanded all nodes (open is empty) and we still haven't found any k-clique
+                just_found = false;
+                % Check that the message has at least enough nodes to form a k-clique of order c, because else that means we can't even possibly find a clique of order c for this message. We just skip it
+                if nnz(msg) < c % The message does not have enough nodes to form a clique
+                    out(:,i) = logical(msg); % If there's not enough nodes to form a k-clique of order c, then we keep this message as-is and skip it for the next iteration (if there's only one iteration, this message will obviously be wrong anyway, but with multiple iterations it may converge)
+                    if ~silent; printf('ML not enough k-cliques found, resign!\n'); aux.flushout(); end;
+                    resign_count = resign_count + 1;
+                else % Else the message has enough nodes to form a clique
+                    % Extract all the links submatrix (= the adjacency matrix for this message)
+                    pidxs = find(msg);
+                    propag_links = net(pidxs, pidxs);
 
-                % Main loop: try to find a k-clique until we have found one or we explored the whole tree and couldn't find any k-clique
-                counter = 0;
-                countermax = 500;
-                counter2 = 0;
-                counterlimit = 1E4;
-                while ~found_flag && ~resign_flag
-                    counter = counter + 1;
-                    counter2 = counter2 + 1;
-                    % if this is too slow to converge, we randomize things up
-                    if counter > countermax
-                        if ~silent; printf('Reshuffling stack...\n', i, mpartial); aux.flushout(); end;
-                        open = open(:,randperm(size(open,2)));
-                        activated_fanals = activated_fanals(:,randperm(size(activated_fanals,2)));
-                        counter = 0;
-                        countermax = countermax * 2; % not too many shuffles, lengthen the number of iterations required for a shuffle
-                        %keyboard; % sum(open) to check the evolution of the stack (this will give the score of each node)
-                    end
-                    if counter2 > counterlimit
-                        if ~silent; printf('ML dropping message %i: too many iterations...\n', i); aux.flushout(); end;
-                        dropped_count = dropped_count + 1;
-                        break;
-                    end
-                    % If we just found a clique, and concurrent_cliques > 1 (so we are looking for another clique), we restart from the beginning to avoid exploring all siblings of current kclique which is highly unlikely to give another kclique (they are probably very different, ie they do not share many nodes, unless density is very very high)
-                    if just_found == true
-                        % First we resort by putting last the fanals that are in the found kcliques
-                        matched_fanals = (activated_fanals' * kcliques)';
-                        if mode_asc
-                            activated_fanals = activated_fanals(:, [find(~matched_fanals) find(matched_fanals)]);
-                            % Then reinit open list with the fanals reordered
-                            open = activated_fanals;
-                        else
-                            activated_fanals = activated_fanals(:, [find(matched_fanals) find(~matched_fanals)]);
-                            % Then reinit open list with the full message
-                            open = msg;
+                    % Extract the list of separate nodes (this will generate as many submessages as there are activated fanals, so that each submessage contains only one fanal)
+                    activated_fanals = sparse(find(msg), 1:nnz(msg), 1, n, nnz(msg));
+
+                    % Precompute dead ends at the beginning by computing all combinations of two activated fanals with no link between
+                    % Note: this must be done before resorting activated_fanals
+                    % NOTE2: this is VERY memory consuming, thus you may need to disable it on big datasets
+                    if mode_asc && precompute_dead_ends
+                        repeat_nbs = size(propag_links, 1) - sum(propag_links); % get the number of missing links per fanal
+                        if any(repeat_nbs) % if there's any missing link, we continue, else it's already a clique!
+                            idxs = aux.rl_decode(repeat_nbs, 1:size(activated_fanals,2)); % pre-generate the number of dead ends (we here generate the indexes of the first fanal)
+                            idxs_2nd_fanal = nonzeros(bsxfun(@times, pidxs, double(~propag_links)))'; % now generate the indexes of the second fanal to which the first fanals aren't linked to
+                            idxs_2nd_fanal = idxs_2nd_fanal + [0:n:(n*(numel(idxs)-1))]; % offset the indexes to easily apply them in matlab style
+                            dead_ends = activated_fanals(:, idxs); % generate the dead ends and fill them with the first fanals (repeated as many as there are missing links)
+                            dead_ends(idxs_2nd_fanal) = 1; % activate the second fanals to which there is a missing link
                         end
-                        just_found = false;
                     end
-                    % Nothing remaining to explore? Then stop, there's no clique
-                    if isempty(open)
-                        if ~silent; printf('ML not enough k-cliques found, resign!\n'); aux.flushout(); end;
-                        resign_count = resign_count + 1;
-                        resign_flag = true;
-                        break; % KO stopping criterion: we couldn't find enough (=concurrent_cliques) cliques with c fanals, we just stop here.
-                    % Else we still have nodes to explore
-                    else
-                        cur_node = open(:,1); % Pop the first submessage to explore
-                        open(:,1) = []; % And remove it from the open list
-                        if no_double_visit; closed = [closed, cur_node]; end; % Add this node to the list of visited nodes
 
-                        if (mode_asc && nnz(cur_node) <= c) || (~mode_asc && nnz(cur_node) >= c) % if number of nodes is above c then we've got nothing to do because we have more nodes than required for a clique, so this is surely not a good track to follow
-                            % Get the links
-                            pidxs = find(cur_node); % extract links by network matrix indexing (the crossover between indexes in column and rows will give us the links for this list of nodes)
-                            propag_links = net(pidxs, pidxs); % Get the sub-matrix of all links between all nodes in our message
-                            % If this isn't a clique, then it's a dead end, we add it to the list of paths that should never be expanded (any specialization of this message - meaning any message containing at least the same nodes as this message, but it can contain more - will be discarded as a dead end)
-                            if ( mode_asc && ~(nnz(propag_links) == numel(propag_links)) ) % to check that this is a clique, we just check that the number of activated connections (= number of non-zeros entries) is equal to the total number of possible connections in this sub-matrix (= total number of elements in this submatrix)
-                                dead_ends = [dead_ends cur_node];
-                            % Else this is a clique (all fanals are interconnected, there's no 0 anywhere in the links submatrix), then we will proceed on by either expanding the sub nodes or by finishing if this clique has c nodes
+                    % Pre-sort fanals to better explore the tree of solutions
+                    if mode_asc
+                        [~, sorted_idxs] = sort(sum(propag_links), 'descend'); % Pre-sort fanals to explore first depending on number of total active links (highest number of links first)
+                        activated_fanals = activated_fanals(:, sorted_idxs); % this pre-sorting will be used everytime we expand sub-nodes to explore first the nodes with highest scores
+                        open = activated_fanals; % and we use this pre-sorting at the start
+                    %open = activated_fanals(:,randperm(nnz(msg))); % open contains the list of nodes to explore next. At each iteration, we will pull the first node in the list. To init, we use the list of separate nodes in a random permutation
+                    else
+                        [~, sorted_idxs] = sort(sum(propag_links), 'ascend'); % Pre-sort fanals to explore first depending on number of total active links (lowest number of links first)
+                        activated_fanals = activated_fanals(:, sorted_idxs); % this pre-sorting will be used everytime we expand sub-nodes to explore first the nodes with highest scores
+                        open = msg;
+                    end
+                    if no_double_visit; closed = sparse([]); end; % List of already visited nodes (so that we won't visit the same node twice)
+                    dead_ends = sparse([]); % List of nodes that won't lead to a clique by using domain-elimination (if a combination of node A-B-C does not form a clique, then we avoid exploring this subtree entirely, meaning that we will avoid A-B-C-D, A-B-C-E, A-B-C-D-E, etc.).
+                    kcliques = sparse([]); % List of found k-cliques (we must maintain a list if we try to find several concurrent_cliques. With only one clique, it's useless, but with more than one, we must find each clique separately, and then at the end, we concatenate all the cliques together to form the final message we return)
+
+                    % Main loop: try to find a k-clique until we have found one or we explored the whole tree and couldn't find any k-clique
+                    counter = 0;
+                    countermax = 500;
+                    counter2 = 0;
+                    counterlimit = 1E4;
+                    while ~found_flag && ~resign_flag
+                        counter = counter + 1;
+                        counter2 = counter2 + 1;
+                        % if this is too slow to converge, we randomize things up
+                        if counter > countermax
+                            if ~silent; printf('Reshuffling stack...\n', i, mpartial); aux.flushout(); end;
+                            open = open(:,randperm(size(open,2)));
+                            activated_fanals = activated_fanals(:,randperm(size(activated_fanals,2)));
+                            counter = 0;
+                            countermax = countermax * 2; % not too many shuffles, lengthen the number of iterations required for a shuffle
+                            %keyboard; % sum(open) to check the evolution of the stack (this will give the score of each node)
+                        end
+                        if counter2 > counterlimit
+                            if ~silent; printf('ML dropping message %i: too many iterations...\n', i); aux.flushout(); end;
+                            dropped_count = dropped_count + 1;
+                            break;
+                        end
+                        % If we just found a clique, and concurrent_cliques > 1 (so we are looking for another clique), we restart from the beginning to avoid exploring all siblings of current kclique which is highly unlikely to give another kclique (they are probably very different, ie they do not share many nodes, unless density is very very high)
+                        if just_found == true
+                            % First we resort by putting last the fanals that are in the found kcliques
+                            matched_fanals = (activated_fanals' * kcliques)';
+                            if mode_asc
+                                activated_fanals = activated_fanals(:, [find(~matched_fanals) find(matched_fanals)]);
+                                % Then reinit open list with the fanals reordered
+                                open = activated_fanals;
                             else
-                                % If the number of fanals in this clique is below c, then we need to explore further and add more fanals, so we can explore the sub-nodes of the current node
-                                if (mode_asc && nnz(cur_node) < c) || (~mode_asc && nnz(cur_node) > c)
-                                    sub_nodes = sparse([]);
-                                    if mode_asc
-                                        % sub_nodes = all combinations of current message with base characters
-                                        sub_nodes = or(repmat(cur_node, 1, size(activated_fanals, 2)), activated_fanals);
-                                        % remove sub nodes that are the same as the current node (they don't have one more fanal)
-                                        sub_nodes = sub_nodes(:, sum(sub_nodes) > sum(cur_node)); % since we are adding one fanal at a time in each submessage, if one or several submessages have the same size as the current message, then it means that the fanal we added overlaps a fanal that was already active in the current message, thus we can without a doubt discard it as a duplicate
-                                        % remove sub messages where we added a fanal in the same cluster as another already activated fanal in this sub message (ie: it's useless to explore this sub node because a clique cannot have two fanals in the same cluster, thus we are sure this will be a dead end)
-                                        sub_nodes = sub_nodes(:, ~any(reshape(sum(reshape(sub_nodes, l, []), 1) > 1, Chi, []), 1));
-                                    else
-                                        % First try to guide which fanal we will eliminate: we will choose preferably the fanals that are the less connected, because probably these fanals aren't in the clique
-                                        [~, sorted_idxs] = sort(sum(propag_links), 'ascend'); % Pre-sort fanals to explore first depending on number of total active links (lowest number of links first)
-                                        [~, ~, idxs] = intersect(pidxs, find(msg)); % Find the ids of the fanals we already removed in the past (readjust the indexes offsets)
-                                        activated_fanals2 = activated_fanals(:, idxs(sorted_idxs)); % delete useless subnodes and reorder to explore (remove) first the fanals that are the less connected
-                                        % sub_nodes = all combinations of the difference between current message with base characters
-                                        sub_nodes = repmat(cur_node, 1, size(activated_fanals2, 2));
-                                        sub_nodes(find(activated_fanals2)) = 0;
-                                        % remove sub nodes that are the same as the current node (they don't have one less fanal than current message)
-                                        sub_nodes = sub_nodes(:, sum(sub_nodes) < sum(cur_node)); % since we are adding one fanal at a time in each submessage, if one or several submessages have the same size as the current message, then it means that the fanal we added overlaps a fanal that was already active in the current message, thus we can without a doubt discard it as a duplicate
-                                    end
-                                    % No double visit of the same nodes
-                                    % Note that it can cost a lot of memory, and cause a memory overflow on Octave since we have to remember all nodes ever visited!
-                                    if no_double_visit
-                                        interesting_sub_nodes = ~any(bsxfun(@ge, (sub_nodes' * closed)', sum(sub_nodes)), 1); % Compare each sub node with the list of previously visited nodes (inside the closed list)
-                                        if isempty(interesting_sub_nodes) || ~any(interesting_sub_nodes) % All sub messages were deleted? So we don't have any sub node to happen, let's walk another branch of the tree
-                                            sub_nodes = [];
-                                        else % Else we have some interesting sub nodes to extract
-                                            sub_nodes = sub_nodes(:, interesting_sub_nodes);
+                                activated_fanals = activated_fanals(:, [find(matched_fanals) find(~matched_fanals)]);
+                                % Then reinit open list with the full message
+                                open = msg;
+                            end
+                            just_found = false;
+                        end
+                        % Nothing remaining to explore? Then stop, there's no clique
+                        if isempty(open)
+                            if ~silent; printf('ML not enough k-cliques found, resign!\n'); aux.flushout(); end;
+                            resign_count = resign_count + 1;
+                            resign_flag = true;
+                            break; % KO stopping criterion: we couldn't find enough (=concurrent_cliques) cliques with c fanals, we just stop here.
+                        % Else we still have nodes to explore
+                        else
+                            cur_node = open(:,1); % Pop the first submessage to explore
+                            open(:,1) = []; % And remove it from the open list
+                            if no_double_visit; closed = [closed, cur_node]; end; % Add this node to the list of visited nodes
+
+                            if (mode_asc && nnz(cur_node) <= c) || (~mode_asc && nnz(cur_node) >= c) % if number of nodes is above c then we've got nothing to do because we have more nodes than required for a clique, so this is surely not a good track to follow
+                                % Get the links
+                                pidxs = find(cur_node); % extract links by network matrix indexing (the crossover between indexes in column and rows will give us the links for this list of nodes)
+                                propag_links = net(pidxs, pidxs); % Get the sub-matrix of all links between all nodes in our message
+                                % If this isn't a clique, then it's a dead end, we add it to the list of paths that should never be expanded (any specialization of this message - meaning any message containing at least the same nodes as this message, but it can contain more - will be discarded as a dead end)
+                                if ( mode_asc && ~(nnz(propag_links) == numel(propag_links)) ) % to check that this is a clique, we just check that the number of activated connections (= number of non-zeros entries) is equal to the total number of possible connections in this sub-matrix (= total number of elements in this submatrix)
+                                    dead_ends = [dead_ends cur_node];
+                                % Else this is a clique (all fanals are interconnected, there's no 0 anywhere in the links submatrix), then we will proceed on by either expanding the sub nodes or by finishing if this clique has c nodes
+                                else
+                                    % If the number of fanals in this clique is below c, then we need to explore further and add more fanals, so we can explore the sub-nodes of the current node
+                                    if (mode_asc && nnz(cur_node) < c) || (~mode_asc && nnz(cur_node) > c)
+                                        sub_nodes = sparse([]);
+                                        if mode_asc
+                                            % sub_nodes = all combinations of current message with base characters
+                                            sub_nodes = or(repmat(cur_node, 1, size(activated_fanals, 2)), activated_fanals);
+                                            % remove sub nodes that are the same as the current node (they don't have one more fanal)
+                                            sub_nodes = sub_nodes(:, sum(sub_nodes) > sum(cur_node)); % since we are adding one fanal at a time in each submessage, if one or several submessages have the same size as the current message, then it means that the fanal we added overlaps a fanal that was already active in the current message, thus we can without a doubt discard it as a duplicate
+                                            % remove sub messages where we added a fanal in the same cluster as another already activated fanal in this sub message (ie: it's useless to explore this sub node because a clique cannot have two fanals in the same cluster, thus we are sure this will be a dead end)
+                                            sub_nodes = sub_nodes(:, ~any(reshape(sum(reshape(sub_nodes, l, []), 1) > 1, Chi, []), 1));
+                                        else
+                                            % First try to guide which fanal we will eliminate: we will choose preferably the fanals that are the less connected, because probably these fanals aren't in the clique
+                                            [~, sorted_idxs] = sort(sum(propag_links), 'ascend'); % Pre-sort fanals to explore first depending on number of total active links (lowest number of links first)
+                                            [~, ~, idxs] = intersect(pidxs, find(msg)); % Find the ids of the fanals we already removed in the past (readjust the indexes offsets)
+                                            activated_fanals2 = activated_fanals(:, idxs(sorted_idxs)); % delete useless subnodes and reorder to explore (remove) first the fanals that are the less connected
+                                            % sub_nodes = all combinations of the difference between current message with base characters
+                                            sub_nodes = repmat(cur_node, 1, size(activated_fanals2, 2));
+                                            sub_nodes(find(activated_fanals2)) = 0;
+                                            % remove sub nodes that are the same as the current node (they don't have one less fanal than current message)
+                                            sub_nodes = sub_nodes(:, sum(sub_nodes) < sum(cur_node)); % since we are adding one fanal at a time in each submessage, if one or several submessages have the same size as the current message, then it means that the fanal we added overlaps a fanal that was already active in the current message, thus we can without a doubt discard it as a duplicate
                                         end
-                                    end
-                                    % Domain filtering
-                                    if mode_asc
-                                        interesting_sub_nodes = ones(1,size(sub_nodes,2)); % Reinit indexes
-                                        if ~isempty(dead_ends) && ~isempty(sub_nodes)
-                                            interesting_sub_nodes = ~any(bsxfun(@ge, (sub_nodes' * dead_ends)', sum(dead_ends)'), 1); % Compare each sub node and see if a dead end match with these sub nodes (ie: if all the fanals of a dead end are contained in one of those sub messages, it is discarded, even if it contains more fanals that the dead end, this is because a message with c fanals will always be more general than another message with c+x fanals if they both have the same c fanals)
+                                        % No double visit of the same nodes
+                                        % Note that it can cost a lot of memory, and cause a memory overflow on Octave since we have to remember all nodes ever visited!
+                                        if no_double_visit
+                                            interesting_sub_nodes = ~any(bsxfun(@ge, (sub_nodes' * closed)', sum(sub_nodes)), 1); % Compare each sub node with the list of previously visited nodes (inside the closed list)
+                                            if isempty(interesting_sub_nodes) || ~any(interesting_sub_nodes) % All sub messages were deleted? So we don't have any sub node to happen, let's walk another branch of the tree
+                                                sub_nodes = [];
+                                            else % Else we have some interesting sub nodes to extract
+                                                sub_nodes = sub_nodes(:, interesting_sub_nodes);
+                                            end
                                         end
-                                        if isempty(interesting_sub_nodes) || ~any(interesting_sub_nodes) % All sub messages were deleted? So we don't have any sub node to happen, let's walk another branch of the tree
-                                            sub_nodes = [];
-                                        else % Else we have some interesting sub nodes to extract
-                                            sub_nodes = sub_nodes(:, interesting_sub_nodes);
+                                        % Domain filtering
+                                        if mode_asc
+                                            interesting_sub_nodes = ones(1,size(sub_nodes,2)); % Reinit indexes
+                                            if ~isempty(dead_ends) && ~isempty(sub_nodes)
+                                                interesting_sub_nodes = ~any(bsxfun(@ge, (sub_nodes' * dead_ends)', sum(dead_ends)'), 1); % Compare each sub node and see if a dead end match with these sub nodes (ie: if all the fanals of a dead end are contained in one of those sub messages, it is discarded, even if it contains more fanals that the dead end, this is because a message with c fanals will always be more general than another message with c+x fanals if they both have the same c fanals)
+                                            end
+                                            if isempty(interesting_sub_nodes) || ~any(interesting_sub_nodes) % All sub messages were deleted? So we don't have any sub node to happen, let's walk another branch of the tree
+                                                sub_nodes = [];
+                                            else % Else we have some interesting sub nodes to extract
+                                                sub_nodes = sub_nodes(:, interesting_sub_nodes);
+                                            end
                                         end
-                                    end
-                                    % Append new nodes to explore if any
-                                    if ~isempty(sub_nodes)
-                                        % Depth-First Search: we first explore the sub nodes of the current node then later we will explore sibling nodes of current node
-                                        if mode_search == 0
-                                            open = [sub_nodes, open];
-                                        % Breadth-First Search: we first explore sibling nodes (nodes at the same level as current node) and then after we will explore sub nodes of current node
-                                        elseif mode_search == 1
-                                            open = [open, sub_nodes];
+                                        % Append new nodes to explore if any
+                                        if ~isempty(sub_nodes)
+                                            % Depth-First Search: we first explore the sub nodes of the current node then later we will explore sibling nodes of current node
+                                            if mode_search == 0
+                                                open = [sub_nodes, open];
+                                            % Breadth-First Search: we first explore sibling nodes (nodes at the same level as current node) and then after we will explore sub nodes of current node
+                                            elseif mode_search == 1
+                                                open = [open, sub_nodes];
+                                            end
                                         end
-                                    end
-                                % Else if number of nodes equal to c: we just found a clique!
-                                elseif nnz(cur_node) == c && (mode_asc || ~(nnz(propag_links) == numel(propag_links)) )
-                                    if concurrent_cliques == 1 || ( isempty(kcliques) || ~any(bsxfun(@eq, (cur_node' * kcliques), sum(kcliques))) ) % Important: Check that the k-clique we just found is not a duplicate of a k-clique we found previously (only useful if we have to find several k-cliques, ie: when concurrent_cliques > 1)
-                                        kcliques = [kcliques, cur_node]; % add the current sub message into the list of found cliques
-                                        if mode_asc; dead_ends = [dead_ends, cur_node]; end; % avoid re-exploring this same solution twice
-                                        just_found = true;
-                                    end
-                                    % If we have reached the number of cliques to find (= concurrent_cliques), then we can construct the out message and stop here
-                                    if size(kcliques, 2) == concurrent_cliques % we can't know if the concurrent_cliques have to overlap or not, so as long as we find 2 different cliques, we take it as a result (we are guaranteed to find different cliques everytime because we add all found kcliques in the dead_ends just above)
-                                        out(:,i) = any(kcliques, 2); % concatenate all found cliques into one single message
-                                        found_flag = true;
-                                        break; % OK stopping criterion: found the cliques, they may be the wrong ones if multiple cliques are available and thus there's some kind of confusion, but at least we've found something!
+                                    % Else if number of nodes equal to c: we just found a clique!
+                                    elseif nnz(cur_node) == c && (mode_asc || ~(nnz(propag_links) == numel(propag_links)) )
+                                        if concurrent_cliques == 1 || ( isempty(kcliques) || ~any(bsxfun(@eq, (cur_node' * kcliques), sum(kcliques))) ) % Important: Check that the k-clique we just found is not a duplicate of a k-clique we found previously (only useful if we have to find several k-cliques, ie: when concurrent_cliques > 1)
+                                            kcliques = [kcliques, cur_node]; % add the current sub message into the list of found cliques
+                                            if mode_asc; dead_ends = [dead_ends, cur_node]; end; % avoid re-exploring this same solution twice
+                                            just_found = true;
+                                        end
+                                        % If we have reached the number of cliques to find (= concurrent_cliques), then we can construct the out message and stop here
+                                        if size(kcliques, 2) == concurrent_cliques % we can't know if the concurrent_cliques have to overlap or not, so as long as we find 2 different cliques, we take it as a result (we are guaranteed to find different cliques everytime because we add all found kcliques in the dead_ends just above)
+                                            out(:,i) = any(kcliques, 2); % concatenate all found cliques into one single message
+                                            found_flag = true;
+                                            break; % OK stopping criterion: found the cliques, they may be the wrong ones if multiple cliques are available and thus there's some kind of confusion, but at least we've found something!
+                                        end
                                     end
                                 end
                             end
                         end
                     end
                 end
+
+                %if found_flag
+                %    out(:,i) = any(kcliques, 2);
+                %end % else do nothing, since out is already zero'ed, this means that the current message will be all 0's meaning we didn't find a solution (clique)
             end
 
-            %if found_flag
-            %    out(:,i) = any(kcliques, 2);
-            %end % else do nothing, since out is already zero'ed, this means that the current message will be all 0's meaning we didn't find a solution (clique)
-        end
+            if ~silent
+                printf('ML total number of dropped messages: %i/%i\n', dropped_count, mpartial);
+                printf('ML total number of resigned messages: %i/%i\n', resign_count, mpartial);
+                aux.flushout();
+            end
 
-        if ~silent
-            printf('ML total number of dropped messages: %i/%i\n', dropped_count, mpartial);
-            printf('ML total number of resigned messages: %i/%i\n', resign_count, mpartial);
-            aux.flushout();
-        end
-
-    % Else error, the filtering_rule does not exist
-    else
-        error('Unrecognized filtering_rule: %s', filtering_rule);
-    end
-
-    % 3- Some post-processing
-
-    % Guiding mask
-    % TODO: better performances if we place guiding mask processing in-between propagation and filtering steps?
-    if ~isempty(guiding_mask) % Apply guiding mask to filter out useless clusters. TODO: the filtering should be directly inside the propagation rule at the moment of the matrix product to avoid useless computations (but this is difficult to do this in MatLab in a vectorized way...).
-        out = reshape(out, l, mpartial * Chi);
-        if ~aux.isOctave()
-            out = bsxfun(@and, out, guiding_mask);
+        % Else error, the filtering_rule does not exist
         else
-            out = logical(sparse(bsxfun(@and, out, guiding_mask)));
+            error('Unrecognized filtering_rule: %s', filtering_rule);
         end
-        out = reshape(out, n, mpartial);
-    end
 
-    % Overlays filtering: instead of filtering at propagation time, we first propagate, then filter using GWsTA just like usually, and then only we filter by tags, just like a guiding mask but totally unsupervised
-    if strcmpi(propagation_rule, 'overlays_filter')
-        fastmode = @(x) max(aux.fastmode(nonzeros(x))); % prepare the fastmode function (in case of draw between two values which are both the mode, keep the maximum one = most recent one)
-        winner_overlays = gmtimes(double(out'), net, fastmode, @times, [mpartial, 1])'; % compute the mode-of-products to fetch the major tag per message
-        out = out .* bsxfun(@times, double(out), winner_overlays); % prepare the input messages with the mode (instead of binary message, each message will be assigned the id of its major tag)
-        out = gmtimes(out', net, @sum, @(a,b) and(full(a>0), bsxfun(@eq, a, b))); % finally, compute the sum-of-equalities: we activate only the edges corresponding to the major tag for this message.
-        %@(a,b) and(full(a > 0), eq(full(a),full(b)))
-        out = out';
-    % Overlays filtering ala Ehsan - WRONG this is a variation of what he is doing
-    elseif strcmpi(propagation_rule, 'overlays_ehsan') && l > 1
-        %ambiguity_mask = bsxfun(@times, out2, sum(out) >= c); % filter out unambiguous messages (having c fanals activated)
-        % filter out unambiguous clusters (where only one fanal is activated) - we will only use tags to disambiguate ambiguous clusters, for the others we can keep the result of the sum-of-sum propagation
-        out = reshape(out, l, mpartial * Chi);
-        %out(1) = 1; out(2) = 1; % debug
-        ambiguity_mask = repmat(sum(out, 1) >= 2, l, 1); % filter out unambiguous clusters (keep only ambiguous clusters)
-        out = bsxfun(@and, out, sum(out, 1) == 1); % btw filter out ambiguous clusters from the final messages, since we will later repush the disambiguated clusters
-        out = reshape(out, n, mpartial);
-        ambiguity_mask = reshape(ambiguity_mask, n, mpartial);
+        % 3- Some post-processing
 
-        if nnz(ambiguity_mask) > 0
-            % DISAMBIGUATION BY TAGS step
-            nnzcolmode = @(x) aux.nnzcolmode(x); % prepare the fastmode function (in case of draw between two values which are both the mode, keep the maximum one = most recent one)
-            % Find the major tag (mode) of incoming edges for each ambiguous fanal
-            %gmtimes(double(partial_messages), bsxfun(@times, ambiguity_mask(:,i)', net), fastmode, @times);
-            out2 = sparse(n, mpartial);
-            parfor i=1:mpartial
-                if nnz(ambiguity_mask(:,i)) > 0
-                    %tt = bsxfun( @times, double(partial_messages(:,1)), bsxfun(@times, double(ambiguity_mask(:,1)'), net) ); tt(1) = 4; tt(2) = 4; % debug
-                    [~, argmode] = nnzcolmode( bsxfun( @times, double(partial_messages(:,i)), bsxfun(@times, double(ambiguity_mask(:,i)'), net) ) );
-                    argmode(isnan(argmode)) = 0;
-                    [I, J, V] = find(argmode);
-                    out2(:,i) = sparse(I, J, V, n, 1);
-                end
+        % Guiding mask
+        % TODO: better performances if we place guiding mask processing in-between propagation and filtering steps?
+        if ~isempty(guiding_mask) % Apply guiding mask to filter out useless clusters. TODO: the filtering should be directly inside the propagation rule at the moment of the matrix product to avoid useless computations (but this is difficult to do this in MatLab in a vectorized way...).
+            out = reshape(out, l, mpartial * Chi);
+            if ~aux.isOctave()
+                out = bsxfun(@and, out, guiding_mask);
+            else
+                out = logical(sparse(bsxfun(@and, out, guiding_mask)));
             end
-
-            % Find the fanal with highest number of major tags (the winner of the disambiguation)
-            out2 = reshape(out2, l, mpartial * Chi);
-            winner_overlays = max(out2);
-            nnzidxs = find(winner_overlays); % to avoid finding winners where there in fact are only zeros values
-            out2(:, nnzidxs) = bsxfun(@eq, out2(:, nnzidxs), winner_overlays(nnzidxs)); % Note: there can still be an ambiguity if two fanals have equally the same number of edges with the major tag! (and the tag may be different for both!)
-            out2 = reshape(out2, n, mpartial);
-
-            % Finally, push back the disambiguated clusters
-            out = or(out, out2);
+            out = reshape(out, n, mpartial);
         end
-    % Overlays filtering ala Ehsan, correct and faithful version
-    % this overlays filtering must only be applied after propagation + filtering. This is a post-processing step to remove ambiguity.
-    elseif strcmpi(propagation_rule, 'overlays_ehsan2')
-        for mi = 1:mpartial
-            % Pick one message
-            decoded_fanals = find(out(:, mi));
 
-            % Filter edges going outside the clique
-            decoded_edges = net(decoded_fanals, decoded_fanals) ; % fetch tags of only the edges of the recovered clique (thus edges connected between fanals in the recovered clique but not those that are not part of the clique, ie connected to another fanal outside the clique, won't be included)
-            if nnz(decoded_edges) == 0; continue; end; % if this message is empty then just quit
+        % Overlays filtering: instead of filtering at propagation time, we first propagate, then filter using GWsTA just like usually, and then only we filter by tags, just like a guiding mask but totally unsupervised
+        if strcmpi(propagation_rule, 'overlays_filter')
+            fastmode = @(x) max(aux.fastmode(nonzeros(x))); % prepare the fastmode function (in case of draw between two values which are both the mode, keep the maximum one = most recent one)
+            winner_overlays = gmtimes(double(out'), net, fastmode, @times, [mpartial, 1])'; % compute the mode-of-products to fetch the major tag per message
+            out = out .* bsxfun(@times, double(out), winner_overlays); % prepare the input messages with the mode (instead of binary message, each message will be assigned the id of its major tag)
+            out = gmtimes(out', net, @sum, @(a,b) and(full(a>0), bsxfun(@eq, a, b))); % finally, compute the sum-of-equalities: we activate only the edges corresponding to the major tag for this message.
+            %@(a,b) and(full(a > 0), eq(full(a),full(b)))
+            out = out';
+        % Overlays filtering ala Ehsan - WRONG this is a variation of what he is doing
+        elseif strcmpi(propagation_rule, 'overlays_ehsan') && l > 1
+            %ambiguity_mask = bsxfun(@times, out2, sum(out) >= c); % filter out unambiguous messages (having c fanals activated)
+            % filter out unambiguous clusters (where only one fanal is activated) - we will only use tags to disambiguate ambiguous clusters, for the others we can keep the result of the sum-of-sum propagation
+            out = reshape(out, l, mpartial * Chi);
+            %out(1) = 1; out(2) = 1; % debug
+            ambiguity_mask = repmat(sum(out, 1) >= 2, l, 1); % filter out unambiguous clusters (keep only ambiguous clusters)
+            out = bsxfun(@and, out, sum(out, 1) == 1); % btw filter out ambiguous clusters from the final messages, since we will later repush the disambiguated clusters
+            out = reshape(out, n, mpartial);
+            ambiguity_mask = reshape(ambiguity_mask, n, mpartial);
 
-            % Filter useless fanals (fanals that do not possess as many edges as the maximum - meaning they're not part of the clique). Note: This is a pre-processing enhancement step, but it's not necessary if you use fastmode(nonzeros(decoded_edges)) (the nonzeros will take care of the false 0 tag)
-            fanal_scores = sum(sign(decoded_edges));
-            winning_score = max(fanal_scores);
-            gwta_mask = (fanal_scores == winning_score);
-            decoded_edges = decoded_edges(gwta_mask, :) ;
+            if nnz(ambiguity_mask) > 0
+                % DISAMBIGUATION BY TAGS step
+                nnzcolmode = @(x) aux.nnzcolmode(x); % prepare the fastmode function (in case of draw between two values which are both the mode, keep the maximum one = most recent one)
+                % Find the major tag (mode) of incoming edges for each ambiguous fanal
+                %gmtimes(double(partial_messages), bsxfun(@times, ambiguity_mask(:,i)', net), fastmode, @times);
+                out2 = sparse(n, mpartial);
+                parfor i=1:mpartial
+                    if nnz(ambiguity_mask(:,i)) > 0
+                        %tt = bsxfun( @times, double(partial_messages(:,1)), bsxfun(@times, double(ambiguity_mask(:,1)'), net) ); tt(1) = 4; tt(2) = 4; % debug
+                        [~, argmode] = nnzcolmode( bsxfun( @times, double(partial_messages(:,i)), bsxfun(@times, double(ambiguity_mask(:,i)'), net) ) );
+                        argmode(isnan(argmode)) = 0;
+                        [I, J, V] = find(argmode);
+                        out2(:,i) = sparse(I, J, V, n, 1);
+                    end
+                end
 
-            % Filter edges having a tag different than the major tag, and then filter out fanals that gets disconnected from the clique (all their incoming edges were filtered because they were of a different tag than the major tag)
-            major_tag = min(aux.fastmode(nonzeros(decoded_edges))) ; % get the major tag (the one which globally appears the most often in this clique). NOTE: nonzeros somewhat slows down the processing BUT it's necessary to ensure that 0 is not chosen as the major tag (since it represents the absence of edge!).
-            decoded_edges(decoded_edges ~= major_tag) = 0 ; % shutdown edges who haven't got the maximum tag
-            decoded_fanals = decoded_fanals(sum(decoded_edges) ~= 0) ; % kick out fanals which have no incoming edges after having deleted edges without major tag (ie: nodes that become isolated because their edges had different tags than the major tag will just be removed, because if these nodes become isolated it's because they obviously are part of another message, else they would have at least one edge with the correct tag).
+                % Find the fanal with highest number of major tags (the winner of the disambiguation)
+                out2 = reshape(out2, l, mpartial * Chi);
+                winner_overlays = max(out2);
+                nnzidxs = find(winner_overlays); % to avoid finding winners where there in fact are only zeros values
+                out2(:, nnzidxs) = bsxfun(@eq, out2(:, nnzidxs), winner_overlays(nnzidxs)); % Note: there can still be an ambiguity if two fanals have equally the same number of edges with the major tag! (and the tag may be different for both!)
+                out2 = reshape(out2, n, mpartial);
 
-            % Finally, replace the disambiguated message back into the stack
-            out(:,mi) = sparse(decoded_fanals, 1, 1, n, 1);
+                % Finally, push back the disambiguated clusters
+                out = or(out, out2);
+            end
+        % Overlays filtering ala Ehsan, correct and faithful version
+        % this overlays filtering must only be applied after propagation + filtering. This is a post-processing step to remove ambiguity.
+        elseif strcmpi(propagation_rule, 'overlays_ehsan2')
+            for mi = 1:mpartial
+                % Pick one message
+                decoded_fanals = find(out(:, mi));
+
+                % Filter edges going outside the clique
+                decoded_edges = net(decoded_fanals, decoded_fanals) ; % fetch tags of only the edges of the recovered clique (thus edges connected between fanals in the recovered clique but not those that are not part of the clique, ie connected to another fanal outside the clique, won't be included)
+                if nnz(decoded_edges) == 0; continue; end; % if this message is empty then just quit
+
+                % Filter useless fanals (fanals that do not possess as many edges as the maximum - meaning they're not part of the clique). Note: This is a pre-processing enhancement step, but it's not necessary if you use fastmode(nonzeros(decoded_edges)) (the nonzeros will take care of the false 0 tag)
+                fanal_scores = sum(sign(decoded_edges));
+                winning_score = max(fanal_scores);
+                gwta_mask = (fanal_scores == winning_score);
+                decoded_edges = decoded_edges(gwta_mask, :) ;
+
+                % Filter edges having a tag different than the major tag, and then filter out fanals that gets disconnected from the clique (all their incoming edges were filtered because they were of a different tag than the major tag)
+                major_tag = min(aux.fastmode(nonzeros(decoded_edges))) ; % get the major tag (the one which globally appears the most often in this clique). NOTE: nonzeros somewhat slows down the processing BUT it's necessary to ensure that 0 is not chosen as the major tag (since it represents the absence of edge!).
+                decoded_edges(decoded_edges ~= major_tag) = 0 ; % shutdown edges who haven't got the maximum tag
+                decoded_fanals = decoded_fanals(sum(decoded_edges) ~= 0) ; % kick out fanals which have no incoming edges after having deleted edges without major tag (ie: nodes that become isolated because their edges had different tags than the major tag will just be removed, because if these nodes become isolated it's because they obviously are part of another message, else they would have at least one edge with the correct tag).
+
+                % Finally, replace the disambiguated message back into the stack
+                out(:,mi) = sparse(decoded_fanals, 1, 1, n, 1);
+            end
         end
+
+        % Residual memory
+        if residual_memory > 0
+            out = out + (residual_memory .* partial_messages); % residual memory: previously activated nodes lingers a bit (a fraction of their activation score persists) and participate in the next iteration
+        end
+
+        %if isfield(cnetwork, 'auxiliary') && strcmpi(cnetwork_choose, 'primary')
+            %propag = propag + mes_echo;
+        %end
+
+        partial_messages = out; % set next messages state as current
+        if ~silent; aux.printtime(toc()); end;
     end
 
-    % Residual memory
-    if residual_memory > 0
-        out = out + (residual_memory .* partial_messages); % residual memory: previously activated nodes lingers a bit (a fraction of their activation score persists) and participate in the next iteration
+    % Disequilibrium post-processing: we remove the clique we just found from the messages
+    if concurrent_cliques_bak > 1 && concurrent_disequilibrium
+        out_final = or(out_final, out);
+        if diter < diterations
+            partial_messages = partial_messages_bak;
+            partial_messages(find(out)) = 0;
+            %a = aux.interleaven(2, partial_messages_bak, out, partial_messages); full([sum(a); a])
+        end
+        % TODO: adapt guiding mask. NO: we can't adapt the guiding mask because we don't know where to look at.
+        % TODO: ask Xioran about guiding mask: if enabled, does he use the full guiding mask or just for the first clique? (this would explain the error rate he has)
     end
-    
-    %if isfield(cnetwork, 'auxiliary') && strcmpi(cnetwork_choose, 'primary')
-        %propag = propag + mes_echo;
-    %end
+end
 
-    partial_messages = out; % set next messages state as current
-    if ~silent; aux.printtime(toc()); end;
+% Disequilibrium final post-processing: we set the final messages to be returned (= the concatenation of all cliques found separately via disequilibrium)
+if concurrent_cliques_bak > 1 && concurrent_disequilibrium
+    partial_messages = out_final;
 end
 
 % -- After-convergence post-processing
