@@ -8,7 +8,7 @@ close all;
 aux = gbnn_aux; % works with both MatLab and Octave
 
 % Vars config, tweak the stuff here
-m = 5E4;
+m = 1E4;
 c = 12;
 l = 32;
 Chi = 64;
@@ -16,6 +16,7 @@ erasures = 3;
 
 tampered_messages_per_test = 5;
 concurrent_cliques = 2;
+no_concurrent_overlap = true;
 
 filtering_rule = 'ML';
 iterations = 1;
@@ -23,7 +24,7 @@ iterations = 1;
 % == Launching the runs
 tperf = cputime();
 [cnetwork, thriftymessages, density] = gbnn_learn('m', m, 'l', l, 'c', c, 'Chi', Chi);
-error_rate = gbnn_test('cnetwork', cnetwork, 'thriftymessagestest', thriftymessages, 'tampered_messages_per_test', tampered_messages_per_test, 'filtering_rule', filtering_rule, 'concurrent_cliques', concurrent_cliques, 'iterations', iterations, 'erasures', erasures);
+error_rate = gbnn_test('cnetwork', cnetwork, 'thriftymessagestest', thriftymessages, 'tampered_messages_per_test', tampered_messages_per_test, 'filtering_rule', filtering_rule, 'concurrent_cliques', concurrent_cliques, 'iterations', iterations, 'erasures', erasures, 'no_concurrent_overlap', no_concurrent_overlap);
 aux.printcputime(cputime() - tperf, 'Total cpu time elapsed to do everything: %g seconds.\n'); aux.flushout(); % print total time elapsed
 
 % The end!

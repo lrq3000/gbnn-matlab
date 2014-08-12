@@ -561,6 +561,11 @@ for diter=1:diterations
                     if ~silent; printf('ML not enough k-cliques found, resign!\n'); aux.flushout(); end;
                     resign_count = resign_count + 1;
                 else % Else the message has enough nodes to form a clique
+                    % Init some vars
+                    if no_double_visit; closed = sparse([]); end; % List of already visited nodes (so that we won't visit the same node twice)
+                    dead_ends = sparse([]); % List of nodes that won't lead to a clique by using domain-elimination (if a combination of node A-B-C does not form a clique, then we avoid exploring this subtree entirely, meaning that we will avoid A-B-C-D, A-B-C-E, A-B-C-D-E, etc.).
+                    kcliques = sparse([]); % List of found k-cliques (we must maintain a list if we try to find several concurrent_cliques. With only one clique, it's useless, but with more than one, we must find each clique separately, and then at the end, we concatenate all the cliques together to form the final message we return)
+
                     % Extract all the links submatrix (= the adjacency matrix for this message)
                     pidxs = find(msg);
                     propag_links = net(pidxs, pidxs);
@@ -603,9 +608,6 @@ for diter=1:diterations
                         activated_fanals = activated_fanals(:, sorted_idxs); % this pre-sorting will be used everytime we expand sub-nodes to explore first the nodes with highest scores
                         open = msg;
                     end
-                    if no_double_visit; closed = sparse([]); end; % List of already visited nodes (so that we won't visit the same node twice)
-                    dead_ends = sparse([]); % List of nodes that won't lead to a clique by using domain-elimination (if a combination of node A-B-C does not form a clique, then we avoid exploring this subtree entirely, meaning that we will avoid A-B-C-D, A-B-C-E, A-B-C-D-E, etc.).
-                    kcliques = sparse([]); % List of found k-cliques (we must maintain a list if we try to find several concurrent_cliques. With only one clique, it's useless, but with more than one, we must find each clique separately, and then at the end, we concatenate all the cliques together to form the final message we return)
 
                     % Main loop: try to find a k-clique until we have found one or we explored the whole tree and couldn't find any k-clique
                     counter = 0;
