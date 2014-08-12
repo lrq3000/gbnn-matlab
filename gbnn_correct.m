@@ -634,7 +634,7 @@ for diter=1:diterations
                         % If we just found a clique, and concurrent_cliques > 1 (so we are looking for another clique), we restart from the beginning to avoid exploring all siblings of current kclique which is highly unlikely to give another kclique (they are probably very different, ie they do not share many nodes, unless density is very very high)
                         if just_found == true
                             % First we resort by putting last the fanals that are in the found kcliques
-                            matched_fanals = (activated_fanals' * kcliques)';
+                            matched_fanals = any((activated_fanals' * kcliques)', 1);
                             if mode_asc
                                 activated_fanals = activated_fanals(:, [find(~matched_fanals) find(matched_fanals)]);
                                 % Then reinit open list with the fanals reordered
@@ -731,6 +731,7 @@ for diter=1:diterations
                                             kcliques = [kcliques, cur_node]; % add the current sub message into the list of found cliques
                                             if mode_asc; dead_ends = [dead_ends, cur_node]; end; % avoid re-exploring this same solution twice
                                             just_found = true;
+                                            if ~silent; printf('Clique %i found!\n', size(kcliques,2)); aux.flushout(); end;
                                         end
                                         % If we have reached the number of cliques to find (= concurrent_cliques), then we can construct the out message and stop here
                                         if size(kcliques, 2) == concurrent_cliques % we can't know if the concurrent_cliques have to overlap or not, so as long as we find 2 different cliques, we take it as a result (we are guaranteed to find different cliques everytime because we add all found kcliques in the dead_ends just above)
