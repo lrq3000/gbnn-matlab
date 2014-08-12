@@ -572,14 +572,17 @@ for diter=1:diterations
                     % Note: this must be done before resorting activated_fanals
                     % NOTE2: this is VERY memory consuming, thus you may need to disable it on big datasets
                     if mode_asc && precompute_dead_ends
-                        repeat_nbs = size(propag_links, 1) - sum(propag_links); % get the number of missing links per fanal
+                        propag_nolinks = ~propag_links; % generate the list of missing links
+                        propag_nolinks(find(triu(propag_nolinks, 0))) = 0; % symmetry trick in clique network: since it's a clique network (and not a tournament), it's symmetrical, thus we are sure to duplicate the number of dead ends (because if fanal A is not connected to fanal B, then also B isn't connected to A). To avoid that, we preprocess the adjacency submatrix by removing the upper part of the triangle (thus A will be connected to B but B won't be connected to A), thus we generate only one dead end AB and not BA. Note: we also remove all diagonals since it's totally useless to generate dead end AA.
+                        repeat_nbs = sum(propag_nolinks); % get the number of missing links per fanal
                         if any(repeat_nbs) % if there's any missing link, we continue, else it's already a clique!
                             idxs = aux.rl_decode(repeat_nbs, 1:size(activated_fanals,2)); % pre-generate the number of dead ends (we here generate the indexes of the first fanal)
-                            idxs_2nd_fanal = nonzeros(bsxfun(@times, pidxs, double(~propag_links)))'; % now generate the indexes of the second fanal to which the first fanals aren't linked to
+                            idxs_2nd_fanal = nonzeros(bsxfun(@times, pidxs, double(propag_nolinks)))'; % now generate the indexes of the second fanal to which the first fanals aren't linked to
                             idxs_2nd_fanal = idxs_2nd_fanal + [0:n:(n*(numel(idxs)-1))]; % offset the indexes to easily apply them in matlab style
                             dead_ends = activated_fanals(:, idxs); % generate the dead ends and fill them with the first fanals (repeated as many as there are missing links)
                             dead_ends(idxs_2nd_fanal) = 1; % activate the second fanals to which there is a missing link
                         end
+                        clear propag_nolinks;
                     end
 
                     % Pre-sort fanals to better explore the tree of solutions
