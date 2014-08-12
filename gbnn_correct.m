@@ -159,6 +159,7 @@ end
 % #### Correction phase
 for diter=1:diterations
     % Disequilibrium trick pre-processing: we randomly erase one fanal, thus this will disequilibrate the message and thus one clique will get the upper hand
+    % Idea from Xiaoran Jiang, thank's a lot!
     % NOTE: this does not work if the cliques are heavily overlapping, because erasing one fanal will probably erase a shared fanal and thus there won't be any disequilibrium. But anyway if the cliques are heavily overlapping, this means that the density is super high and anyway we can't do anything about the error rate.
     % TODO: works only for 2 concurrent_cliques, how to generalize to n cliques?
     if concurrent_cliques_bak > 1 && concurrent_disequilibrium && diter < diterations % do not erase a fanal at the last iteration, because we already erased all the other cliques thus we don't need to disequilibrate at the last step
@@ -870,7 +871,6 @@ for diter=1:diterations
             %a = aux.interleaven(2, partial_messages_bak, out, partial_messages); full([sum(a); a])
         end
         % TODO: adapt guiding mask. NO: we can't adapt the guiding mask because we don't know where to look at.
-        % TODO: ask Xioran about guiding mask: if enabled, does he use the full guiding mask or just for the first clique? (this would explain the error rate he has)
     end
 end
 
