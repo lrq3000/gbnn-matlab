@@ -12,22 +12,22 @@ close all;
 aux = gbnn_aux; % works with both MatLab and Octave
 
 % Primary network params
-m = 10; % 500; % 10000;
-c = 3; % 8;
-l = 3; % 32;
-Chi = 6*2; % 64;
+m = 7E2; % 10;
+c = 8; %5;
+l = 16; %6;
+Chi = 32; %10;
 gamma_memory = 1;
 iterations = 4;
 tests = 1;
-tampered_messages_per_test = m;
+tampered_messages_per_test = 100;
 filtering_rule = 'GWsTA';
-erasures = 1; %floor(c/2);
+erasures = 2; %floor(c/2);
 enable_guiding = false;
 enable_dropconnect = false;
 dropconnect_p = 0;
 
 % Training params (auxiliary network)
-train = false;
+train = true;
 c2 = 2;
 l2 = Chi;
 Chi2 = 2;
@@ -40,7 +40,7 @@ train_dropconnect_p = 0.9;
 train_subsampling_p = []; % [] to disable, value between 0 and 1 to enable
 
 % Concurrency params
-concurrent_cliques = 1;
+concurrent_cliques = 2;
 no_concurrent_overlap = true;
 
 % Verbose?

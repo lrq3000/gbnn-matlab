@@ -291,8 +291,9 @@ for diter=1:diterations
             
             % BEST COMBINATION: 1.5 + 2
 
-            propag = propag + mes_echo; % auxiliary network echo
+            %propag = propag + mes_echo; % auxiliary network echo
             %propag = propag - mes_echo; % inhibition
+            %propag = propag - ~mes_echo; % inhibition of non-connected fanals
 
             if ~silent
                 aux.printcputime(cputime - auxpropagtime, 'Elapsed cpu time for auxiliary propagation is %g seconds.\n'); aux.flushout();
@@ -368,6 +369,7 @@ for diter=1:diterations
         % WinnerS-take-all: per cluster, select the kth best score, and accept all nodes with a score greater or equal to this score - similar to kWTA but all nodes with the kth score are accepted, not only a fixed number k of nodes
         % Global WinnerS-take-all: same as WsTA but per the whole message
         % Both are implemented the same way, the only difference is that for global we process winners per message, and with local we process them per cluster
+        % Intuitively, GWsTA is better than GWTA because in case of equal score between fanals, this means there is an ambiguity, and while GWTA will randomly cut off some fanals without any clue, GWsTA will say "well, okay, I don't know which one to choose, I will keep them all and decide at a later iteration, hoping that the next propagation will make things clearer".
         elseif strcmpi(filtering_rule, 'WsTA') || strcmpi(filtering_rule, 'GWsTA')
             % Local WinnerS-take-all: Reshape to get only one cluster per column (instead of one message per column)
             if strcmpi(filtering_rule, 'WsTA')
@@ -515,6 +517,15 @@ for diter=1:diterations
             else
                 out = logical(bsxfun(@ge, propag2, maxscores));
             end
+        % Exhaustive GWsTA, as used in the Maximum Likelihood as a prefilter.
+        % This is a kind of analytical GWsTA: we don't select based on score but rather we remove all nodes that we are certain they have a score too low to be part of the clique we are looking for.
+        % Thus, this method does not remove correct fanals (it always has a matching_score of 1 if iterations == 1), while GWsTA may remove correct fanals if some spurious fanal has a very high score (ie: linked to fanals in both cliques).
+        % Biologically, we could say that this is kind of a threshold: the system knows that we are looking for cliques of length c, thus we know what is the minimum score (c-erasures).
+        elseif strcmpi(filtering_rule, 'GWsTA-ML')
+            erasures = c - (mode(sum(partial_messages)) / concurrent_cliques); % try to heuristically find the number of erasures
+            propag(propag < (c-erasures)) = 0; % Filter out all useless nodes (ie: if they have a score below the length of a message, then these nodes can't possibly be part of a clique of length c, which is what we are looking for)
+            out = logical(propag); % Binarize
+
         % Maximum likelihood or Exhaustive search (Depth-First Search or Breadth-First Search)
         % This will find the k-clique where k = c, in other words it will reconstruct one node at a time a clique of order c, and if it can't find such a clique, then it returns an empty message (we failed, there's no clique). If there's a clique of length c, this algorithm will find it and return it. If there are multiple cliques of length c, this algorithm will find just one and returns it, whether it's the one we are looking for or not (thus it does not handly ambiguity).
         % How it works: we consider that we are in a graph, where every node in this graph corresponds to a submessage containing a subset of the nodes of the full message. In the ascending approach, the first node is totally empty, and each subnodes has one fanal, then each subsubnodes has two fanals, then each subsubsubnodes has three fanals, etc... until at the end we get nodes where the messages contain c fanals (we can go deeper but we stop at this level since we are trying to find a kclique and not the maximum clique). Thus we can consider this problem to be a simple tree search by walking, thus as Depth-First Search or Breadth-First Search or even AStar (also called Branch and Bound, and this is what is used to find maximal clique usually).
@@ -527,7 +538,7 @@ for diter=1:diterations
         % TODO: try to use a genetic algorithm? Or a cuckoo search?
         elseif strcmpi(filtering_rule, 'ML') || strcmpi(filtering_rule, 'DFS') || strcmpi(filtering_rule, 'BFS') || strcmpi(filtering_rule, 'MLD')
             erasures = c - (mode(sum(partial_messages)) / concurrent_cliques); % try to heuristically find the number of erasures
-            propag(propag < (c-erasures)) = 0; % Filter out all useless nodes (ie: if they have a score below the length of a message, then these nodes can't possibly be part of a clique of length c, which is what we are looking for)
+            propag(propag < (c-erasures)) = 0; % Filter out all useless nodes (ie: if they have a score below the length of a message, then these nodes can't possibly be part of a clique of length c, which is what we are looking for). This is almost like GWsTA but not exactly: GWsTA may remove correct fanals because they have a score lower than the c highest, even if the correct fanals have a score >= (c-erasures). This is confirmed by the matching_measure (compare with GWsTA-ML).
             out = logical(sparse(size(propag,1), size(propag,2))); % Init the output messages. By default if we can't find a k-clique, we will set the message to all 0's
             % Presetting the search mode into a simple boolean, it will speed things up instead of comparing strings everytime inside the loop
             mode_search = 0;
@@ -540,7 +551,7 @@ for diter=1:diterations
             end
             % Ascending or descending search? (from an empty message we go up and construct a clique one fanal at a time, or we descend from the full message and remove one fanal at a time until we have a clique?)
             mode_asc = 1;
-            if strcmpi(filtering_rule, 'MLD')
+            if strcmpi(filtering_rule, 'MLD') % ML Descending
                 mode_asc = 0;
             end
             % Other modes settings
@@ -854,9 +865,58 @@ for diter=1:diterations
             out = out + (residual_memory .* partial_messages); % residual memory: previously activated nodes lingers a bit (a fraction of their activation score persists) and participate in the next iteration
         end
 
-        %if isfield(cnetwork, 'auxiliary') && strcmpi(cnetwork_choose, 'primary')
-            %propag = propag + mes_echo;
-        %end
+        if isfield(cnetwork, 'auxiliary') && strcmpi(cnetwork_choose, 'primary')
+
+            ttmode = 3;
+
+            if ttmode == 0 % useless
+                propag2 = propag + mes_echo;
+                
+                % GWsTA
+                max_scores = sort(propag2,'descend');
+                kmax_score = max_scores(k, :);
+                kmax_score(kmax_score == 0) = realmin(); % No false winner trick: better version of the no false winner trick because we replace 0 winner scores by the minimum real value, thus after we will still get a sparse matrix (else if we do the trick only after the bsxfun, we will get a matrix filled by 1 where there are 0 and the winner score is 0, which is a lot of memory used for nothing).
+                out2 = logical(bsxfun(@ge, propag2, kmax_score));
+                if aux.isOctave(); out = sparse(out2); end; % Octave's bsxfun breaks the sparsity...
+                out2 = and(propag2, out2); % No false winner trick: avoids that if the kth max score is in fact 0, we choose 0 as activating score (0 scoring nodes will be activated, which is completely wrong!). Here we check against the original propagation matrix: if the node wasn't activated then, it shouldn't be now after filtering.
+                out = out2;
+
+            elseif ttmode == 1 % better
+                % excitation + GWSTA
+                propag2 = double(out);
+                propag2(find(out)) = (propag+mes_echo)(find(out)); % propag+logical(mes_echo) ?
+
+                % GWsTA
+                max_scores = sort(propag2,'descend');
+                kmax_score = max_scores(k, :);
+                kmax_score(kmax_score == 0) = realmin(); % No false winner trick: better version of the no false winner trick because we replace 0 winner scores by the minimum real value, thus after we will still get a sparse matrix (else if we do the trick only after the bsxfun, we will get a matrix filled by 1 where there are 0 and the winner score is 0, which is a lot of memory used for nothing).
+                out2 = logical(bsxfun(@ge, propag2, kmax_score));
+                if aux.isOctave(); out = sparse(out2); end; % Octave's bsxfun breaks the sparsity...
+                out2 = and(propag2, out2); % No false winner trick: avoids that if the kth max score is in fact 0, we choose 0 as activating score (0 scoring nodes will be activated, which is completely wrong!). Here we check against the original propagation matrix: if the node wasn't activated then, it shouldn't be now after filtering.
+                out = out2;
+
+            elseif ttmode == 2 % useless
+                % Inhibition
+                out(~mes_echo) = 0;
+
+            elseif ttmode == 3 % better
+                % inhibition + GWSTA)
+                propag2 = double(out);
+                propag2(find(out)) = (propag - ~mes_echo)(find(out));
+                propag2(propag2 < 0) = 0;
+
+                % GWsTA
+                max_scores = sort(propag2,'descend');
+                kmax_score = max_scores(k, :);
+                kmax_score(kmax_score == 0) = realmin(); % No false winner trick: better version of the no false winner trick because we replace 0 winner scores by the minimum real value, thus after we will still get a sparse matrix (else if we do the trick only after the bsxfun, we will get a matrix filled by 1 where there are 0 and the winner score is 0, which is a lot of memory used for nothing).
+                out2 = logical(bsxfun(@ge, propag2, kmax_score));
+                if aux.isOctave(); out = sparse(out2); end; % Octave's bsxfun breaks the sparsity...
+                out2 = and(propag2, out2); % No false winner trick: avoids that if the kth max score is in fact 0, we choose 0 as activating score (0 scoring nodes will be activated, which is completely wrong!). Here we check against the original propagation matrix: if the node wasn't activated then, it shouldn't be now after filtering.
+                out = out2;
+            % Either GLsKO either oGLKO or GWSTA or inhibition (tous ceux qui ne sont pas liés au réseau aux sont éteints)
+            end
+            
+        end
 
         partial_messages = out; % set next messages state as current
         if ~silent; aux.printtime(toc()); end;

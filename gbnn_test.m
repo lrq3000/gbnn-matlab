@@ -1,6 +1,6 @@
-function [error_rate, theoretical_error_rate, error_distance, error_per_message, testset] = gbnn_test(varargin)
+function [error_rate, theoretical_error_rate, test_stats, error_per_message, testset] = gbnn_test(varargin)
 %
-% [error_rate, theoretical_error_rate, error_distance] = gbnn_test(cnetwork, thriftymessagestest, ...
+% [error_rate, theoretical_error_rate, test_stats] = gbnn_test(cnetwork, thriftymessagestest, ...
 %                                                                                  erasures, iterations, tampered_messages_per_test, tests, ...
 %                                                                                  enable_guiding, gamma_memory, threshold, propagation_rule, filtering_rule, tampering_type, ...
 %                                                                                  residual_memory, concurrent_cliques, no_concurrent_overlap, concurrent_successive, GWTA_first_iteration, GWTA_last_iteration, ...
@@ -167,6 +167,8 @@ if ~silent; fprintf('#### Testing phase (error correction of tampered messages w
 %thriftymessagestest = thriftymessages; % by default, use to test the same set as for learning
 err = 0; % error score
 derr = 0; % euclidian error distance
+similarity_measure = 0; % similarity between the corrected messages and the initial messages (number of matching characters over the total number of the biggest message)
+matching_measure = 0; % does the corrected message contains at least all the fanals of the initial message?
 for t=1:tests % TODO: replace by parfor (regression from past versions to allow for better compatibility because Octave cannot do parallel processing, but parfor should work with little modifications)
     if ~silent
         if tests < 20 || mod(tests, t) == 0
@@ -388,6 +390,8 @@ for t=1:tests % TODO: replace by parfor (regression from past versions to allow 
         %err = err + sum(min(sum((init ~= inputm), 1), 1)); % this is a LOT faster than isequal() !
         err = err + nnz(sum((init ~= inputm), 1)); % even faster!
         derr = derr + sum(sum(init ~= inputm)); % error distance = euclidian distance to the correct message = mean number of bits that are wrong per message / number of bits per message = esperance that a bit is wrongly flipped
+        similarity_measure = similarity_measure + (sum(inputm .* init, 1) / max(sum(inputm, 1), sum(init, 1))); % 1.0 if both messages are equal and of same length, the score will lower towards 0 if either some characters in the corrected message are wrong, or either if the corrected message contains more characters than the initial.
+        matching_measure = matching_measure + (sum(inputm .* init, 1) / sum(init, 1)); % 1.0 if the corrected message contains at least the initial message (but the corrected message can contain more characters).
     else
         %err = err + ~isequal(init,inputm);
         err = err + any(init ~= inputm); % remove the useless sum(min()) when we only have one message to compute the error from, this cuts the time by almost half
@@ -454,14 +458,18 @@ end
 % Compute euclidian error distance
 error_distance = derr / (tests * concurrent_cliques * c * tampered_messages_per_test); % Euclidian distance: compute the esperance that a bit is wrongly flipped (has an incorrect value)
 
+% Filling stats to return from function
+test_stats = struct();
+test_stats.real_density = real_density;
+test_stats.error_rate = error_rate;
+test_stats.theoretical_error_rate = theoretical_error_rate;
+test_stats.error_distance = error_distance;
+test_stats.similarity_measure = similarity_measure;
+test_stats.matching_measure = matching_measure;
 
 % Finally, show the error rate and some stats
 if ~silent
-    real_density
-    error_rate
-    theoretical_error_rate
-    %theoretical_error_rate_concurrent
-    error_distance
+    test_stats
     total_tampered_messages_tested = tests * tampered_messages_per_test
     aux.printcputime(cputime - totalperf, 'Total elapsed cpu time for test is %g seconds.\n'); aux.flushout();
     %c_optimal_approx = log(Chi*l/P0)/(2*(1-alpha)) % you have to define alpha = rate of errors per message you want to be able to correct ; P0 = probability or error = theoretical_error_rate you want
