@@ -160,7 +160,7 @@ for diter=1:diterations
     % Disequilibrium trick pre-processing: we try to disequilibrate the message and thus decode only one clique at a time (the goal is that one clique will get the upper hand by either superboosting one fanal score and thus one clique overall score, or by erasing one fanal so that one clique gets a lower score).
     % Idea from Xiaoran Jiang, thank's a lot!
     % concurrent_disequilibrium = 1 for superscore mode, 2 for one fanal erasure, 3 for nothing at all just trying to decode one clique at a time without any trick
-    if concurrent_cliques_bak > 1 && concurrent_disequilibrium && diter < diterations % do not erase a fanal at the last iteration, because we already erased all the other cliques thus we don't need to disequilibrate at the last step
+    if concurrent_cliques_bak > 1 && concurrent_disequilibrium && diter < diterations % do not erase nor superboost a fanal at the last iteration, because we already erased all the other cliques thus we don't need to disequilibrate at the last step
         if concurrent_disequilibrium ~= 3 % third disequilibrium technique: we don't do anything, we will just try to find only one clique at one time, but without doing any special trick
             % get the number of activated fanals per message
             franges = sum(partial_messages);
@@ -978,6 +978,7 @@ for diter=1:diterations
 
     % Disequilibrium post-processing: we remove the clique we just found from the messages
     if concurrent_cliques_bak > 1 && concurrent_disequilibrium
+        %bsxfun(@and, sum(out_final) < (concurrent_cliques * c), out) % avoid adding more fanals if we already found enough fanals to cover all cliques
         out_final = or(out_final, out);
         if diter < diterations
             partial_messages = partial_messages_bak;
@@ -985,6 +986,7 @@ for diter=1:diterations
             %a = aux.interleaven(2, partial_messages_bak, out, partial_messages); full([sum(a); a])
         end
         % TODO: adapt guiding mask. NO: we can't adapt the guiding mask because we don't know where to look at.
+        % TODO: with concurrent_disequilibrium == 3, try to find when there are errors: when both cliques are found at the first iteration? If that's the case, try to redo the iteration only for these messages by using another random fanal
     end
 end
 

@@ -52,6 +52,7 @@ TE = zeros(numel(M), 1); % theoretical error rate depends on: Chi, l, c, erasure
 ED = zeros(numel(M), numel(filtering_rule));
 SM = zeros(numel(M), numel(filtering_rule));
 MM = zeros(numel(M), numel(filtering_rule));
+EC = zeros(numel(M), numel(filtering_rule));
 
 for t=1:statstries
     tperf = cputime(); % to show the total time elapsed later
@@ -92,6 +93,7 @@ for t=1:statstries
             ED(m, counter) = ED(m, counter) + test_stats.error_distance;
             SM(m, counter) = SM(m, counter) + test_stats.similarity_measure;
             MM(m, counter) = MM(m, counter) + test_stats.matching_measure;
+            EC(m, counter) = EC(m, counter) + test_stats.concurrent_unbiased_error_rate;
             if ~silent; fprintf('-----------------------------\n\n'); end;
             
             counter = counter + 1;
@@ -105,6 +107,7 @@ E = E ./ statstries;
 ED = ED ./ statstries;
 SM = SM ./ statstries;
 MM = MM ./ statstries;
+EC = EC ./ statstries;
 printf('END of all tests!\n'); aux.flushout();
 
 
@@ -144,32 +147,85 @@ end
 % Plot theoretical error rates
 counter = counter + 1;
 coloridx = mod(counter, numel(colorvec))+1;
-for g=1:numel(enable_guiding)
-    lstyleidx = mod(counter+g-1, numel(linestylevec))+1;
-    mstyleidx = mod(counter+g-1, numel(markerstylevec))+1;
 
-    lstyle = linestylevec(lstyleidx, 1); lstyle = lstyle{1}; % for MatLab, can't do that in one command...
-    cur_plot = plot(M, TE(:,g), sprintf('%s%s%s', lstyle, markerstylevec(mstyleidx), colorvec(coloridx))); % plot one line
+lstyleidx = mod(counter-1, numel(linestylevec))+1;
+mstyleidx = mod(counter-1, numel(markerstylevec))+1;
 
-    plot_title = '';
-    if enable_guiding
-        plot_title = strcat(plot_title, sprintf('Guided'));
-    else
-        plot_title = strcat(plot_title, sprintf('Blind'));
-    end
-    plot_title = strcat(plot_title, ' (Theo.)');
-    set(cur_plot, 'DisplayName', plot_title); % add the legend per plot, this is the best method, which also works with scatterplots and polar plots, see http://hattb.wordpress.com/2010/02/10/appending-legends-and-plots-in-matlab/
+lstyle = linestylevec(lstyleidx, 1); lstyle = lstyle{1}; % for MatLab, can't do that in one command...
+cur_plot = plot(M, TE(:), sprintf('%s%s%s', lstyle, markerstylevec(mstyleidx), colorvec(coloridx))); % plot one line
+
+plot_title = '';
+if enable_guiding
+    plot_title = strcat(plot_title, sprintf('Guided'));
+else
+    plot_title = strcat(plot_title, sprintf('Blind'));
 end
+plot_title = strcat(plot_title, ' (Theo.)');
+set(cur_plot, 'DisplayName', plot_title); % add the legend per plot, this is the best method, which also works with scatterplots and polar plots, see http://hattb.wordpress.com/2010/02/10/appending-legends-and-plots-in-matlab/
 
 % Refresh plot with legends
-legend(get(gca,'children'),get(get(gca,'children'),'DisplayName')); % IMPORTANT: force refreshing to show the legend, else it won't show!
+legend(get(gca,'children'),get(get(gca,'children'),'DisplayName'), 'location', 'northwest'); % IMPORTANT: force refreshing to show the legend, else it won't show!
 
 
-% -- Plot matching_measure and other stats
+% -- Plot concurrent unbiased error rate with respect to the density (or number of messages stored) and a few other parameters
+figure; hold on;
+xlabel(sprintf('Number of stored messages (M) x %.1E', Mcoeff));
+ylabel('Retrieval Error Rate (concurrent unbiased)');
+counter = 1; % useful to keep track inside the matrix E. This is guaranteed to be OK since we use the same order of for loops (so be careful, if you move the forloops here in plotting you must also move them the same way in the tests above!)
+for f=1:numel(filtering_rule) % for each different filtering rule and whether there is guiding or not, we willl print a different curve, with an automatically selected color and shape
+    coloridx = mod(f-1, numel(colorvec))+1; % change color per filtering rule
+    lstyleidx = mod(counter-1, numel(linestylevec))+1; % change line style ...
+    mstyleidx = mod(counter-1, numel(markerstylevec))+1; % and change marker style per plot
+
+    lstyle = linestylevec(lstyleidx, 1); lstyle = lstyle{1}; % for MatLab, can't do that in one command...
+    cur_plot = plot(M, EC(:,counter), sprintf('%s%s%s', lstyle, markerstylevec(mstyleidx), colorvec(coloridx))); % plot one line
+
+    fr = filtering_rule(1,f); fr = fr{1};
+    plot_title = sprintf('%s', fr);
+    if enable_guiding
+        plot_title = strcat(plot_title, sprintf(' - Guided'));
+    else
+        plot_title = strcat(plot_title, sprintf(' - Blind'));
+    end
+    if concurrent_disequilibrium(f)
+        plot_title = strcat(plot_title, sprintf(' - Diseq'));
+        if concurrent_disequilibrium(f) > 1
+            plot_title = strcat(plot_title, sprintf(' type %i', concurrent_disequilibrium(f)));
+        end
+    end
+    set(cur_plot, 'DisplayName', plot_title); % add the legend per plot, this is the best method, which also works with scatterplots and polar plots, see http://hattb.wordpress.com/2010/02/10/appending-legends-and-plots-in-matlab/
+
+    counter = counter + 1;
+end
+
+% Plot theoretical error rates
+counter = counter + 1;
+coloridx = mod(counter, numel(colorvec))+1;
+
+lstyleidx = mod(counter-1, numel(linestylevec))+1;
+mstyleidx = mod(counter-1, numel(markerstylevec))+1;
+
+lstyle = linestylevec(lstyleidx, 1); lstyle = lstyle{1}; % for MatLab, can't do that in one command...
+cur_plot = plot(M, TE(:), sprintf('%s%s%s', lstyle, markerstylevec(mstyleidx), colorvec(coloridx))); % plot one line
+
+plot_title = '';
+if enable_guiding
+    plot_title = strcat(plot_title, sprintf('Guided'));
+else
+    plot_title = strcat(plot_title, sprintf('Blind'));
+end
+plot_title = strcat(plot_title, ' (Theo.)');
+set(cur_plot, 'DisplayName', plot_title); % add the legend per plot, this is the best method, which also works with scatterplots and polar plots, see http://hattb.wordpress.com/2010/02/10/appending-legends-and-plots-in-matlab/
+
+% Refresh plot with legends
+legend(get(gca,'children'),get(get(gca,'children'),'DisplayName'), 'location', 'northwest'); % IMPORTANT: force refreshing to show the legend, else it won't show!
+
+
+% -- Plot matching_measure and other stats evolution for the disequilibrium trick
 figure; hold on;
 xlabel(sprintf('Number of stored messages (M) x %.1E', Mcoeff));
 ylim([0 1]);
-f = 2;
+f = 2; % set here the filtering rule that use disequilibrium
 counter = 1; % useful to keep track inside the matrix E. This is guaranteed to be OK since we use the same order of for loops (so be careful, if you move the forloops here in plotting you must also move them the same way in the tests above!)
 
 fr = filtering_rule(1,f); fr = fr{1};
@@ -196,8 +252,7 @@ set(cur_plot, 'DisplayName', strcat(fr, ' - error distance')); % add the legend 
 counter = counter + 1;
 
 % Refresh plot with legends
-legend(get(gca,'children'),get(get(gca,'children'),'DisplayName')); % IMPORTANT: force refreshing to show the legend, else it won't show!
-
+legend(get(gca,'children'),get(get(gca,'children'),'DisplayName'), 'location', 'northwest'); % IMPORTANT: force refreshing to show the legend, else it won't show!
 
 
 % Print densities values and error rates

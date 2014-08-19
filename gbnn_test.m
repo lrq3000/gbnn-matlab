@@ -447,11 +447,9 @@ else
         %theoretical_error_rate = 1 - (1 - real_density^(c-erasures))^(erasures*(l-1)); % correct error rate from the 2014 Behrooz paper but works only if concurrent_cliques = 1.
         theoretical_error_rate = 1 - binocdf(c-erasures-1, concurrent_cliques*(c-erasures), real_density)^(erasures*(l-1)); % still the same generalization, but in guided mode so we count less many potentially spurious fanals (since we can exclude all clusters that the mask is excluding)
     end
-    if concurrent_cliques > 1
-        %theoretical_error_rate = 1-(1-theoretical_error_rate)^concurrent_cliques; WRONG, this just "doubles" the risk of spurious fanal for each concurrent clique, but it does not account for all possible combinations, you have to use a cumulative binomial distribution to count that!
-        error_rate = 1 - (1 - error_rate)^(1/concurrent_cliques); % unbias approximation the real error rate by averaging, because statistically we exponentiate the error rate by the number of messages: error_rate^concurrent_cliques. Here we try to unbias that by finding the square root and thus to get error_rate per message, and not per concurrent_cliques messages as it is if biased. NOTE: remember that this is an approximation of the unbiased error rate, because we can't know which message caused the error, which would be the only way to get the exact error rate (so that we could know if, with for example concurrent_cliques = 2, if the final recovered mixed message is wrong because of 1 of the messages, or of both. Here we have no way to tell, so we suppose that in general, only one of the messages will fail but not both).
-    end
 end
+%concurrent_unbiased_theoretical_error_rate = 1-(1-theoretical_error_rate)^concurrent_cliques; WRONG, this just "doubles" the risk of spurious fanal for each concurrent clique, but it does not account for all possible combinations, you have to use a cumulative binomial distribution to count that!
+concurrent_unbiased_error_rate = 1 - (1 - error_rate).^(1/concurrent_cliques); % unbias approximation the real error rate by averaging, because statistically we exponentiate the error rate by the number of messages: error_rate^concurrent_cliques. Here we try to unbias that by finding the square root and thus to get error_rate per message, and not per concurrent_cliques messages as it is if biased. NOTE: remember that this is an approximation of the unbiased error rate, because we can't know which message caused the error, which would be the only way to get the exact error rate (so that we could know if, with for example concurrent_cliques = 2, if the final recovered mixed message is wrong because of 1 of the messages, or of both. Here we have no way to tell, so we suppose that in general, only one of the messages will fail but not both).
 
 %theoretical_error_correction_proba = 1 - theoretical_error_rate
 
@@ -466,6 +464,7 @@ test_stats.theoretical_error_rate = theoretical_error_rate;
 test_stats.error_distance = error_distance;
 test_stats.similarity_measure = similarity_measure;
 test_stats.matching_measure = matching_measure;
+test_stats.concurrent_unbiased_error_rate = concurrent_unbiased_error_rate;
 
 % Finally, show the error rate and some stats
 if ~silent
