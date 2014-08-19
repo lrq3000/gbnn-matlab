@@ -981,8 +981,8 @@ for diter=1:diterations
         %bsxfun(@and, sum(out_final) < (concurrent_cliques * c), out) % avoid adding more fanals if we already found enough fanals to cover all cliques
         out_final = or(out_final, out);
         if diter < diterations
-            partial_messages = partial_messages_bak;
-            partial_messages(find(out)) = 0;
+            partial_messages = partial_messages_bak; % reload the full messages
+            partial_messages(find(out_final)) = 0; % remove all cliques we have found up until now to focus only on cliques we didn't find yet. NOTE: be careful not to use find(out) instead of find(out_final), because out contains only the latest clique found, not all the previous cliques, and this will lower down performances a lot!
             %a = aux.interleaven(2, partial_messages_bak, out, partial_messages); full([sum(a); a])
         end
         % TODO: adapt guiding mask. NO: we can't adapt the guiding mask because we don't know where to look at.
