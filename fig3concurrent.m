@@ -37,8 +37,8 @@ residual_memory = 0;
 concurrent_cliques = 2;
 no_concurrent_overlap = true;
 concurrent_successive = true;
-GWTA_first_iteration = false;
-GWTA_last_iteration = false;
+filtering_rule_first_iteration = false;
+filtering_rule_last_iteration = false;
 
 silent = false; % If you don't want to see the progress output
 
@@ -65,14 +65,14 @@ for m=1:numel(M) % and for each value of m, we will do a run
         for g=1:numel(enable_guiding)
             fr = filtering_rule(1,f); fr = fr{1}; % need to prepare beforehand because of MatLab, can't do it in one command...
             if strcmpi(fr, 'GLKO')
-                GWTA_first_iteration = true;
+                filtering_rule_first_iteration = true;
             else
-                GWTA_first_iteration = false;
+                filtering_rule_first_iteration = false;
             end
             [error_rate, theoretical_error_rate] = gbnn_test('cnetwork', cnetwork, 'thriftymessagestest', thriftymessages, ...
                                                                                   'erasures', erasures, 'iterations', iterations, 'tampered_messages_per_test', tampered_messages_per_test, 'tests', tests, ...
                                                                                   'enable_guiding', enable_guiding(1,g), 'gamma_memory', gamma_memory, 'threshold', threshold, 'propagation_rule', propagation_rule, 'filtering_rule', fr, 'tampering_type', tampering_type, ...
-                                                                                  'residual_memory', residual_memory, 'concurrent_cliques', concurrent_cliques, 'no_concurrent_overlap', no_concurrent_overlap, 'concurrent_successive', concurrent_successive, 'GWTA_first_iteration', GWTA_first_iteration, 'GWTA_last_iteration', GWTA_last_iteration, ...
+                                                                                  'residual_memory', residual_memory, 'concurrent_cliques', concurrent_cliques, 'no_concurrent_overlap', no_concurrent_overlap, 'concurrent_successive', concurrent_successive, 'filtering_rule_first_iteration', filtering_rule_first_iteration, 'filtering_rule_last_iteration', filtering_rule_last_iteration, ...
                                                                                   'silent', silent);
 
             % Store the results

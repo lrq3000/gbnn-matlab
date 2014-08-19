@@ -30,18 +30,18 @@ enable_guiding = false;
 gamma_memory = 0;
 threshold = 0;
 propagation_rule = 'sum';
-filtering_rule = {'ML', 'GWsTA', 'GWsTA'}; % this is a cell array (vector of strings) because we will try several different values of c (order of cliques)
+filtering_rule = {'ML', 'GWsTA', 'GWsTA', 'GWsTA', 'GWsTA'}; % this is a cell array (vector of strings) because we will try several different values of c (order of cliques)
 tampering_type = 'erase';
 
 residual_memory = 0;
 concurrent_cliques = 2;
-no_concurrent_overlap = false;
+no_concurrent_overlap = true;
 concurrent_successive = false;
-concurrent_disequilibrium = [false true false];
-GWTA_first_iteration = false;
-GWTA_last_iteration = false;
+concurrent_disequilibrium = [false, true, 3, 2, false];
+filtering_rule_first_iteration = false;
+filtering_rule_last_iteration = false;
 
-statstries = 10; % retry n times with different networks to smooth the results
+statstries = 5; % retry n times with different networks to smooth the results
 
 silent = false; % If you don't want to see the progress output
 
@@ -78,7 +78,7 @@ for t=1:statstries
             [error_rate, theoretical_error_rate, test_stats] = gbnn_test('cnetwork', cnetwork, 'thriftymessagestest', thriftymessages, ...
                                                                                   'erasures', erasures, 'iterations', iterations, 'tampered_messages_per_test', tampered_messages_per_test, 'tests', tests, ...
                                                                                   'enable_guiding', enable_guiding, 'gamma_memory', gamma_memory, 'threshold', threshold, 'propagation_rule', propagation_rule, 'filtering_rule', fr, 'tampering_type', tampering_type, ...
-                                                                                  'residual_memory', residual_memory, 'concurrent_cliques', concurrent_cliques, 'no_concurrent_overlap', no_concurrent_overlap, 'concurrent_successive', concurrent_successive, 'GWTA_first_iteration', GWTA_first_iteration, 'GWTA_last_iteration', GWTA_last_iteration, ...
+                                                                                  'residual_memory', residual_memory, 'concurrent_cliques', concurrent_cliques, 'no_concurrent_overlap', no_concurrent_overlap, 'concurrent_successive', concurrent_successive, 'filtering_rule_first_iteration', filtering_rule_first_iteration, 'filtering_rule_last_iteration', filtering_rule_last_iteration, ...
                                                                                   'concurrent_disequilibrium', concurrent_disequilibrium(f), ...
                                                                                   'silent', silent);
             if strcmpi(fr, 'ML')
@@ -132,6 +132,9 @@ for f=1:numel(filtering_rule) % for each different filtering rule and whether th
     end
     if concurrent_disequilibrium(f)
         plot_title = strcat(plot_title, sprintf(' - Diseq'));
+        if concurrent_disequilibrium(f) > 1
+            plot_title = strcat(plot_title, sprintf(' type %i', concurrent_disequilibrium(f)));
+        end
     end
     set(cur_plot, 'DisplayName', plot_title); % add the legend per plot, this is the best method, which also works with scatterplots and polar plots, see http://hattb.wordpress.com/2010/02/10/appending-legends-and-plots-in-matlab/
 

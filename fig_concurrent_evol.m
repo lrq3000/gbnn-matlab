@@ -37,8 +37,8 @@ residual_memory = 0;
 concurrent_cliques = 1:4;
 no_concurrent_overlap = true;
 concurrent_successive = false;
-GWTA_first_iteration = false;
-GWTA_last_iteration = false;
+filtering_rule_first_iteration = false;
+filtering_rule_last_iteration = false;
 
 training = false; % switch to true to do the training step (disambiguation of conflicting memories)
 c2 = 2; % should be << c
@@ -84,7 +84,7 @@ for m=1:numel(M) % and for each value of m, we will do a run
                 fr = filtering_rule(1,f); fr = fr{1}; % need to prepare beforehand because of MatLab, can't do it in one command...
                 [error_rate, theoretical_error_rate, test_stats] = gbnn_test('cnetwork', cnetwork, 'thriftymessagestest', thriftymessages, ...
                                                                                       'erasures', erasures, 'iterations', iterations, 'tampered_messages_per_test', tampered_messages_per_test, 'tests', tests, ...
-                                                                                      'enable_guiding', enable_guiding(1,g), 'gamma_memory', gamma_memory, 'threshold', threshold, 'propagation_rule', propagation_rule, 'filtering_rule', fr, 'tampering_type', tampering_type, 'GWTA_first_iteration', GWTA_first_iteration, 'GWTA_last_iteration', GWTA_last_iteration, ...
+                                                                                      'enable_guiding', enable_guiding(1,g), 'gamma_memory', gamma_memory, 'threshold', threshold, 'propagation_rule', propagation_rule, 'filtering_rule', fr, 'tampering_type', tampering_type, 'filtering_rule_first_iteration', filtering_rule_first_iteration, 'filtering_rule_last_iteration', filtering_rule_last_iteration, ...
                                                                                       'residual_memory', residual_memory, 'concurrent_cliques', concurrent_cliques(1,cc), 'no_concurrent_overlap', no_concurrent_overlap, 'concurrent_successive', concurrent_successive, ...
                                                                                       'silent', silent);
 

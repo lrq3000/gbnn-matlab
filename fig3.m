@@ -34,8 +34,8 @@ filtering_rule = {'GWsTA'}; % this is a cell array (vector of strings) because w
 tampering_type = 'erase';
 
 residual_memory = 0;
-GWTA_first_iteration = false;
-GWTA_last_iteration = false;
+filtering_rule_first_iteration = false;
+filtering_rule_last_iteration = false;
 
 silent = false; % If you don't want to see the progress output
 
@@ -64,7 +64,7 @@ for m=1:numel(M) % and for each value of m, we will do a run
             [error_rate, theoretical_error_rate] = gbnn_test('cnetwork', cnetwork, 'thriftymessagestest', thriftymessages, ...
                                                                                   'erasures', erasures, 'iterations', iterations, 'tampered_messages_per_test', tampered_messages_per_test, 'tests', tests, ...
                                                                                   'enable_guiding', enable_guiding(1,g), 'gamma_memory', gamma_memory, 'threshold', threshold, 'propagation_rule', propagation_rule, 'filtering_rule', fr, 'tampering_type', tampering_type, ...
-                                                                                  'residual_memory', residual_memory, 'GWTA_first_iteration', GWTA_first_iteration, 'GWTA_last_iteration', GWTA_last_iteration, ...
+                                                                                  'residual_memory', residual_memory, 'filtering_rule_first_iteration', filtering_rule_first_iteration, 'filtering_rule_last_iteration', filtering_rule_last_iteration, ...
                                                                                   'silent', silent);
 
             % Store the results

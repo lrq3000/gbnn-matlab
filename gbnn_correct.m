@@ -3,7 +3,7 @@ function [partial_messages, propag] = gbnn_correct(varargin)
 % partial_messages = gbnn_correct(cnetwork, partial_messages, ...
 %                                                                                  iterations, ...
 %                                                                                  k, guiding_mask, gamma_memory, threshold, propagation_rule, filtering_rule, ...
-%                                                                                  residual_memory, concurrent_cliques, GWTA_first_iteration, GWTA_last_iteration, ...
+%                                                                                  residual_memory, concurrent_cliques, filtering_rule_first_iteration, filtering_rule_last_iteration, ...
 %                                                                                  silent)
 %
 % Feed a network and partially tampered messages, and will let the network try to 'remember' a message that corresponds to the given input. The function will return the recovered message(s) (but no error rate, see gbnn_test.m for this purpose).
@@ -36,8 +36,8 @@ arguments_defaults = struct( ...
     'filtering_rule', 'wta', ...
     'concurrent_cliques', 1, ... % 1 is disabled, > 1 enables and specify the number of concurrent messages/cliques to decode concurrently
     'concurrent_disequilibrium', false, ...
-    'GWTA_first_iteration', false, ...
-    'GWTA_last_iteration', false, ...
+    'filtering_rule_first_iteration', false, ...
+    'filtering_rule_last_iteration', false, ...
     'k', 0, ...
     'enable_dropconnect', false, ...
     'dropconnect_p', 0.5, ...
@@ -92,11 +92,10 @@ mpartial = size(partial_messages, 2); % mpartial = number of messages to reconst
 % Setup correct values for k (this is an automatic guess, but a manual value can be better depending on your dataset)
 if k < 1
     k = c*concurrent_cliques; % with propagation_rules GWTA and k-GWTA, usually we are looking to find at least as many winners as there are characters in the initial messages, which is at most c*concurrent_cliques (it can be less if the concurrent_cliques share some nodes, but this is unlikely if the density is low)
+    if concurrent_cliques > 1 && concurrent_disequilibrium;  k = c; end;
     if strcmpi(filtering_rule, 'kWTA') || strcmpi(filtering_rule, 'kLKO') || strcmpi(filtering_rule, 'WsTA') % for all k local algorithms (k-WTA, k-LKO, WsTA, ...), k should be equal to the number of concurrent_cliques, since per cluster (remember that the rule here is local, thus per cluster) there is at most as many different characters per cluster as there are concurrent_cliques (since one clique can only use one node per cluster).
         k = concurrent_cliques;
-    end
-    if concurrent_cliques > 1 && concurrent_disequilibrium
-        k = c;
+        if concurrent_cliques > 1 && concurrent_disequilibrium;  k = 1; end;
     end
 end
 
@@ -158,22 +157,41 @@ end
 
 % #### Correction phase
 for diter=1:diterations
-    % Disequilibrium trick pre-processing: we randomly erase one fanal, thus this will disequilibrate the message and thus one clique will get the upper hand
+    % Disequilibrium trick pre-processing: we try to disequilibrate the message and thus decode only one clique at a time (the goal is that one clique will get the upper hand by either superboosting one fanal score and thus one clique overall score, or by erasing one fanal so that one clique gets a lower score).
     % Idea from Xiaoran Jiang, thank's a lot!
-    % NOTE: this does not work if the cliques are heavily overlapping, because erasing one fanal will probably erase a shared fanal and thus there won't be any disequilibrium. But anyway if the cliques are heavily overlapping, this means that the density is super high and anyway we can't do anything about the error rate.
-    % TODO: works only for 2 concurrent_cliques, how to generalize to n cliques?
+    % concurrent_disequilibrium = 1 for superscore mode, 2 for one fanal erasure, 3 for nothing at all just trying to decode one clique at a time without any trick
     if concurrent_cliques_bak > 1 && concurrent_disequilibrium && diter < diterations % do not erase a fanal at the last iteration, because we already erased all the other cliques thus we don't need to disequilibrate at the last step
-        % get the number of activated fanals per message
-        franges = sum(partial_messages);
-        % select a random fanal to erase per message
-        erase_idxs = ceil(franges .* rand(1, numel(franges)));
-        % adjust offset to get matlab style indexes (instead of per column index, we get indexes counting from 1 at the start of the matrix to numel at the end of the matrix)
-        franges = cumsum(franges);
-        franges = [0 franges(1:end-1)];
-        erase_idxs = erase_idxs + franges;
-        % Erase those fanals
-        idxs = find(partial_messages);
-        partial_messages(idxs(erase_idxs)) = 0;
+        if concurrent_disequilibrium ~= 3 % third disequilibrium technique: we don't do anything, we will just try to find only one clique at one time, but without doing any special trick
+            % get the number of activated fanals per message
+            franges = sum(partial_messages);
+            % select a random fanal to erase per message
+            random_idxs = ceil(franges .* rand(1, numel(franges)));
+            % adjust offset to get matlab style indexes (instead of per column index, we get indexes counting from 1 at the start of the matrix to numel at the end of the matrix)
+            franges = cumsum(franges);
+            franges = [0 franges(1:end-1)];
+            random_idxs = random_idxs + franges;
+            % Find which fanal we will select per message
+            idxs = find(partial_messages);
+            diseq_idxs = idxs(random_idxs);
+
+            % Erase those fanals
+            % NOTE: this does not work if the cliques are heavily overlapping, because erasing one fanal will probably erase a shared fanal and thus there won't be any disequilibrium. But anyway if the cliques are heavily overlapping, this means that the density is super high and anyway we can't do anything about the error rate.
+            % NOTE2: tried to do the generalization trick proposed by Xiaoran, but it doesn't work well: at the end of one iteration, instead of considering that the decoded message is one clique, consider that the decoded message is multiple cliques, and instead of keeping that, keep the fanals that were activated in the original message but are now shutdown in the decoded message, and remove these fanals from the original message to now try to find the other cliques the same way
+            % NOTE3: this IS working for multiple cliques > 2, I have no idea why but it works (albeit with a higher error rate than with trick 1 superboost score or 3 do nothing)
+            if concurrent_disequilibrium == 2
+                partial_messages(diseq_idxs) = 0;
+            % Superboost the score of one fanal to give advantage to one and only one clique for now (because this fanal will propagate its score to one clique)
+            else
+                partial_messages = double(partial_messages); % must convert to double so that we can set an integer (non binary/logical) value
+                %partial_messages(diseq_idxs) = sum(partial_messages);
+                partial_messages(diseq_idxs) = concurrent_cliques_bak*c;
+            end
+
+            % Clear memory
+            clear random_idxs;
+            clear idxs;
+            clear franges;
+        end
     end
 
     for iter=1:iterations % To let the network converge towards a stable state...
@@ -182,9 +200,17 @@ for diter=1:diterations
             tic();
         end
 
-        if enable_dropconnect
+        % -- Some preprocessing
+        if enable_dropconnect % DropConnect
             net = dropconnect(orig_net, dropconnect_p);
         end
+
+        %if concurrent_disequilibrium == 1 && ...
+        %(strcmpi(filtering_rule, 'GWSTA-ML') || ...
+          %(filtering_rule_first_iteration && strcmpi(filtering_rule_first_iteration, 'gwsta-ml') && iter == 1) || (filtering_rule_last_iteration && strcmpi(filtering_rule_last_iteration, 'gwsta-ml') && iter == iterations) )
+            %partial_messages = double(partial_messages);
+            %partial_messages(diseq_idxs) = concurrent_cliques_bak*c;
+        %end
 
         % 1- Update the network's state: Push message and propagate through the network
         % NOTE: this is the CPU bottleneck if you use many messages with c > 8
@@ -312,12 +338,17 @@ for diter=1:diterations
 
         % -- Vectorized versions - fastest!
         out = logical(sparse(size(partial_messages,1), size(partial_messages,2))); % empty binary sparse matrix, it will later store the next network state after winner-takes-all is applied
-        if strcmpi(filtering_rule, 'none') % Do nothing, useful for auxiliary network since it's just a reverberation
+        % Do nothing, useful for auxiliary network since it's just a reverberation
+        if strcmpi(filtering_rule, 'none') || ...
+        (filtering_rule_first_iteration && strcmpi(filtering_rule_first_iteration, 'none') && iter == 1) || (filtering_rule_last_iteration && strcmpi(filtering_rule_last_iteration, 'none') && iter == iterations)
             out = propag;
-        elseif strcmpi(filtering_rule, 'binary') % Just make sure the values are binary
+        % Just make sure the values are binary
+        elseif strcmpi(filtering_rule, 'binary') || ...
+        (filtering_rule_first_iteration && strcmpi(filtering_rule_first_iteration, 'binary') && iter == 1) || (filtering_rule_last_iteration && strcmpi(filtering_rule_last_iteration, 'binary') && iter == iterations)
             out = logical(propag);
         % Winner-take-all : per cluster, keep only the maximum score node active (if multiple nodes share the max score, we keep them all activated). Thus the WTA is based on score value, contrarywise to k-WTA which is based on the number of active node k.
-        elseif strcmpi(filtering_rule, 'wta')
+        elseif strcmpi(filtering_rule, 'wta') || ...
+        (filtering_rule_first_iteration && strcmpi(filtering_rule_first_iteration, 'wta') && iter == 1) || (filtering_rule_last_iteration && strcmpi(filtering_rule_last_iteration, 'wta') && iter == iterations)
             % The idea is that we will break the clusters and stack them along as a single long cluster spanning several messages, so that we can do a WTA in one pass (with a single max), and then we will unstack them back to their correct places in the messages
             propag = reshape(propag, l, mpartial * Chi); % reshape so that we can do the WTA by a simple column-wise WTA (and it's efficient in MatLab since matrices - and even more with sparse matrices - are stored as column vectors, thus it efficiently use the memory cache since this is the most limiting factor above CPU power). See also: Locality of reference.
             winner_value = max(propag); % what is the maximum output value (considering all the nodes in this character)
@@ -329,7 +360,8 @@ for diter=1:diterations
             out = and(propag, out); % IMPORTANT NO FALSE WINNER TRICK: if sparse_cliques or variable_length, we deactivate winning nodes that have 0 score (but were chosen because there's no other activated node in this cluster, and max will always return the id of one node! Thus we have to compare with the original propagation matrix and see if the node was really activated before being selected as a winner).
             out = reshape(out, n, mpartial);
         % k-Winner-take-all : keep the best first k nodes having the maximum score, over the whole message. This is kind of a cheat because we must know the original length of the messages, the variable k is a way to tell the algorithm some information we have to help convergence
-        elseif strcmpi(filtering_rule, 'kwta')
+        elseif strcmpi(filtering_rule, 'kwta') || ...
+        (filtering_rule_first_iteration && strcmpi(filtering_rule_first_iteration, 'kwta') && iter == 1) || (filtering_rule_last_iteration && strcmpi(filtering_rule_last_iteration, 'kwta') && iter == iterations)
             propag = reshape(propag, l, mpartial * Chi); % reshape so that we can do the WTA by a simple column-wise WTA (and it's efficient in MatLab since matrices - and even more with sparse matrices - are stored as column vectors, thus it efficiently use the memory cache since this is the most limiting factor above CPU power). See also: Locality of reference.
             [~, idxs] = sort(propag, 'descend');
             idxs = bsxfun( @plus, idxs, 0:l:((mpartial * n)-1) );
@@ -338,7 +370,8 @@ for diter=1:diterations
             out = and(propag, out); % IMPORTANT NO FALSE WINNER TRICK: if sparse_cliques or variable_length, filter out winning nodes with 0 score (selected because there's no other node with any score in this cluster, see above in filtering_rule = 0)
             out = reshape(out, n, mpartial);
         % One Global Winner-take-all: only keep one value, but at the last iteration keep them all
-        elseif strcmpi(filtering_rule, 'ogwta') && iter < iterations
+        elseif (strcmpi(filtering_rule, 'ogwta') && iter < iterations) || ...
+        (filtering_rule_first_iteration && strcmpi(filtering_rule_first_iteration, 'ogwta') && iter == 1) || (filtering_rule_last_iteration && strcmpi(filtering_rule_last_iteration, 'ogwta') && iter == iterations)
             [~, winner_idxs] = max(propag); % get indices of the max score for each message
             winner_idxs = bsxfun(@plus, winner_idxs,  0:n:n*(mpartial-1)); % indices returned by max are per-column, here we add the column size to offset the indices, so that we get true MatLab indices
             winner_idxs = winner_idxs(propag(winner_idxs) > 0); % No false winner trick: we check the values returned by the k best indices in propag, and keep only indices which are linked to a non null value.
@@ -349,7 +382,8 @@ for diter=1:diterations
                 out = logical(sparse(n, mpartial)); % create an empty logical sparse matrix
             end
         % Global Winner-take-all: keep only nodes which have maximum score over the whole message. Same as WTA but instead of doing inhibition per-cluster, it's per the whole message/network.
-        elseif strcmpi(filtering_rule, 'gwta') || (strcmpi(filtering_rule, 'ogwta') && iter == iterations) || (GWTA_first_iteration && iter == 1) || (GWTA_last_iteration && iter == iterations)
+        elseif strcmpi(filtering_rule, 'gwta') || (strcmpi(filtering_rule, 'ogwta') && iter == iterations) || ...
+        (filtering_rule_first_iteration && strcmpi(filtering_rule_first_iteration, 'gwta') && iter == 1) || (filtering_rule_last_iteration && strcmpi(filtering_rule_last_iteration, 'gwta') && iter == iterations)
             winner_vals = max(propag); % get global max scores for each message
             if ~aux.isOctave()
                 out = logical(bsxfun(@eq, winner_vals, propag));
@@ -358,7 +392,8 @@ for diter=1:diterations
             end
             out = and(propag, out); % No false winner trick
         % Global k-Winners-take-all: keep the best k first nodes having the maximum score over the whole message (same as k-WTA but at the message level instead of per-cluster).
-        elseif strcmpi(filtering_rule, 'GkWTA')
+        elseif strcmpi(filtering_rule, 'GkWTA') || ...
+        (filtering_rule_first_iteration && strcmpi(filtering_rule_first_iteration, 'gkwta') && iter == 1) || (filtering_rule_last_iteration && strcmpi(filtering_rule_last_iteration, 'gkwta') && iter == iterations)
             % Instead of removing indices of scores that are below the k-max scores, we will rather find the indices of these k-max scores and recreate a logical sparse matrix from scratch, this is a lot faster and memory efficient
             [~, idxs] = sort(propag, 'descend'); % Sort scores with best scores first
             idxs = idxs(1:k,:); % extract the k best scores indices (for propag)
@@ -370,7 +405,8 @@ for diter=1:diterations
         % Global WinnerS-take-all: same as WsTA but per the whole message
         % Both are implemented the same way, the only difference is that for global we process winners per message, and with local we process them per cluster
         % Intuitively, GWsTA is better than GWTA because in case of equal score between fanals, this means there is an ambiguity, and while GWTA will randomly cut off some fanals without any clue, GWsTA will say "well, okay, I don't know which one to choose, I will keep them all and decide at a later iteration, hoping that the next propagation will make things clearer".
-        elseif strcmpi(filtering_rule, 'WsTA') || strcmpi(filtering_rule, 'GWsTA')
+        elseif strcmpi(filtering_rule, 'WsTA') || strcmpi(filtering_rule, 'GWsTA') || ...
+        (filtering_rule_first_iteration && strcmpi(filtering_rule_first_iteration, 'gwsta') && iter == 1) || (filtering_rule_last_iteration && strcmpi(filtering_rule_last_iteration, 'gwsta') && iter == iterations)
             % Local WinnerS-take-all: Reshape to get only one cluster per column (instead of one message per column)
             if strcmpi(filtering_rule, 'WsTA')
                 propag = reshape(propag, l, mpartial * Chi);
@@ -391,7 +427,8 @@ for diter=1:diterations
         % Loser-kicked-out (locally, per cluster, we kick loser nodes with min score except if min == max of this cluster).
         % Global Loser-Kicked-Out (deactivate all nodes with min score in the message)
         % Both are implemented the same way, the only difference is that for global we process losers per message, and with local we process them per cluster
-        elseif strcmpi(filtering_rule, 'LKO') || strcmpi(filtering_rule, 'GLKO')
+        elseif strcmpi(filtering_rule, 'LKO') || strcmpi(filtering_rule, 'GLKO') || ...
+        (filtering_rule_first_iteration && strcmpi(filtering_rule_first_iteration, 'glko') && iter == 1) || (filtering_rule_last_iteration && strcmpi(filtering_rule_last_iteration, 'glko') && iter == iterations)
             % Local Losers-Kicked-Out: Reshape to get only one cluster per column (instead of one message per column)
             if strcmpi(filtering_rule, 'LKO')
                 propag = reshape(propag, l, mpartial * Chi);
@@ -434,7 +471,8 @@ for diter=1:diterations
         % Optimal/One Loser-Kicked-Out (only one node with min score is kicked) and Optimal Global Loser-Kicked-Out
         % Both are implemented the same way, the only difference is that for global we process losers per message, and with local we process per cluster
         elseif strcmpi(filtering_rule, 'kLKO') || strcmpi(filtering_rule, 'GkLKO') || ...
-                    strcmpi(filtering_rule, 'oLKO') || strcmpi(filtering_rule, 'oGLKO')
+                    strcmpi(filtering_rule, 'oLKO') || strcmpi(filtering_rule, 'oGLKO') || ...
+                    (filtering_rule_first_iteration && strcmpi(filtering_rule_first_iteration, 'gklko') && iter == 1) || (filtering_rule_last_iteration && strcmpi(filtering_rule_last_iteration, 'gklko') && iter == iterations)
             %[~, loser_idx] = min(propag(propag > 0)); % propag(propag > 0) is faster than nonzeros(propag)
             %propag(loser_idx) = 0;
 
@@ -489,6 +527,7 @@ for diter=1:diterations
             end
         % Concurrent Global k-Winners-take-all
         % CkGWTA = kGWTA + trimming out all scores that are below the k-th max score (so that if there are shared nodes between multiple messages, we will get less than c active nodes at the end)
+        % Note: doesn't perform well.
         elseif strcmpi(filtering_rule, 'CGkWTA')
             % 1- kGWTA
             [~, idxs] = sort(propag, 'descend'); % Sort scores with best scores first
@@ -521,10 +560,23 @@ for diter=1:diterations
         % This is a kind of analytical GWsTA: we don't select based on score but rather we remove all nodes that we are certain they have a score too low to be part of the clique we are looking for.
         % Thus, this method does not remove correct fanals (it always has a matching_score of 1 if iterations == 1), while GWsTA may remove correct fanals if some spurious fanal has a very high score (ie: linked to fanals in both cliques).
         % Biologically, we could say that this is kind of a threshold: the system knows that we are looking for cliques of length c, thus we know what is the minimum score (c-erasures).
-        elseif strcmpi(filtering_rule, 'GWsTA-ML')
-            erasures = c - (mode(sum(partial_messages)) / concurrent_cliques); % try to heuristically find the number of erasures
-            propag(propag < (c-erasures)) = 0; % Filter out all useless nodes (ie: if they have a score below the length of a message, then these nodes can't possibly be part of a clique of length c, which is what we are looking for)
-            out = logical(propag); % Binarize
+        elseif strcmpi(filtering_rule, 'GWsTA-ML') || ...
+        (filtering_rule_first_iteration && strcmpi(filtering_rule_first_iteration, 'gwsta-ml') && iter == 1) || (filtering_rule_last_iteration && strcmpi(filtering_rule_last_iteration, 'gwsta-ml') && iter == iterations)
+            % Try to heuristically find the number of erasures
+            erasures = c - (mode(sum(partial_messages)) / concurrent_cliques); % simple standard case
+            if concurrent_disequilibrium && exist('concurrent_cliques_bak', 'var')
+                erasures = c - (mode(sum(logical(partial_messages))) / concurrent_cliques_bak); % special case when using concurrent disequilibrium trick
+            end
+
+            % Filter out all useless nodes (ie: if they have a score below the length of a message, then these nodes can't possibly be part of a clique of length c, which is what we are looking for)
+            if concurrent_disequilibrium == 1
+                propag(propag < ((c-erasures-1) + concurrent_cliques_bak * c)) = 0; % special case when using first type of concurrent disequilibrium trick: we must add the superboost score and we need to remove 1 because c-erasures counts all initially activated fanals, but we superboosted one so we should remove its 1 score and we add its superboosted score.
+            else
+                propag(propag < (c-erasures)) = 0; % simple standard case
+            end
+
+            % Binarize
+            out = logical(propag);
 
         % Maximum likelihood or Exhaustive search (Depth-First Search or Breadth-First Search)
         % This will find the k-clique where k = c, in other words it will reconstruct one node at a time a clique of order c, and if it can't find such a clique, then it returns an empty message (we failed, there's no clique). If there's a clique of length c, this algorithm will find it and return it. If there are multiple cliques of length c, this algorithm will find just one and returns it, whether it's the one we are looking for or not (thus it does not handly ambiguity).
@@ -536,7 +588,8 @@ for diter=1:diterations
         % See also: https://www.cs.purdue.edu/homes/agebreme/publications/fastClq-WAW13.pdf
         % NOTE: on performances: one k-clique is easy enough to find and quite quick, but it's a lot harder to find multiple k-cliques, because the algorithm might get stuck in the subtree leading to only the k-clique we already found, the other k-cliques being on different subtrees altogether. To avoid this, there is a re-sort after each k-clique is just found (see just_found variable), which allows to explore altogether different subtrees as a first guess. However, this brings another harder (and hardest) case: when the different k-cliques overlap, you have to explore in the middle of the tree, and this is the hardest case since you have fanals from the already found k-clique overlapping with the next k-clique to find, thus we can't just explore an altogether different subtree, but rather the middle of the tree which is a mix between the new k-clique and the already found one.
         % TODO: try to use a genetic algorithm? Or a cuckoo search?
-        elseif strcmpi(filtering_rule, 'ML') || strcmpi(filtering_rule, 'DFS') || strcmpi(filtering_rule, 'BFS') || strcmpi(filtering_rule, 'MLD')
+        elseif strcmpi(filtering_rule, 'ML') || strcmpi(filtering_rule, 'DFS') || strcmpi(filtering_rule, 'BFS') || strcmpi(filtering_rule, 'MLD') || ...
+        (filtering_rule_first_iteration && strcmpi(filtering_rule_first_iteration, 'ml') && iter == 1) || (filtering_rule_last_iteration && strcmpi(filtering_rule_last_iteration, 'ml') && iter == iterations)
             erasures = c - (mode(sum(partial_messages)) / concurrent_cliques); % try to heuristically find the number of erasures
             propag(propag < (c-erasures)) = 0; % Filter out all useless nodes (ie: if they have a score below the length of a message, then these nodes can't possibly be part of a clique of length c, which is what we are looking for). This is almost like GWsTA but not exactly: GWsTA may remove correct fanals because they have a score lower than the c highest, even if the correct fanals have a score >= (c-erasures). This is confirmed by the matching_measure (compare with GWsTA-ML).
             out = logical(sparse(size(propag,1), size(propag,2))); % Init the output messages. By default if we can't find a k-clique, we will set the message to all 0's
@@ -773,6 +826,7 @@ for diter=1:diterations
         else
             error('Unrecognized filtering_rule: %s', filtering_rule);
         end
+        % TODO: add GLsKO (kick all losers with kth minimum score) and oGLsKO (kick all losers with global minimum score)
 
         % 3- Some post-processing
 
@@ -915,7 +969,7 @@ for diter=1:diterations
                 out = out2;
             % Either GLsKO either oGLKO or GWSTA or inhibition (tous ceux qui ne sont pas liés au réseau aux sont éteints)
             end
-            
+
         end
 
         partial_messages = out; % set next messages state as current
@@ -934,12 +988,12 @@ for diter=1:diterations
     end
 end
 
+% -- After-convergence post-processing
 % Disequilibrium final post-processing: we set the final messages to be returned (= the concatenation of all cliques found separately via disequilibrium)
 if concurrent_cliques_bak > 1 && concurrent_disequilibrium
     partial_messages = out_final;
 end
 
-% -- After-convergence post-processing
 if residual_memory > 0 % if residual memory is enabled, we need to make sure that values are binary at the end, not just near-binary (eg: values of nodes with 0.000001 instead of just 0 due to the memory addition), else the error can't be computed correctly since some activated nodes will still linger after the last WTA!
     partial_messages = max(round(partial_messages), 0);
 end

@@ -35,8 +35,8 @@ propagation_rule = 'overlays';
 tampering_type = 'erase';
 
 residual_memory = 0;
-GWTA_first_iteration = false;
-GWTA_last_iteration = false;
+filtering_rule_first_iteration = false;
+filtering_rule_last_iteration = false;
 
 % Overlays
 enable_overlays = true;
@@ -84,7 +84,7 @@ for t=1:statstries
                 [error_rate, theoretical_error_rate] = gbnn_test('cnetwork', cnetwork, 'thriftymessagestest', thriftymessages, ...
                                                                                       'erasures', erasures, 'iterations', iterations, 'tampered_messages_per_test', tampered_messages_per_test, 'tests', tests, ...
                                                                                       'enable_guiding', enable_guiding, 'gamma_memory', gamma_memory, 'threshold', threshold, 'propagation_rule', prop_rule, 'filtering_rule', filtering_rule, 'tampering_type', tampering_type, ...
-                                                                                      'residual_memory', residual_memory, 'GWTA_first_iteration', GWTA_first_iteration, 'GWTA_last_iteration', GWTA_last_iteration, ...
+                                                                                      'residual_memory', residual_memory, 'filtering_rule_first_iteration', filtering_rule_first_iteration, 'filtering_rule_last_iteration', filtering_rule_last_iteration, ...
                                                                                       'silent', silent);
                 if (overlays_max(om) == 1); cnetwork = temp; end;
 
