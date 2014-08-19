@@ -23,7 +23,7 @@ filtering_rule = 'GWSTA';
 filtering_rule_first_iteration = false;
 enable_guiding = false;
 
-concurrent_disequilibrium = 1; % 1 for superscore mode, 2 for one fanal erasure, 3 for nothing at all just trying to decode one clique at a time without any trick
+concurrent_disequilibrium = 1; % 1 for superscore mode, 2 for one fanal erasure, 3 for nothing at all just trying to decode one clique at a time without any trick, 0 to disable
 
 % == Launching the runs
 tperf = cputime();
