@@ -174,7 +174,7 @@ for diter=1:diterations
             random_idxs = random_idxs + franges;
             % Find which fanal we will select per message
             idxs = find(partial_messages);
-            diseq_idxs = idxs(random_idxs);
+            diseq_idxs = idxs(full(random_idxs));
 
             % Erase those fanals
             % NOTE: this does not work if the cliques are heavily overlapping, because erasing one fanal will probably erase a shared fanal and thus there won't be any disequilibrium. But anyway if the cliques are heavily overlapping, this means that the density is super high and anyway we can't do anything about the error rate.
