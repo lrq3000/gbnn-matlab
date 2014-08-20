@@ -458,13 +458,14 @@ error_distance = derr / (tests * concurrent_cliques * c * tampered_messages_per_
 
 % Filling stats to return from function
 test_stats = struct();
-test_stats.real_density = real_density;
-test_stats.error_rate = error_rate;
-test_stats.theoretical_error_rate = theoretical_error_rate;
-test_stats.error_distance = error_distance;
-test_stats.similarity_measure = similarity_measure;
-test_stats.matching_measure = matching_measure;
-test_stats.concurrent_unbiased_error_rate = concurrent_unbiased_error_rate;
+test_stats.real_density = real_density; % real density of the network
+test_stats.error_rate = error_rate; % real error rate
+test_stats.error_rate_precision = 1/tampered_messages_per_test; % precision of the error rate (this means that the value given may at most be + or - the precision value, because we cannot compute values in-between: the precision is the minimally small step of error value we can compute).
+test_stats.theoretical_error_rate = theoretical_error_rate; % theoretical error rate
+test_stats.error_distance = error_distance; % error distance (mean number of wrong bits per message)
+test_stats.similarity_measure = similarity_measure; % similarity measure (mean number of correct bits per message over the length, thus if either some fanals aren't decoded or if the decoded message is longer, this measure will lower towards 0)
+test_stats.matching_measure = matching_measure; % matching measure (mean number of correct bits included in the final decoded messages)
+test_stats.concurrent_unbiased_error_rate = concurrent_unbiased_error_rate; % unbiased real error rate (correct to get the mean error rate per clique instead of per multiple concurrent cliques, which cannot be compared with other curves)
 
 % Finally, show the error rate and some stats
 if ~silent
