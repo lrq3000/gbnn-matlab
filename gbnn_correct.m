@@ -328,15 +328,35 @@ for diter=1:diterations
             end
         end
 
+        % 2- In-between processing (just after propagation but before filtering)
+        
+        % Gamma memory
         if gamma_memory > 0
-            propag = propag + (gamma_memory .* partial_messages); % memory effect: keep a bit of the previous nodes scores
+            propag = propag + (gamma_memory .* partial_messages); % memory effect: keep a bit of the previous nodes scores.
+            % NOTE: gamma memory is equivalent as a loop on all fanals. Thus, you can also set gamma on the cnetwork diagonal before propagation: net(1:n:end) = net(1:n:end) * gamma_memory.
+            % NOTE2: always set gamma = 1 this will give you the best performances, because when gamma == 0, fanals initially activated will have a lower score than others, because they can't stimulate themselves. Eg: if fanals A and B are connected to C and D, and if A and B are initially activated, the scores with gamma = 0 will be as follows: A:1, B:1, C:2, D:2 because A is only stimulated by B and inversely for B, but C and D are stimulated by both A and B. Thus after one interation, we lose A and B, which were initially activated! However if we set gamma = 1, we get A:2 B:2 C:2 D:2 because A is stimulated by B and by A itself.
+            % NOTE3: setting gamma > 1 will force the initially activated fanals to always be activated. Can be good when you use erasures, but not good at all if you have noise.
+            % NOTE4: here in this implementation, gamma_memory is already == 1.
         end
-        if threshold > 0 % activation threshold: set to 0 all nodes with a score lower than the activation threshold (ie: those nodes won't emit a spike)
+
+        % Activation threshold: set to 0 all nodes with a score lower than the activation threshold (ie: those nodes won't emit a spike)
+        if threshold > 0
             propag(propag < threshold) = 0;
         end;
 
+        % Guiding mask
+        if ~isempty(guiding_mask) % Apply guiding mask to filter out useless clusters. TODO: the filtering should be directly inside the propagation rule at the moment of the matrix product to avoid useless computations (but this is difficult to do this in MatLab in a vectorized way...).
+            propag = reshape(propag, l, mpartial * Chi);
+            if ~aux.isOctave()
+                propag = bsxfun(@times, propag, guiding_mask);
+            else
+                propag = sparse(bsxfun(@times, propag, double(guiding_mask)));
+            end
+            propag = reshape(propag, n, mpartial);
+        end
 
-        % 2- Filtering rules aka activation rules (apply a rule to filter out useless/interfering nodes)
+
+        % 3- Filtering rules aka activation rules (apply a rule to filter out useless/interfering nodes)
 
         % -- Vectorized versions - fastest!
         out = logical(sparse(size(partial_messages,1), size(partial_messages,2))); % empty binary sparse matrix, it will later store the next network state after winner-takes-all is applied
@@ -830,19 +850,8 @@ for diter=1:diterations
         end
         % TODO: add GLsKO (kick all losers with kth minimum score) and oGLsKO (kick all losers with global minimum score)
 
-        % 3- Some post-processing
-
-        % Guiding mask
-        % TODO: better performances if we place guiding mask processing in-between propagation and filtering steps?
-        if ~isempty(guiding_mask) % Apply guiding mask to filter out useless clusters. TODO: the filtering should be directly inside the propagation rule at the moment of the matrix product to avoid useless computations (but this is difficult to do this in MatLab in a vectorized way...).
-            out = reshape(out, l, mpartial * Chi);
-            if ~aux.isOctave()
-                out = bsxfun(@and, out, guiding_mask);
-            else
-                out = logical(sparse(bsxfun(@and, out, guiding_mask)));
-            end
-            out = reshape(out, n, mpartial);
-        end
+        
+        % 4- Some post-processing
 
         % Overlays filtering: instead of filtering at propagation time, we first propagate, then filter using GWsTA just like usually, and then only we filter by tags, just like a guiding mask but totally unsupervised
         if strcmpi(propagation_rule, 'overlays_filter')
@@ -921,6 +930,7 @@ for diter=1:diterations
             out = out + (residual_memory .* partial_messages); % residual memory: previously activated nodes lingers a bit (a fraction of their activation score persists) and participate in the next iteration
         end
 
+        % Auxiliary support network post-processing (tests)
         if isfield(cnetwork, 'auxiliary') && strcmpi(cnetwork_choose, 'primary')
 
             ttmode = 3;

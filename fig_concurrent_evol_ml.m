@@ -25,7 +25,7 @@ erasures = 1;
 tampered_messages_per_test = 50; % more messages tested means that the final error rate will be of finer granularity (precision = 1/50)
 tests = 1;
 
-enable_guiding = [false]; % here too, we will try with and without the guiding mask
+enable_guiding = [false true]; % here too, we will try with and without the guiding mask
 gamma_memory = 1;
 threshold = 0;
 tampering_type = 'erase';
