@@ -22,7 +22,7 @@ c = 8;
 l = 16;
 Chi = 32;
 erasures = 2;
-iterations = 4; % for convergence
+iterations = 4; % must be > 1 for disequilibrium to take effect. Note: useless for filtering rule ML, therefore it will be automatically set to 1 iiteration only for ML, the other filtering_rules will use the number of iterations you specify here.
 tampered_messages_per_test = 30;
 tests = 1;
 
@@ -72,17 +72,20 @@ for t=1:statstries
         counter = 1;
         for f=1:numel(filtering_rule)
             fr = filtering_rule{f}; % need to prepare beforehand because of MatLab, can't do it in one command...
-            if strcmpi(fr, 'ML')
+
+            if strcmpi(fr, 'ML') % for ML it's useless to do multiple iterations
                 iterations_bak = iterations;
                 iterations = 1;
             end
+
             [error_rate, theoretical_error_rate, test_stats] = gbnn_test('cnetwork', cnetwork, 'thriftymessagestest', thriftymessages, ...
                                                                                   'erasures', erasures, 'iterations', iterations, 'tampered_messages_per_test', tampered_messages_per_test, 'tests', tests, ...
                                                                                   'enable_guiding', enable_guiding, 'gamma_memory', gamma_memory, 'threshold', threshold, 'propagation_rule', propagation_rule, 'filtering_rule', fr, 'tampering_type', tampering_type, ...
                                                                                   'residual_memory', residual_memory, 'concurrent_cliques', concurrent_cliques, 'no_concurrent_overlap', no_concurrent_overlap, 'concurrent_successive', concurrent_successive, 'filtering_rule_first_iteration', filtering_rule_first_iteration, 'filtering_rule_last_iteration', filtering_rule_last_iteration, ...
                                                                                   'concurrent_disequilibrium', concurrent_disequilibrium(f), ...
                                                                                   'silent', silent);
-            if strcmpi(fr, 'ML')
+
+            if strcmpi(fr, 'ML') % restore the number of iterations for other filtering rules after ML
                 iterations = iterations_bak;
             end
 

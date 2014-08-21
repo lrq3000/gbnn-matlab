@@ -12,7 +12,7 @@ aux = gbnn_aux; % works with both MatLab and Octave
 % This will allow us to automatically select a different color and shape for each curve
 colorvec = 'rgbkmc';
 markerstylevec = '+o*.xsd^v><ph';
-linestylevec = {'-' ; '--' ; ':' ; '-.'};
+linestylevec = {'-' ; ':' ; '--' ; '-.'};
 
 % Vars config, tweak the stuff here
 M = 0.5:0.5:4.5; % this is a vector because we will try several values of m (number of messages, which influences the density)
@@ -50,59 +50,70 @@ no_auxiliary_propagation = false;
 
 silent = false; % If you don't want to see the progress output
 
+statstries = 5; % retry n times with different networks to smooth the results
+
 % == Launching the runs
 D = zeros(numel(M), numel(filtering_rule)*numel(enable_guiding)*numel(concurrent_cliques));
 E = zeros(numel(M), numel(filtering_rule)*numel(enable_guiding)*numel(concurrent_cliques));
 ED = zeros(numel(M), numel(filtering_rule)*numel(enable_guiding)*numel(concurrent_cliques));
 TE = zeros(numel(M), numel(enable_guiding)*numel(concurrent_cliques)); % theoretical error rate depends on: Chi, l, c, erasures, enable_guiding and of course the density (theoretical or real) and thus on any parameter that changes the network (thus as the number of messages m to learn)
-tperf = cputime(); % to show the total time elapsed later
-cnetwork = logical(sparse([]));
-thriftymessages = logical(sparse([]));
-for m=1:numel(M) % and for each value of m, we will do a run
 
-    % Learning phase
-    if m == 1
-        [cnetwork, s2, density] = gbnn_learn('m', round(M(1, 1)*Mcoeff), 'miterator', miterator(1,m), 'l', l, 'c', c, 'Chi', Chi, 'silent', silent);
-    else % Optimization trick: instead of relearning the whole network, we will reuse the previous network and just add more messages, this allows to decrease the learning time exponentially, rendering it constant (at each learning, the network will learn the same amount of messages: eg: iteration 1 will learn 1E5 messages, iteration 2 will learn 1E5 messages and reuse 1E5, which will totalize as 2E5, etc...)
-        [cnetwork, s2, density] = gbnn_learn('cnetwork', cnetwork, ...
-                                                    'm', round((M(1, m)-M(1,m-1))*Mcoeff), 'miterator', miterator(1,m), 'l', l, 'c', c, 'Chi', Chi, ...
-                                                    'silent', silent);
-        
-    end
-    thriftymessages = [thriftymessages ; s2]; % append new messages
+for t=1:statstries
+    tperf = cputime(); % to show the total time elapsed later
+    cnetwork = logical(sparse([]));
+    thriftymessages = logical(sparse([]));
+    for m=1:numel(M) % and for each value of m, we will do a run
 
-    % Training phase (optional)
-    if training
-        cnetwork = gbnn_train('cnetwork', cnetwork, 'thriftymessagestest', s2, 'l', l2, 'c', c2, 'Chi', Chi2, 'tampered_messages_per_test', tampered_messages_per_test, 'tests', trainingbatchs, 'no_auxiliary_propagation', no_auxiliary_propagation);
-    end
+        % Learning phase
+        if m == 1
+            [cnetwork, s2, density] = gbnn_learn('m', round(M(1, 1)*Mcoeff), 'miterator', miterator(1,m), 'l', l, 'c', c, 'Chi', Chi, 'silent', silent);
+        else % Optimization trick: instead of relearning the whole network, we will reuse the previous network and just add more messages, this allows to decrease the learning time exponentially, rendering it constant (at each learning, the network will learn the same amount of messages: eg: iteration 1 will learn 1E5 messages, iteration 2 will learn 1E5 messages and reuse 1E5, which will totalize as 2E5, etc...)
+            [cnetwork, s2, density] = gbnn_learn('cnetwork', cnetwork, ...
+                                                        'm', round((M(1, m)-M(1,m-1))*Mcoeff), 'miterator', miterator(1,m), 'l', l, 'c', c, 'Chi', Chi, ...
+                                                        'silent', silent);
+            
+        end
+        thriftymessages = [thriftymessages ; s2]; % append new messages
 
-    % Testing phase
-    counter = 1;
-    for f=1:numel(filtering_rule)
-        tecounter = 1;
-        for cc=1:numel(concurrent_cliques)
-            for g=1:numel(enable_guiding)
-                fr = filtering_rule(1,f); fr = fr{1}; % need to prepare beforehand because of MatLab, can't do it in one command...
-                [error_rate, theoretical_error_rate, test_stats] = gbnn_test('cnetwork', cnetwork, 'thriftymessagestest', thriftymessages, ...
-                                                                                      'erasures', erasures, 'iterations', iterations, 'tampered_messages_per_test', tampered_messages_per_test, 'tests', tests, ...
-                                                                                      'enable_guiding', enable_guiding(1,g), 'gamma_memory', gamma_memory, 'threshold', threshold, 'propagation_rule', propagation_rule, 'filtering_rule', fr, 'tampering_type', tampering_type, 'filtering_rule_first_iteration', filtering_rule_first_iteration, 'filtering_rule_last_iteration', filtering_rule_last_iteration, ...
-                                                                                      'residual_memory', residual_memory, 'concurrent_cliques', concurrent_cliques(1,cc), 'concurrent_disequilibrium', concurrent_disequilibrium, 'no_concurrent_overlap', no_concurrent_overlap, 'concurrent_successive', concurrent_successive, ...
-                                                                                      'silent', silent);
+        % Training phase (optional)
+        if training
+            cnetwork = gbnn_train('cnetwork', cnetwork, 'thriftymessagestest', s2, 'l', l2, 'c', c2, 'Chi', Chi2, 'tampered_messages_per_test', tampered_messages_per_test, 'tests', trainingbatchs, 'no_auxiliary_propagation', no_auxiliary_propagation);
+        end
 
-                % Store the results
-                D(m,counter) = density;
-                E(m,counter) = error_rate;
-                ED(m, counter) = test_stats.error_distance;
-                TE(m, tecounter) = theoretical_error_rate;
-                if ~silent; fprintf('-----------------------------\n\n'); end;
-                
-                counter = counter + 1;
-                tecounter = tecounter + 1;
+        % Testing phase
+        counter = 1;
+        for f=1:numel(filtering_rule)
+            tecounter = 1;
+            for cc=1:numel(concurrent_cliques)
+                for g=1:numel(enable_guiding)
+                    fr = filtering_rule(1,f); fr = fr{1}; % need to prepare beforehand because of MatLab, can't do it in one command...
+                    [error_rate, theoretical_error_rate, test_stats] = gbnn_test('cnetwork', cnetwork, 'thriftymessagestest', thriftymessages, ...
+                                                                                          'erasures', erasures, 'iterations', iterations, 'tampered_messages_per_test', tampered_messages_per_test, 'tests', tests, ...
+                                                                                          'enable_guiding', enable_guiding(1,g), 'gamma_memory', gamma_memory, 'threshold', threshold, 'propagation_rule', propagation_rule, 'filtering_rule', fr, 'tampering_type', tampering_type, 'filtering_rule_first_iteration', filtering_rule_first_iteration, 'filtering_rule_last_iteration', filtering_rule_last_iteration, ...
+                                                                                          'residual_memory', residual_memory, 'concurrent_cliques', concurrent_cliques(1,cc), 'concurrent_disequilibrium', concurrent_disequilibrium, 'no_concurrent_overlap', no_concurrent_overlap, 'concurrent_successive', concurrent_successive, ...
+                                                                                          'silent', silent);
+
+                    % Store the results
+                    D(m,counter) = D(m,counter) + density;
+                    E(m,counter) = E(m,counter) + error_rate;
+                    ED(m, counter) = ED(m, counter) + test_stats.error_distance;
+                    TE(m, tecounter) = theoretical_error_rate;
+                    if ~silent; fprintf('-----------------------------\n\n'); end;
+                    
+                    counter = counter + 1;
+                    tecounter = tecounter + 1;
+                end
             end
         end
     end
+    aux.printcputime(cputime() - tperf, 'Total cpu time elapsed to do all runs: %G seconds.\n'); aux.flushout(); % print total time elapsed
 end
-aux.printcputime(cputime() - tperf, 'Total cpu time elapsed to do all runs: %G seconds.\n'); aux.flushout(); % print total time elapsed
+% Normalizing errors rates by calculating the mean error for all tries
+D = D ./ statstries;
+E = E ./ statstries;
+ED = ED ./ statstries;
+printf('END of all tests!\n'); aux.flushout();
+
 
 % == Plotting
 
@@ -174,7 +185,8 @@ for cc=1:numel(concurrent_cliques)
     end
 end
 % Refresh plot with legends
-legend(get(gca,'children'),get(get(gca,'children'),'DisplayName')); % IMPORTANT: force refreshing to show the legend, else it won't show!
+legend(get(gca,'children'),get(get(gca,'children'),'DisplayName'), 'location', 'southeast'); % IMPORTANT: force refreshing to show the legend, else it won't show!
+legend('boxoff');
 
 
 % -- Plot error distance
@@ -217,7 +229,7 @@ for f=1:numel(filtering_rule) % for each different filtering rule and whether th
     end
 end
 % Refresh plot with legends
-legend(get(gca,'children'),get(get(gca,'children'),'DisplayName')); % IMPORTANT: force refreshing to show the legend, else it won't show!
+legend(get(gca,'children'),get(get(gca,'children'),'DisplayName'), 'location', 'northwest'); % IMPORTANT: force refreshing to show the legend, else it won't show!
 
 
 % Print densities values and error rates

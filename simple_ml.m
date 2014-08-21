@@ -8,14 +8,14 @@ close all;
 aux = gbnn_aux; % works with both MatLab and Octave
 
 % Vars config, tweak the stuff here
-m = 16E2;
-c = 8;
-l = 16;
-Chi = 32;
-erasures = 2;
+m = 2E2 % 0.5E2 7E2; 14E2
+c = 5;
+l = 12;
+Chi = 18;
+erasures = 1;
 
-tampered_messages_per_test = 5;
-concurrent_cliques = 2;
+tampered_messages_per_test = 30;
+concurrent_cliques = 7;
 no_concurrent_overlap = false;
 concurrent_disequilibrium = false;
 
