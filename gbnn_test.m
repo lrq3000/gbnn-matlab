@@ -129,6 +129,7 @@ if ~silent
     concurrent_cliques
     no_concurrent_overlap
     concurrent_successive
+    concurrent_disequilibrium
 end
 
 

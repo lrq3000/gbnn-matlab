@@ -195,6 +195,10 @@ for diter=1:diterations
             clear franges;
         end
     end
+    % Printing info on concurrent disequilibrium trick
+    if concurrent_cliques_bak > 1 && concurrent_disequilibrium
+        if ~silent; printf('--> Finding clique %i by disequilibrium type %i\n', diter, concurrent_disequilibrium); aux.flushout(); end;
+    end
 
     for iter=1:iterations % To let the network converge towards a stable state...
         if ~silent
