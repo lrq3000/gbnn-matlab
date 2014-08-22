@@ -391,12 +391,14 @@ for t=1:tests % TODO: replace by parfor (regression from past versions to allow 
         %err = err + sum(min(sum((init ~= inputm), 1), 1)); % this is a LOT faster than isequal() !
         err = err + nnz(sum((init ~= inputm), 1)); % even faster!
         derr = derr + sum(sum(init ~= inputm)); % error distance = euclidian distance to the correct message = mean number of bits that are wrong per message / number of bits per message = esperance that a bit is wrongly flipped
-        similarity_measure = similarity_measure + (sum(inputm .* init, 1) / max(sum(inputm, 1), sum(init, 1))); % 1.0 if both messages are equal and of same length, the score will lower towards 0 if either some characters in the corrected message are wrong, or either if the corrected message contains more characters than the initial.
-        matching_measure = matching_measure + (sum(inputm .* init, 1) / sum(init, 1)); % 1.0 if the corrected message contains at least the initial message (but the corrected message can contain more characters).
+        similarity_measure = similarity_measure + sum(sum(inputm .* init, 1) ./ max(sum(inputm, 1), sum(init, 1))); % 1.0 if both messages are equal and of same length, the score will lower towards 0 if either some characters in the corrected message are wrong, or either if the corrected message contains more characters than the initial.
+        matching_measure = matching_measure + sum(sum(inputm .* init, 1) ./ sum(init, 1)); % 1.0 if the corrected message contains at least the initial message (but the corrected message can contain more characters).
     else
         %err = err + ~isequal(init,inputm);
         err = err + any(init ~= inputm); % remove the useless sum(min()) when we only have one message to compute the error from, this cuts the time by almost half
         derr = derr + sum(init ~= inputm);
+        similarity_measure = similarity_measure + (sum(inputm .* init, 1) ./ max(sum(inputm, 1), sum(init, 1)));
+        matching_measure = matching_measure + (sum(inputm .* init, 1) ./ sum(init, 1));
     end
     if nargout > 3
         indstart = 1+(t-1)*tampered_messages_per_test;
@@ -409,8 +411,16 @@ for t=1:tests % TODO: replace by parfor (regression from past versions to allow 
 
 end
 
-% Compute error rate
+% Normalize error rate and measures
 error_rate = err / (tests * tampered_messages_per_test); % NOTE: if you use concurrent_cliques > 1, error_rate is not a good measure, because you artificially increase the probability of having a wrong message by concurrent_cliques times (since you're not testing one but concurrent_cliques messages at the same time), and there's no way to correct this biased estimator since we can't know which clique caused which bit flip (eg: concurrent_cliques = 3 and there are 3 wrong bits: are they caused by the three messages, or by only 1 and the other two are in fact corrects?). You should rather try error_distance in this case.
+error_distance = derr / (tests * concurrent_cliques * c * tampered_messages_per_test); % Euclidian distance: compute the esperance that a bit is wrongly flipped (has an incorrect value)
+similarity_measure = similarity_measure / (tests * tampered_messages_per_test);
+matching_measure = matching_measure / (tests * tampered_messages_per_test);
+% Unbias
+concurrent_unbiased_error_rate = 1 - (1 - error_rate).^(1/concurrent_cliques); % unbias approximation the real error rate by averaging, because statistically we exponentiate the error rate by the number of messages: error_rate^concurrent_cliques. Here we try to unbias that by finding the square root and thus to get error_rate per message, and not per concurrent_cliques messages as it is if biased. NOTE: remember that this is an approximation of the unbiased error rate, because we can't know which message caused the error, which would be the only way to get the exact error rate (so that we could know if, with for example concurrent_cliques = 2, if the final recovered mixed message is wrong because of 1 of the messages, or of both. Here we have no way to tell, so we suppose that in general, only one of the messages will fail but not both).
+%concurrent_unbiased_theoretical_error_rate = 1-(1-theoretical_error_rate)^concurrent_cliques; WRONG, this just "doubles" the risk of spurious fanal for each concurrent clique, but it does not account for all possible combinations, you have to use a cumulative binomial distribution to count that!
+
+
 % Compute density
 real_density = full(  (nnz(cnetwork.primary.net) - nnz(diag(cnetwork.primary.net))) / (Chi*(Chi-1) * l^2)  );
 %real_density = 0;
@@ -423,6 +433,7 @@ real_density = full(  (nnz(cnetwork.primary.net) - nnz(diag(cnetwork.primary.net
 %    end
 %    real_density = real_density / numel(alltags);
 %end
+
 
 % Compute theoretical error rate
 theoretical_error_rate = -1;
@@ -449,13 +460,9 @@ else
         theoretical_error_rate = 1 - binocdf(c-erasures-1, concurrent_cliques*(c-erasures), real_density)^(erasures*(l-1)); % still the same generalization, but in guided mode so we count less many potentially spurious fanals (since we can exclude all clusters that the mask is excluding)
     end
 end
-%concurrent_unbiased_theoretical_error_rate = 1-(1-theoretical_error_rate)^concurrent_cliques; WRONG, this just "doubles" the risk of spurious fanal for each concurrent clique, but it does not account for all possible combinations, you have to use a cumulative binomial distribution to count that!
-concurrent_unbiased_error_rate = 1 - (1 - error_rate).^(1/concurrent_cliques); % unbias approximation the real error rate by averaging, because statistically we exponentiate the error rate by the number of messages: error_rate^concurrent_cliques. Here we try to unbias that by finding the square root and thus to get error_rate per message, and not per concurrent_cliques messages as it is if biased. NOTE: remember that this is an approximation of the unbiased error rate, because we can't know which message caused the error, which would be the only way to get the exact error rate (so that we could know if, with for example concurrent_cliques = 2, if the final recovered mixed message is wrong because of 1 of the messages, or of both. Here we have no way to tell, so we suppose that in general, only one of the messages will fail but not both).
 
 %theoretical_error_correction_proba = 1 - theoretical_error_rate
 
-% Compute euclidian error distance
-error_distance = derr / (tests * concurrent_cliques * c * tampered_messages_per_test); % Euclidian distance: compute the esperance that a bit is wrongly flipped (has an incorrect value)
 
 % Filling stats to return from function
 test_stats = struct();
