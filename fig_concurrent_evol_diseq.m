@@ -57,6 +57,7 @@ D = zeros(numel(M), numel(filtering_rule)*numel(enable_guiding)*numel(concurrent
 E = zeros(numel(M), numel(filtering_rule)*numel(enable_guiding)*numel(concurrent_cliques));
 ED = zeros(numel(M), numel(filtering_rule)*numel(enable_guiding)*numel(concurrent_cliques));
 TE = zeros(numel(M), numel(enable_guiding)*numel(concurrent_cliques)); % theoretical error rate depends on: Chi, l, c, erasures, enable_guiding and of course the density (theoretical or real) and thus on any parameter that changes the network (thus as the number of messages m to learn)
+EC = zeros(numel(M), numel(filtering_rule)*numel(enable_guiding)*numel(concurrent_cliques));
 
 for t=1:statstries
     tperf = cputime(); % to show the total time elapsed later
@@ -98,6 +99,7 @@ for t=1:statstries
                     E(m,counter) = E(m,counter) + error_rate;
                     ED(m, counter) = ED(m, counter) + test_stats.error_distance;
                     TE(m, tecounter) = theoretical_error_rate;
+                    EC(m, counter) = EC(m, counter) + test_stats.concurrent_unbiased_error_rate;
                     if ~silent; fprintf('-----------------------------\n\n'); end;
                     
                     counter = counter + 1;
@@ -112,6 +114,7 @@ end
 D = D ./ statstries;
 E = E ./ statstries;
 ED = ED ./ statstries;
+EC = EC ./ statstries;
 printf('END of all tests!\n'); aux.flushout();
 
 
@@ -145,6 +148,7 @@ for f=1:numel(filtering_rule) % for each different filtering rule and whether th
             else
                 plot_title = strcat(plot_title, sprintf(' - Blind'));
             end
+            plot_title = strcat(plot_title, sprintf(' - %i it', iterations(f)));
 
             % Draw the curves
             % => Error rate
@@ -189,6 +193,51 @@ legend(get(gca,'children'),get(get(gca,'children'),'DisplayName'), 'location', '
 legend('boxoff');
 
 
+% -- Plot concurrent unbiased error rate with respect to the density
+figure; hold on;
+xlabel(sprintf('Number of stored messages (M) x %.1E', Mcoeff));
+ylabel('Unbiased Retrieval Error Rate per clique');
+counter = 1; % useful to keep track inside the matrix E. This is guaranteed to be OK since we use the same order of for loops (so be careful, if you move the forloops here in plotting you must also move them the same way in the tests above!)
+for f=1:numel(filtering_rule) % for each different filtering rule and whether there is guiding or not, we willl print a different curve, with an automatically selected color and shape
+    coloridx = mod(f-1, numel(colorvec))+1; % change color per filtering rule
+    counterstyle = 1; % use another counter for styles, so that each curve will get the exact same style for each set of parameters
+    for cc=1:numel(concurrent_cliques)
+        for g=1:numel(enable_guiding)
+            lstyleidx = mod(counterstyle-1, numel(linestylevec))+1; % change line style ...
+            mstyleidx = mod(counterstyle-1, numel(markerstylevec))+1; % and change marker style per plot
+
+            lstyle = linestylevec(lstyleidx, 1); lstyle = lstyle{1}; % for MatLab, can't do that in one command...
+
+            % Prepare the legend
+            fr = filtering_rule(1,f); fr = fr{1};
+            plot_title = sprintf('%s', fr);
+            if concurrent_cliques(1,cc) == 1
+                plot_title = strcat(plot_title, sprintf(' - no cc'));
+            else
+                plot_title = strcat(plot_title, sprintf(' - cc = %i', concurrent_cliques(1, cc)));
+            end
+            if enable_guiding(1,g)
+                plot_title = strcat(plot_title, sprintf(' - Guided'));
+            else
+                plot_title = strcat(plot_title, sprintf(' - Blind'));
+            end
+            plot_title = strcat(plot_title, sprintf(' - %i it', iterations(f)));
+
+            % Draw the curves
+            % => Error rate
+            cur_plot = plot(M, EC(:,counter), sprintf('%s%s%s', lstyle, markerstylevec(mstyleidx), colorvec(coloridx))); % plot one line
+            set(cur_plot, 'DisplayName', plot_title); % add the legend per plot, this is the best method, which also works with scatterplots and polar plots, see http://hattb.wordpress.com/2010/02/10/appending-legends-and-plots-in-matlab/
+
+            counter = counter + 1;
+            counterstyle = counterstyle + 1;
+        end
+    end
+end
+% Refresh plot with legends
+legend(get(gca,'children'),get(get(gca,'children'),'DisplayName'), 'location', 'southeast'); % IMPORTANT: force refreshing to show the legend, else it won't show!
+legend('boxoff');
+
+
 % -- Plot error distance
 figure; hold on;
 xlabel(sprintf('Number of stored messages (M) x %.1E', Mcoeff));
@@ -217,6 +266,12 @@ for f=1:numel(filtering_rule) % for each different filtering rule and whether th
             else
                 plot_title = strcat(plot_title, sprintf(' - Blind'));
             end
+            if concurrent_disequilibrium(f)
+                plot_title = strcat(plot_title, sprintf(' - Diseq type %i', concurrent_disequilibrium(f)));
+            else
+                plot_title = strcat(plot_title, sprintf(' - No diseq'));
+            end
+            plot_title = strcat(plot_title, sprintf(' - %i it', iterations(f)));
 
             % Draw the curves
             % => Error distance
