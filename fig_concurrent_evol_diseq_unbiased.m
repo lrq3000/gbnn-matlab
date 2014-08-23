@@ -1,4 +1,4 @@
-% This example main file draws useful plots to analyze the evolution of the network and its error rates with different number of concurrent messages
+% Draws evolution of error of concurrent cliques between 1 and 2 concurrent cliques, with unbiased error rate (error rate is always computed for two cliques, not one when concurrent_cliques = 1)
 
 % Clear things up
 clear all;
@@ -10,34 +10,32 @@ aux = gbnn_aux; % works with both MatLab and Octave
 
 % Preparing stuff to automate the plots
 % This will allow us to automatically select a different color and shape for each curve
-colorvec = 'kbrgmc';
-markerstylevec = '+o*xs.d^v><ph';
-linestylevec = {'-' ; ':' ; '--' ; '-.'};
+colorvec = 'krbgmc';
+markerstylevec = '+o*.xsd^v><ph';
+linestylevec = {'--' ; '-' ; ':' ; '-.'};
 
 % Vars config, tweak the stuff here
-M = [0.5 1:1:4 7 10 14]; % this is a vector because we will try several values of m (number of messages, which influences the density)
-Mcoeff = 1E2;
+M = 0.5:0.25:3.5; % this is a vector because we will try several values of m (number of messages, which influences the density)
+Mcoeff = 1E5;
 miterator = zeros(1,numel(M)); %M/2;
-c = 5;
-l = 12;
-Chi = 18;
-erasures = 1;
-tampered_messages_per_test = 50; % more messages tested means that the final error rate will be of finer granularity (precision = 1/50)
+c = 12;
+l = 64;
+Chi = 100;
+erasures = 3;
+iterations = 4; % for convergence
+tampered_messages_per_test = 100;
 tests = 1;
 
-enable_guiding = [true]; % here too, we will try with and without the guiding mask
+enable_guiding = [true, false]; % here too, we will try with and without the guiding mask
 gamma_memory = 1;
 threshold = 0;
-tampering_type = 'erase';
 propagation_rule = 'sum'; % TODO: not implemented yet, please always set 0 here
-
-% Filtering rule configuration
-filtering_rule = {'ML', 'GWSTA', 'GWSTA'}; % this is a cell array (vector of strings) because we can try several different filtering rules
-iterations = [1 4 4]; % no need to converge with ML, but GWSTA with disequilibrium needs several iterations to take effect
-concurrent_disequilibrium = [0 1 0]; % 1 for superscore mode, 2 for one fanal erasure, 3 for nothing at all just trying to decode one clique at a time without any trick, 0 to disable
+filtering_rule = {'GWsTA'}; % this is a cell array (vector of strings) because we can try several different filtering rules
+tampering_type = 'erase';
 
 residual_memory = 0;
-concurrent_cliques = 1:5;
+concurrent_cliques = 1:2;
+concurrent_disequilibrium = 1; % 1 for superscore mode, 2 for one fanal erasure, 3 for nothing at all just trying to decode one clique at a time without any trick, 0 to disable
 no_concurrent_overlap = false;
 concurrent_successive = false;
 filtering_rule_first_iteration = false;
@@ -50,10 +48,10 @@ Chi2 = Chi;
 trainingbatchs = 2;
 no_auxiliary_propagation = false;
 
-plot_theo = false; % plot theoretical error curves
+plot_theo = false;
 silent = false; % If you don't want to see the progress output
 
-statstries = 5; % retry n times with different networks to smooth the results and have a more general result
+statstries = 5; % retry n times with different networks to smooth the results
 
 % == Launching the runs
 D = zeros(numel(M), numel(filtering_rule)*numel(enable_guiding)*numel(concurrent_cliques));
@@ -92,13 +90,14 @@ for t=1:statstries
                 for g=1:numel(enable_guiding)
                     fr = filtering_rule(1,f); fr = fr{1}; % need to prepare beforehand because of MatLab, can't do it in one command...
                     [error_rate, theoretical_error_rate, test_stats] = gbnn_test('cnetwork', cnetwork, 'thriftymessagestest', thriftymessages, ...
-                                                                                          'erasures', erasures, 'iterations', iterations(f), 'tampered_messages_per_test', tampered_messages_per_test, 'tests', tests, ...
+                                                                                          'erasures', erasures, 'iterations', iterations, 'tampered_messages_per_test', tampered_messages_per_test, 'tests', tests, ...
                                                                                           'enable_guiding', enable_guiding(1,g), 'gamma_memory', gamma_memory, 'threshold', threshold, 'propagation_rule', propagation_rule, 'filtering_rule', fr, 'tampering_type', tampering_type, 'filtering_rule_first_iteration', filtering_rule_first_iteration, 'filtering_rule_last_iteration', filtering_rule_last_iteration, ...
-                                                                                          'residual_memory', residual_memory, 'concurrent_cliques', concurrent_cliques(1,cc), 'concurrent_disequilibrium', concurrent_disequilibrium(f), 'no_concurrent_overlap', no_concurrent_overlap, 'concurrent_successive', concurrent_successive, ...
+                                                                                          'residual_memory', residual_memory, 'concurrent_cliques', concurrent_cliques(1,cc), 'concurrent_disequilibrium', concurrent_disequilibrium, 'no_concurrent_overlap', no_concurrent_overlap, 'concurrent_successive', concurrent_successive, ...
                                                                                           'silent', silent);
 
                     % Store the results
                     D(m,counter) = D(m,counter) + density;
+                    if concurrent_cliques(cc) == 1; error_rate = 1-(1-error_rate)^max(concurrent_cliques); end; % Unbias error rate by computing the error rate for two cliques
                     E(m,counter) = E(m,counter) + error_rate;
                     ED(m, counter) = ED(m, counter) + test_stats.error_distance;
                     TE(m, tecounter) = theoretical_error_rate;
@@ -126,13 +125,13 @@ printf('END of all tests!\n'); aux.flushout();
 % -- Plot error rate with respect to the density (or number of messages stored) and a few other parameters
 figure; hold on;
 xlabel(sprintf('Number of stored messages (M) x %.1E', Mcoeff));
-ylabel('Retrieval Error Rate');
+ylabel('Unbiased Retrieval Error Rate for 2 cliques');
 counter = 1; % useful to keep track inside the matrix E. This is guaranteed to be OK since we use the same order of for loops (so be careful, if you move the forloops here in plotting you must also move them the same way in the tests above!)
-for cc=1:numel(concurrent_cliques) % different color and line marker icon for different concurrent cliques
+for cc=1:numel(concurrent_cliques)
     coloridx = mod(cc-1, numel(colorvec))+1; % change color
     mstyleidx = mod(cc-1, numel(markerstylevec))+1; % and change marker style per plot
     counterstyle = 1; % use another counter for styles, so that each curve will get the exact same style for each set of parameters
-    for f=1:numel(filtering_rule) % different line style for each filtering rule
+    for f=1:numel(filtering_rule)
         for g=1:numel(enable_guiding)
             lstyleidx = mod(counterstyle-1, numel(linestylevec))+1; % change line style ...
 
@@ -151,11 +150,6 @@ for cc=1:numel(concurrent_cliques) % different color and line marker icon for di
             else
                 plot_title = strcat(plot_title, sprintf(' - Blind'));
             end
-            if concurrent_disequilibrium(f)
-                plot_title = strcat(plot_title, sprintf(' - Diseq type %i', concurrent_disequilibrium(f)));
-            else
-                plot_title = strcat(plot_title, sprintf(' - No diseq'));
-            end
             plot_title = strcat(plot_title, sprintf(' - %i it', iterations(f)));
 
             % Draw the curves
@@ -168,11 +162,9 @@ for cc=1:numel(concurrent_cliques) % different color and line marker icon for di
         end
     end
 end
-
-
 % Plot theoretical error rates
 if plot_theo
-    %coloridx = mod(counter, numel(colorvec))+1; % change color for theoretical errors
+    coloridx = mod(counter, numel(colorvec))+1; % change color for theoretical errors
     tecounter = 1;
     for cc=1:numel(concurrent_cliques)
         for g=1:numel(enable_guiding)
@@ -180,7 +172,7 @@ if plot_theo
             mstyleidx = mod(tecounter-1, numel(markerstylevec))+1;
 
             lstyle = linestylevec(lstyleidx, 1); lstyle = lstyle{1}; % for MatLab, can't do that in one command...
-            cur_plot = plot(M, TE(:,tecounter), sprintf('%s%s%s', lstyle, markerstylevec(mstyleidx), 'k')); % plot one line
+            cur_plot = plot(M, TE(:,tecounter), sprintf('%s%s%s', lstyle, markerstylevec(mstyleidx), colorvec(coloridx))); % plot one line
 
             plot_title = '';
             if concurrent_cliques(1,cc) == 1
@@ -200,60 +192,11 @@ if plot_theo
         end
     end
 end
-
 % Refresh plot with legends
 legend(get(gca,'children'),get(get(gca,'children'),'DisplayName'), 'location', 'southeast'); % IMPORTANT: force refreshing to show the legend, else it won't show!
 legend('boxoff');
+xlim([0 max(M)]);
 
-
-% -- Plot concurrent unbiased error rate with respect to the density
-figure; hold on;
-xlabel(sprintf('Number of stored messages (M) x %.1E', Mcoeff));
-ylabel('Unbiased Retrieval Error Rate per clique');
-counter = 1; % useful to keep track inside the matrix E. This is guaranteed to be OK since we use the same order of for loops (so be careful, if you move the forloops here in plotting you must also move them the same way in the tests above!)
-for cc=1:numel(concurrent_cliques) % different color and line marker icon for different concurrent cliques
-    coloridx = mod(cc-1, numel(colorvec))+1; % change color
-    mstyleidx = mod(cc-1, numel(markerstylevec))+1; % and change marker style per plot
-    counterstyle = 1; % use another counter for styles, so that each curve will get the exact same style for each set of parameters
-    for f=1:numel(filtering_rule) % different line style for each filtering rule
-        for g=1:numel(enable_guiding)
-            lstyleidx = mod(counterstyle-1, numel(linestylevec))+1; % change line style ...
-
-            lstyle = linestylevec(lstyleidx, 1); lstyle = lstyle{1}; % for MatLab, can't do that in one command...
-
-            % Prepare the legend
-            fr = filtering_rule(1,f); fr = fr{1};
-            plot_title = sprintf('%s', fr);
-            if concurrent_cliques(1,cc) == 1
-                plot_title = strcat(plot_title, sprintf(' - no cc'));
-            else
-                plot_title = strcat(plot_title, sprintf(' - cc = %i', concurrent_cliques(1, cc)));
-            end
-            if enable_guiding(1,g)
-                plot_title = strcat(plot_title, sprintf(' - Guided'));
-            else
-                plot_title = strcat(plot_title, sprintf(' - Blind'));
-            end
-            if concurrent_disequilibrium(f)
-                plot_title = strcat(plot_title, sprintf(' - Diseq type %i', concurrent_disequilibrium(f)));
-            else
-                plot_title = strcat(plot_title, sprintf(' - No diseq'));
-            end
-            plot_title = strcat(plot_title, sprintf(' - %i it', iterations(f)));
-
-            % Draw the curves
-            % => Error rate
-            cur_plot = plot(M, EC(:,counter), sprintf('%s%s%s', lstyle, markerstylevec(mstyleidx), colorvec(coloridx))); % plot one line
-            set(cur_plot, 'DisplayName', plot_title); % add the legend per plot, this is the best method, which also works with scatterplots and polar plots, see http://hattb.wordpress.com/2010/02/10/appending-legends-and-plots-in-matlab/
-
-            counter = counter + 1;
-            counterstyle = counterstyle + 1;
-        end
-    end
-end
-% Refresh plot with legends
-legend(get(gca,'children'),get(get(gca,'children'),'DisplayName'), 'location', 'southeast'); % IMPORTANT: force refreshing to show the legend, else it won't show!
-legend('boxoff');
 
 
 % -- Plot error distance
@@ -303,7 +246,6 @@ for cc=1:numel(concurrent_cliques)
 end
 % Refresh plot with legends
 legend(get(gca,'children'),get(get(gca,'children'),'DisplayName'), 'location', 'northwest'); % IMPORTANT: force refreshing to show the legend, else it won't show!
-legend('boxoff');
 
 
 % Print densities values and error rates

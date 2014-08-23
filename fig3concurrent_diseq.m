@@ -27,7 +27,7 @@ tampered_messages_per_test = 30;
 tests = 1;
 
 enable_guiding = false;
-gamma_memory = 0;
+gamma_memory = 1;
 threshold = 0;
 propagation_rule = 'sum';
 filtering_rule = {'ML', 'GWsTA', 'GWsTA', 'GWsTA', 'GWsTA'}; % this is a cell array (vector of strings) because we will try several different values of c (order of cliques)
@@ -35,7 +35,7 @@ tampering_type = 'erase';
 
 residual_memory = 0;
 concurrent_cliques = 2;
-no_concurrent_overlap = true;
+no_concurrent_overlap = false;
 concurrent_successive = false;
 concurrent_disequilibrium = [false, true, 3, 2, false];
 filtering_rule_first_iteration = false;
@@ -245,13 +245,13 @@ set(cur_plot, 'DisplayName', strcat(fr, ' - dissimilarity measure')); % add the 
 counter = counter + 1;
 
 coloridx = mod(counter-1, numel(colorvec))+1; lstyleidx = mod(counter-1, numel(linestylevec))+1; mstyleidx = mod(counter-1, numel(markerstylevec))+1; lstyle = linestylevec(lstyleidx, 1); lstyle = lstyle{1}; % for MatLab, can't do that in one command...
-cur_plot = plot(M, E(:,f), sprintf('%s%s%s', lstyle, markerstylevec(mstyleidx), colorvec(coloridx)));
-set(cur_plot, 'DisplayName', strcat(fr, ' - error rate')); % add the legend per plot, this is the best method, which also works with scatterplots and polar plots, see http://hattb.wordpress.com/2010/02/10/appending-legends-and-plots-in-matlab/
+cur_plot = plot(M, ED(:,f), sprintf('%s%s%s', lstyle, markerstylevec(mstyleidx), colorvec(coloridx)));
+set(cur_plot, 'DisplayName', strcat(fr, ' - error distance')); % add the legend per plot, this is the best method, which also works with scatterplots and polar plots, see http://hattb.wordpress.com/2010/02/10/appending-legends-and-plots-in-matlab/
 counter = counter + 1;
 
 coloridx = mod(counter-1, numel(colorvec))+1; lstyleidx = mod(counter-1, numel(linestylevec))+1; mstyleidx = mod(counter-1, numel(markerstylevec))+1; lstyle = linestylevec(lstyleidx, 1); lstyle = lstyle{1}; % for MatLab, can't do that in one command...
-cur_plot = plot(M, ED(:,f), sprintf('%s%s%s', lstyle, markerstylevec(mstyleidx), colorvec(coloridx)));
-set(cur_plot, 'DisplayName', strcat(fr, ' - error distance')); % add the legend per plot, this is the best method, which also works with scatterplots and polar plots, see http://hattb.wordpress.com/2010/02/10/appending-legends-and-plots-in-matlab/
+cur_plot = plot(M, E(:,f), sprintf('%s%s%s', lstyle, markerstylevec(mstyleidx), colorvec(coloridx)));
+set(cur_plot, 'DisplayName', strcat(fr, ' - error rate')); % add the legend per plot, this is the best method, which also works with scatterplots and polar plots, see http://hattb.wordpress.com/2010/02/10/appending-legends-and-plots-in-matlab/
 counter = counter + 1;
 
 % Refresh plot with legends
