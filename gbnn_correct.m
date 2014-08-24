@@ -583,9 +583,10 @@ for diter=1:diterations
                 out = logical(bsxfun(@ge, propag2, maxscores));
             end
         % Exhaustive GWsTA, as used in the Maximum Likelihood as a prefilter.
-        % This is a kind of analytical GWsTA: we don't select based on score but rather we remove all nodes that we are certain they have a score too low to be part of the clique we are looking for.
+        % This is a kind of analytical GWsTA: we don't select based on score but rather we remove all nodes that we are certain they have a score too low to be part of the clique we are looking for. So here this is a simple constant threshold whereas GWsTA is based on finding c fanals with best scores.
         % Thus, this method does not remove correct fanals (it always has a matching_score of 1 if iterations == 1), while GWsTA may remove correct fanals if some spurious fanal has a very high score (ie: linked to fanals in both cliques).
         % Biologically, we could say that this is kind of a threshold: the system knows that we are looking for cliques of length c, thus we know what is the minimum score (c-erasures).
+        % NOTE: when concurrent_cliques == 1, GWsTA-ML is equivalent to GWsTA.
         elseif strcmpi(filtering_rule, 'GWsTA-ML') || ...
         (filtering_rule_first_iteration && strcmpi(filtering_rule_first_iteration, 'gwsta-ml') && iter == 1) || (filtering_rule_last_iteration && strcmpi(filtering_rule_last_iteration, 'gwsta-ml') && iter == iterations)
             % Try to heuristically find the number of erasures
@@ -617,7 +618,7 @@ for diter=1:diterations
         elseif strcmpi(filtering_rule, 'ML') || strcmpi(filtering_rule, 'DFS') || strcmpi(filtering_rule, 'BFS') || strcmpi(filtering_rule, 'MLD') || ...
         (filtering_rule_first_iteration && strcmpi(filtering_rule_first_iteration, 'ml') && iter == 1) || (filtering_rule_last_iteration && strcmpi(filtering_rule_last_iteration, 'ml') && iter == iterations)
             erasures = c - (mode(sum(partial_messages)) / concurrent_cliques); % try to heuristically find the number of erasures
-            propag(propag < (c-erasures)) = 0; % Filter out all useless nodes (ie: if they have a score below the length of a message, then these nodes can't possibly be part of a clique of length c, which is what we are looking for). This is almost like GWsTA but not exactly: GWsTA may remove correct fanals because they have a score lower than the c highest, even if the correct fanals have a score >= (c-erasures). This is confirmed by the matching_measure (compare with GWsTA-ML).
+            propag(propag < (c-erasures)) = 0; % Filter out all useless nodes (ie: if they have a score below the length of a message, then these nodes can't possibly be part of a clique of length c, which is what we are looking for). This is almost like GWsTA but not exactly: GWsTA may remove correct fanals because they have a score lower than the c highest, even if the correct fanals have a score >= (c-erasures). This is confirmed by the matching_measure (compare with GWsTA-ML which is exactly the same procedure as this one here).
             out = logical(sparse(size(propag,1), size(propag,2))); % Init the output messages. By default if we can't find a k-clique, we will set the message to all 0's
             % Presetting the search mode into a simple boolean, it will speed things up instead of comparing strings everytime inside the loop
             mode_search = 0;
@@ -913,14 +914,14 @@ for diter=1:diterations
                 decoded_edges = net(decoded_fanals, decoded_fanals) ; % fetch tags of only the edges of the recovered clique (thus edges connected between fanals in the recovered clique but not those that are not part of the clique, ie connected to another fanal outside the clique, won't be included)
                 if nnz(decoded_edges) == 0; continue; end; % if this message is empty then just quit
 
-                % Filter useless fanals (fanals that do not possess as many edges as the maximum - meaning they're not part of the clique). Note: This is a pre-processing enhancement step, but it's not necessary if you use fastmode(nonzeros(decoded_edges)) (the nonzeros will take care of the false 0 tag)
+                % Filter useless fanals (fanals that do not possess as many edges as the maximum - meaning they're not part of the clique). Note: This is a pre-processing enhancement step, but it's not necessary if you use fastmode(nonzeros(decoded_edges)) (the nonzeros will take care of the false 0 tag) BUT it greatly enhances the performances when using iterations > 1.
                 fanal_scores = sum(sign(decoded_edges));
                 winning_score = max(fanal_scores);
                 gwta_mask = (fanal_scores == winning_score);
                 decoded_edges = decoded_edges(gwta_mask, :) ;
 
                 % Filter edges having a tag different than the major tag, and then filter out fanals that gets disconnected from the clique (all their incoming edges were filtered because they were of a different tag than the major tag)
-                major_tag = min(aux.fastmode(nonzeros(decoded_edges))) ; % get the major tag (the one which globally appears the most often in this clique). NOTE: nonzeros somewhat slows down the processing BUT it's necessary to ensure that 0 is not chosen as the major tag (since it represents the absence of edge!).
+                major_tag = min(aux.fastmode(nonzeros(decoded_edges))) ; % get the major tag (the one which globally appears the most often in this clique). NOTE: nonzeros somewhat slows down the processing BUT it's necessary to ensure that 0 is not chosen as the major tag (since it represents the absence of edge!) - this problem often happens when using a sparse network (Chi > c).
                 decoded_edges(decoded_edges ~= major_tag) = 0 ; % shutdown edges who haven't got the maximum tag
                 decoded_fanals = decoded_fanals(sum(decoded_edges) ~= 0) ; % kick out fanals which have no incoming edges after having deleted edges without major tag (ie: nodes that become isolated because their edges had different tags than the major tag will just be removed, because if these nodes become isolated it's because they obviously are part of another message, else they would have at least one edge with the correct tag).
 
