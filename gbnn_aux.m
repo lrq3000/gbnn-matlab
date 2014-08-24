@@ -13,6 +13,7 @@ function funs = importFunctions
     funs.getnargs=@getnargs; % to process named optional arguments
     funs.varspull = @varspull; % to load arguments into local namespace/workspace
     funs.fastmode=@fastmode;
+    funs.kfastmode=@kfastmode;
     funs.colmode=@colmode;
     funs.nnzcolmode=@nnzcolmode;
     funs.flushout=@flushout; % to force refresh the stdout after printing in the console
@@ -205,6 +206,33 @@ function [y, n]=fastmode(x)
     n=max(num);
     % Pull the values from the original sorted vector
     y=sorted(idx(num==n));
+end
+
+function [y, n]=kfastmode(x, k)
+    % KFASTMODE  Returns the k most frequently occuring element
+
+    % The data must be sorted in order for this algorithm to work
+    sorted=sort(x(:));
+
+    % Compute element-by-element difference.
+    dist=diff([sorted; sorted(end)-1]);
+
+    % Get non-zero entries
+    idx=find(dist);
+    num=[idx(1); diff(idx)];
+
+    if k > 1
+        % Get the k modes, including possible duplicates
+        num_sorted = sort(num, 'descend');
+        n = unique(num_sorted(1:k));
+        % Pull the values from the original sorted vector
+        y=sorted(idx(ismember(num,n)));
+    else
+        % Get the mode, including possible duplicates
+        n=max(num);
+        % Pull the values from the original sorted vector
+        y=sorted(idx(num==n));
+    end
 end
 
 function [modd,freq]=colmode(data)

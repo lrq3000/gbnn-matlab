@@ -915,15 +915,21 @@ for diter=1:diterations
                 if nnz(decoded_edges) == 0; continue; end; % if this message is empty then just quit
 
                 % Filter useless fanals (fanals that do not possess as many edges as the maximum - meaning they're not part of the clique). Note: This is a pre-processing enhancement step, but it's not necessary if you use fastmode(nonzeros(decoded_edges)) (the nonzeros will take care of the false 0 tag) BUT it greatly enhances the performances when using iterations > 1.
-                fanal_scores = sum(sign(decoded_edges));
-                winning_score = max(fanal_scores);
-                gwta_mask = (fanal_scores == winning_score);
-                decoded_edges = decoded_edges(gwta_mask, :) ;
+                if concurrent_cliques == 1 && ~concurrent_disequilibrium % if we have multiple concurrent cliques this won't work because the cliques may have different number of edges and shared fanals may have a lot of edges, but only this shared fanal will be kept and the others correct fanals will be filtered out because they have less edges than the shared fanal. Also avoid if concurrent_disequilibrium is enabled, for similar reasons AND because we don't want to filter out possibly correct fanals, which this does (check with matching measure, this trick here lowers down the matching).
+                    fanal_scores = sum(sign(decoded_edges));
+                    winning_score = max(fanal_scores);
+                    gwta_mask = (fanal_scores == winning_score);
+                    decoded_edges = decoded_edges(gwta_mask, :) ;
+                end
 
                 % Filter edges having a tag different than the major tag, and then filter out fanals that gets disconnected from the clique (all their incoming edges were filtered because they were of a different tag than the major tag)
-                major_tag = aux.fastmode(nonzeros(decoded_edges)) ; % get the major tag (the one which globally appears the most often in this clique). NOTE: nonzeros somewhat slows down the processing BUT it's necessary to ensure that 0 is not chosen as the major tag (since it represents the absence of edge!) - this problem often happens when using a sparse network (Chi > c).
-                %decoded_edges(decoded_edges ~= min(major_tag)) = 0 ; % shutdown edges who haven't got the maximum tag. NOTE: in case of ambiguity (two or more major tags), we keep the minimum (oldest) one.
-                decoded_edges(~ismember(decoded_edges, major_tag)) = 0; % shutdown edges who haven't got the maximum tag. NOTE: in case of ambiguity (two or more major tags), we keep them all. This seems to enhance performances a bit compared to select the minimum one or a random one.
+                if concurrent_cliques == 1
+                    major_tag = aux.fastmode(nonzeros(decoded_edges)) ; % get the major tag (the one which globally appears the most often in this clique). NOTE: nonzeros somewhat slows down the processing BUT it's necessary to ensure that 0 is not chosen as the major tag (since it represents the absence of edge!) - this problem often happens when using a sparse network (Chi > c).
+                    decoded_edges(decoded_edges ~= min(major_tag)) = 0 ; % shutdown edges who haven't got the maximum tag. NOTE: in case of ambiguity (two or more major tags), we keep the minimum (oldest) one.
+                else
+                    major_tag = aux.kfastmode(nonzeros(decoded_edges), concurrent_cliques);
+                    decoded_edges(~ismember(decoded_edges, major_tag)) = 0; % shutdown edges who haven't got the maximum tag. NOTE: in case of ambiguity (two or more major tags), we keep them all. This seems to enhance performances a bit compared to select the minimum one or a random one.
+                end
                 decoded_fanals = decoded_fanals(sum(decoded_edges) ~= 0) ; % kick out fanals which have no incoming edges after having deleted edges without major tag (ie: nodes that become isolated because their edges had different tags than the major tag will just be removed, because if these nodes become isolated it's because they obviously are part of another message, else they would have at least one edge with the correct tag).
 
                 % Finally, replace the disambiguated message back into the stack

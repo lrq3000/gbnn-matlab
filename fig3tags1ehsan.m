@@ -184,6 +184,7 @@ if ~thnodraw
 end
 
 % Refresh plot with legends
-legend(get(gca,'children'),get(get(gca,'children'),'DisplayName')); % IMPORTANT: force refreshing to show the legend, else it won't show!
+legend(get(gca,'children'),get(get(gca,'children'),'DisplayName'), 'location', 'northwest'); % IMPORTANT: force refreshing to show the legend, else it won't show!
+legend('boxoff');
 
 % The end!
