@@ -921,8 +921,9 @@ for diter=1:diterations
                 decoded_edges = decoded_edges(gwta_mask, :) ;
 
                 % Filter edges having a tag different than the major tag, and then filter out fanals that gets disconnected from the clique (all their incoming edges were filtered because they were of a different tag than the major tag)
-                major_tag = min(aux.fastmode(nonzeros(decoded_edges))) ; % get the major tag (the one which globally appears the most often in this clique). NOTE: nonzeros somewhat slows down the processing BUT it's necessary to ensure that 0 is not chosen as the major tag (since it represents the absence of edge!) - this problem often happens when using a sparse network (Chi > c).
-                decoded_edges(decoded_edges ~= major_tag) = 0 ; % shutdown edges who haven't got the maximum tag
+                major_tag = aux.fastmode(nonzeros(decoded_edges)) ; % get the major tag (the one which globally appears the most often in this clique). NOTE: nonzeros somewhat slows down the processing BUT it's necessary to ensure that 0 is not chosen as the major tag (since it represents the absence of edge!) - this problem often happens when using a sparse network (Chi > c).
+                %decoded_edges(decoded_edges ~= min(major_tag)) = 0 ; % shutdown edges who haven't got the maximum tag. NOTE: in case of ambiguity (two or more major tags), we keep the minimum (oldest) one.
+                decoded_edges(~ismember(decoded_edges, major_tag)) = 0; % shutdown edges who haven't got the maximum tag. NOTE: in case of ambiguity (two or more major tags), we keep them all. This seems to enhance performances a bit compared to select the minimum one or a random one.
                 decoded_fanals = decoded_fanals(sum(decoded_edges) ~= 0) ; % kick out fanals which have no incoming edges after having deleted edges without major tag (ie: nodes that become isolated because their edges had different tags than the major tag will just be removed, because if these nodes become isolated it's because they obviously are part of another message, else they would have at least one edge with the correct tag).
 
                 % Finally, replace the disambiguated message back into the stack
