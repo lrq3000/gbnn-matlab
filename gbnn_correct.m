@@ -438,10 +438,10 @@ for diter=1:diterations
                 propag = reshape(propag, l, mpartial * Chi);
             end
 
-            max_scores = sort(propag,'descend');
-            kmax_score = max_scores(k, :);
-            kmax_score(kmax_score == 0) = realmin(); % No false winner trick: better version of the no false winner trick because we replace 0 winner scores by the minimum real value, thus after we will still get a sparse matrix (else if we do the trick only after the bsxfun, we will get a matrix filled by 1 where there are 0 and the winner score is 0, which is a lot of memory used for nothing).
-            out = logical(bsxfun(@ge, propag, kmax_score));
+            max_scores = sort(propag,'descend'); % sort scores
+            kmax_score = max_scores(k, :); % find the kth max score
+            kmax_score(kmax_score == 0) = realmin(); % No false winner trick: where 0 is the value of the kth winner, we replace the 0 value by the minimum real value (greater than 0) so that when we filter out fanals with a score below the kth winner, we always filter out 0 (even if the kth winner had value 0). For GWsTA, this is a better version of the no false winner trick because we replace 0 winner scores by the minimum real value, thus after we will still get a sparse matrix (else if we do the trick only after the bsxfun, we will get a matrix filled by 1 where there are 0 and the winner score is 0, which is a lot of memory used for nothing).
+            out = logical(bsxfun(@ge, propag, kmax_score)); % filter out any value below the kth max score (and since 0 was replaced by realmin, we also filter out 0 values, they won't get activated because of the bsxfun)
             if aux.isOctave(); out = sparse(out); end; % Octave's bsxfun breaks the sparsity...
             out = and(propag, out); % No false winner trick: avoids that if the kth max score is in fact 0, we choose 0 as activating score (0 scoring nodes will be activated, which is completely wrong!). Here we check against the original propagation matrix: if the node wasn't activated then, it shouldn't be now after filtering.
 
@@ -915,11 +915,27 @@ for diter=1:diterations
                 if nnz(decoded_edges) == 0; continue; end; % if this message is empty then just quit
 
                 % Filter useless fanals (fanals that do not possess as many edges as the maximum - meaning they're not part of the clique). Note: This is a pre-processing enhancement step, but it's not necessary if you use fastmode(nonzeros(decoded_edges)) (the nonzeros will take care of the false 0 tag) BUT it greatly enhances the performances when using iterations > 1.
-                if concurrent_cliques == 1 && ~concurrent_disequilibrium % if we have multiple concurrent cliques this won't work because the cliques may have different number of edges and shared fanals may have a lot of edges, but only this shared fanal will be kept and the others correct fanals will be filtered out because they have less edges than the shared fanal. Also avoid if concurrent_disequilibrium is enabled, for similar reasons AND because we don't want to filter out possibly correct fanals, which this does (check with matching measure, this trick here lowers down the matching).
+                if concurrent_cliques == 1 && ~concurrent_disequilibrium % use GWTA to filter if we have only one clique and no disequilibrium, because if we have multiple concurrent cliques this won't work because the cliques may have different number of edges and shared fanals may have a lot of edges, but only this shared fanal will be kept and the others correct fanals will be filtered out because they have less edges than the shared fanal. Also avoid if concurrent_disequilibrium is enabled, for similar reasons AND because we don't want to filter out possibly correct fanals, which this does (check with matching measure, this trick here lowers down the matching).
+                    % Filter using GWTA (keep only the fanals with max score)
                     fanal_scores = sum(sign(decoded_edges));
                     winning_score = max(fanal_scores);
                     gwta_mask = (fanal_scores == winning_score);
                     decoded_edges = decoded_edges(gwta_mask, :) ;
+                else % else i we have concurrent cliques and/or disequilibrium, use GWSTA to filter (because GWTA won't work in concurrent case).
+                % NOTE: this is even less necessary than in the non concurrent cliques case, here it only provides a small performance boost (but significative), so it's up to you to see if the additional CPU time needed to do the GWSTA filtering is worth it, but keep in mind that filtering also speeds up the tags filtering below, because we remove fanals whose edges won't have to be tag checked!
+                    fanal_scores = sum(sign(decoded_edges));
+                    if numel(fanal_scores) > (c * concurrent_cliques)
+                        % Filter using GWSTA (reject fanals below the kth max score)
+                        max_scores = sort(fanal_scores,'descend'); % sort scores
+                        kmax_score = max_scores(k); % get the kth max score
+                        kmax_score(kmax_score == 0) = realmin(); % No false winner trick: filter out kth winners that have value 0 by replacing the threshold with the minimum real value (greater than 0)
+                        gwsta_mask = fanal_scores >= kmax_score; % filter out all fanals that get a score below the kth winner
+                        decoded_edges = decoded_edges(gwsta_mask, :); % update our network
+                        
+                        % Alternative methods with lesser performances
+                        %decoded_edges = decoded_edges((fanal_scores ~= min(nonzeros(fanal_scores))), :);
+                        %decoded_edges = decoded_edges(ismember(fanal_scores, aux.fastmode(nonzeros(fanal_scores))), :);
+                    end
                 end
 
                 % Filter edges having a tag different than the major tag, and then filter out fanals that gets disconnected from the clique (all their incoming edges were filtered because they were of a different tag than the major tag)
