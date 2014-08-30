@@ -9,7 +9,7 @@ function [cnetwork, thriftymessages, real_density] = gbnn_learn(varargin)
 % This function supports named arguments, use it like this:
 % gbnn_learn('m', 6, 'l', 4, 'c', 3)
 %
-%- m : number of messages or a matrix of messages (composed of numbers ranging from 1 to l and of length/columns c per row).
+%- m : there are 3 possible types of values: number of messages or a matrix of messages (composed of numbers ranging from 1 to l and of length/columns c per row) or a target density (this will automatically convert to a number of messages).
 %- miterator : messages iterator, allows for out-of-core computation, meaning that you can load more messages (greater m) at the expense of more CPU (because of the loop). Set miterator <= m, and the highest allowed by your memory without running out-of-memory. Set 0 to disable.
 %- l : number of character neurons (= range of values allowed per character, eg: 256 for an image in 256 shades of grey per pixel). These neurons will form one cluster (eg: 256 neurons per cluster). NOTE: only changing the number of cluster or the number of messages can change the density since density d = 1 - ( 1 - 1/l^2 )^M
 %- c : cliques order = number of nodes per clique = length of messages (eg: c = 3 means that each clique will at most have 3 nodes). If Chi <= c, Chi will be set equal to c, thus c will also define the number of clusters. NOTE: c can also be a vector [min-c max-c] to enable variable length messages.
@@ -65,6 +65,12 @@ Xlearn = [];
 if ismatrix(m) && ~isscalar(m) % If user provided a matrix of messages, reuse that
     Xlearn = m; % set this into a temporary variable to hold messages
     m = size(Xlearn, 1); % m should always define the number of messages (even if as argument it can specify a matrix of messages, this is syntax sugar)
+end
+if isscalar(m) && m > 0 && m < 1 % If user provided a density, we convert to an integer number of messages to learn
+    cnetwork_stats = gbnn_theoretical_stats('Chi', Chi, 'c', c, 'l', l, 'd', m);
+    m = round(cnetwork_stats.M);
+    clear cnetwork_stats;
+    if m < 0; error('The density provided in argument m is too small to generate even one message!'); end;
 end
 
 variable_length = false;

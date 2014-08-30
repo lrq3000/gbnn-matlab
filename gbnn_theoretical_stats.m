@@ -3,7 +3,7 @@ function cnetwork_stats = gbnn_theoretical_stats(varargin)
 %
 % Compute some theoretical stats and predictions (like the optimum number of messages to store) for the Gripon-Berrou Neural Network (sparse cluster version from 2014 Behrooz paper).
 %
-% Use variable arguments, example:
+% This function supports named arguments, example:
 % gbnn_theoretical_stats('Chi', 100, 'l', 64, 'c', 16, 'd', 0.33);
 % 
 %
