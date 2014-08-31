@@ -30,18 +30,28 @@ enable_guiding = false;
 gamma_memory = 1;
 threshold = 0;
 propagation_rule = 'sum';
-filtering_rule = {'ML', 'GWsTA', 'GWsTA', 'GWsTA', 'GWsTA'}; % this is a cell array (vector of strings) because we will try several different values of c (order of cliques)
+filtering_rule = {'GWsTA', 'GWsTA', 'GWsTA', 'GWsTA'}; % this is a cell array (vector of strings) because we will try several different values of c (order of cliques)
 tampering_type = 'erase';
 
 residual_memory = 0;
 concurrent_cliques = 2;
 no_concurrent_overlap = false;
 concurrent_successive = false;
-concurrent_disequilibrium = [false, true, 3, 2, false];
+concurrent_disequilibrium = [true, 3, 2, false];
 filtering_rule_first_iteration = false;
 filtering_rule_last_iteration = false;
 
-statstries = 5; % retry n times with different networks to smooth the results
+% Plot tweaking
+statstries = 1; % retry n times with different networks to average (and thus smooth) the results
+smooth_factor = 2; % interpolate more points to get smoother curves. Set to 1 to avoid smoothing (and thus plot only the point of the real samples).
+smooth_method = 'cubic'; % use PCHIP or cubic to avoid interpolating into negative values as spline does
+plot_markersize = 10;
+plot_linewidth = 1;
+plot_axis_linewidth = 1;
+plot_axis_ticklength = 0.01;
+plot_text_params = { 'FontSize', 12, ... % in points
+                                       'FontName', 'Helvetica' ...
+                                       };
 
 silent = false; % If you don't want to see the progress output
 
@@ -116,9 +126,21 @@ printf('END of all tests!\n'); aux.flushout();
 
 % == Plotting
 
+% -- First interpolate data points to get smoother curves
+% Note: if smooth_factor == 1 then these commands won't change the data points nor add more.
+nsamples = numel(M);
+M_interp = interp1(1:nsamples, M, linspace(1, nsamples, nsamples*smooth_factor), smooth_method);
+D_interp = interp1(1:nsamples, D(:,1), linspace(1, nsamples, nsamples*smooth_factor), smooth_method);
+E_interp = interp1(D(:,1), E, D_interp, smooth_method);
+TE_interp = interp1(D(:,1), TE, D_interp, smooth_method);
+ED_interp = interp1(D(:,1), ED, D_interp, smooth_method);
+SM_interp = interp1(D(:,1), SM, D_interp, smooth_method);
+MM_interp = interp1(D(:,1), MM, D_interp, smooth_method);
+EC_interp = interp1(D(:,1), EC, D_interp, smooth_method);
+
 % -- Plot error rate with respect to the density (or number of messages stored) and a few other parameters
 figure; hold on;
-xlabel(sprintf('Number of stored messages (M) x %.1E', Mcoeff));
+xlabel(sprintf('(Bottom) Density  -- (Top) Number of stored messages (M) x%.1E', Mcoeff));
 ylabel('Retrieval Error Rate');
 counter = 1; % useful to keep track inside the matrix E. This is guaranteed to be OK since we use the same order of for loops (so be careful, if you move the forloops here in plotting you must also move them the same way in the tests above!)
 for f=1:numel(filtering_rule) % for each different filtering rule and whether there is guiding or not, we willl print a different curve, with an automatically selected color and shape
@@ -127,7 +149,8 @@ for f=1:numel(filtering_rule) % for each different filtering rule and whether th
     mstyleidx = mod(counter-1, numel(markerstylevec))+1; % and change marker style per plot
 
     lstyle = linestylevec(lstyleidx, 1); lstyle = lstyle{1}; % for MatLab, can't do that in one command...
-    cur_plot = plot(M, E(:,counter), sprintf('%s%s%s', lstyle, markerstylevec(mstyleidx), colorvec(coloridx))); % plot one line
+    cur_plot = plot(D_interp, E_interp(:,counter), sprintf('%s%s%s', lstyle, markerstylevec(mstyleidx), colorvec(coloridx))); % plot one line
+    set(cur_plot, 'markersize', plot_markersize, 'linewidth', plot_linewidth); % additional plot style
 
     fr = filtering_rule(1,f); fr = fr{1};
     plot_title = sprintf('%s', fr);
@@ -155,7 +178,8 @@ lstyleidx = mod(counter-1, numel(linestylevec))+1;
 mstyleidx = mod(counter-1, numel(markerstylevec))+1;
 
 lstyle = linestylevec(lstyleidx, 1); lstyle = lstyle{1}; % for MatLab, can't do that in one command...
-cur_plot = plot(M, TE(:), sprintf('%s%s%s', lstyle, markerstylevec(mstyleidx), colorvec(coloridx))); % plot one line
+cur_plot = plot(D_interp, TE_interp, sprintf('%s%s%s', lstyle, markerstylevec(mstyleidx), colorvec(coloridx))); % plot one line
+set(cur_plot, 'markersize', plot_markersize, 'linewidth', plot_linewidth); % additional plot style
 
 plot_title = '';
 if enable_guiding
@@ -169,10 +193,24 @@ set(cur_plot, 'DisplayName', plot_title); % add the legend per plot, this is the
 % Refresh plot with legends
 legend(get(gca,'children'),get(get(gca,'children'),'DisplayName'), 'location', 'northwest'); % IMPORTANT: force refreshing to show the legend, else it won't show!
 
+% Add secondary axis on the top of the figure to show the number of messages
+aux.add_2nd_xaxis(D(:,1), M, sprintf('x%.1E', Mcoeff), '%g', 0);
+xlim([0 max(D(:,1))]); % adjust x axis zoom
+
+% Adjust axis drawing style
+set( gca(), ...
+  'linewidth', plot_axis_linewidth, ...
+  'tickdir', 'out', ...
+  'ticklength', [plot_axis_ticklength, plot_axis_ticklength] ...
+  );
+
+% Adjust text style
+set([gca; findall(gca, 'Type','text')], plot_text_params{:});
+
 
 % -- Plot concurrent unbiased error rate with respect to the density (or number of messages stored) and a few other parameters
 figure; hold on;
-xlabel(sprintf('Number of stored messages (M) x %.1E', Mcoeff));
+xlabel(sprintf('(Bottom) Density  -- (Top) Number of stored messages (M) x%.1E', Mcoeff));
 ylabel('Retrieval Error Rate (concurrent unbiased)');
 counter = 1; % useful to keep track inside the matrix E. This is guaranteed to be OK since we use the same order of for loops (so be careful, if you move the forloops here in plotting you must also move them the same way in the tests above!)
 for f=1:numel(filtering_rule) % for each different filtering rule and whether there is guiding or not, we willl print a different curve, with an automatically selected color and shape
@@ -181,7 +219,9 @@ for f=1:numel(filtering_rule) % for each different filtering rule and whether th
     mstyleidx = mod(counter-1, numel(markerstylevec))+1; % and change marker style per plot
 
     lstyle = linestylevec(lstyleidx, 1); lstyle = lstyle{1}; % for MatLab, can't do that in one command...
-    cur_plot = plot(M, EC(:,counter), sprintf('%s%s%s', lstyle, markerstylevec(mstyleidx), colorvec(coloridx))); % plot one line
+
+    cur_plot = plot(D_interp, EC_interp(:,counter), sprintf('%s%s%s', lstyle, markerstylevec(mstyleidx), colorvec(coloridx))); % plot one line
+    set(cur_plot, 'markersize', plot_markersize, 'linewidth', plot_linewidth); % additional plot style
 
     fr = filtering_rule(1,f); fr = fr{1};
     plot_title = sprintf('%s', fr);
@@ -209,7 +249,8 @@ lstyleidx = mod(counter-1, numel(linestylevec))+1;
 mstyleidx = mod(counter-1, numel(markerstylevec))+1;
 
 lstyle = linestylevec(lstyleidx, 1); lstyle = lstyle{1}; % for MatLab, can't do that in one command...
-cur_plot = plot(M, TE(:), sprintf('%s%s%s', lstyle, markerstylevec(mstyleidx), colorvec(coloridx))); % plot one line
+cur_plot = plot(D_interp, TE_interp, sprintf('%s%s%s', lstyle, markerstylevec(mstyleidx), colorvec(coloridx))); % plot one line
+set(cur_plot, 'markersize', plot_markersize, 'linewidth', plot_linewidth); % additional plot style
 
 plot_title = '';
 if enable_guiding
@@ -223,10 +264,25 @@ set(cur_plot, 'DisplayName', plot_title); % add the legend per plot, this is the
 % Refresh plot with legends
 legend(get(gca,'children'),get(get(gca,'children'),'DisplayName'), 'location', 'northwest'); % IMPORTANT: force refreshing to show the legend, else it won't show!
 
+% Add secondary axis on the top of the figure to show the number of messages
+aux.add_2nd_xaxis(D(:,1), M, sprintf('x%.1E', Mcoeff), '%g', 0);
+xlim([0 max(D(:,1))]); % adjust x axis zoom
+
+% Adjust axis drawing style
+set( gca(), ...
+  'linewidth', plot_axis_linewidth, ...
+  'tickdir', 'out', ...
+  'ticklength', [plot_axis_ticklength, plot_axis_ticklength] ...
+  );
+
+% Adjust text style
+set([gca; findall(gca, 'Type','text')], plot_text_params{:});
+
+
 
 % -- Plot matching_measure and other stats evolution for the disequilibrium trick
 figure; hold on;
-xlabel(sprintf('Number of stored messages (M) x %.1E', Mcoeff));
+xlabel(sprintf('(Bottom) Density  -- (Top) Number of stored messages (M) x%.1E', Mcoeff));
 ylim([0 1]);
 f = 2; % set here the filtering rule that use disequilibrium
 counter = 1; % useful to keep track inside the matrix E. This is guaranteed to be OK since we use the same order of for loops (so be careful, if you move the forloops here in plotting you must also move them the same way in the tests above!)
@@ -235,27 +291,45 @@ fr = filtering_rule(1,f); fr = fr{1};
 if concurrent_disequilibrium(f); fr = strcat(fr, ' diseq'); end;
 
 coloridx = mod(counter-1, numel(colorvec))+1; lstyleidx = mod(counter-1, numel(linestylevec))+1; mstyleidx = mod(counter-1, numel(markerstylevec))+1; lstyle = linestylevec(lstyleidx, 1); lstyle = lstyle{1}; % for MatLab, can't do that in one command...
-cur_plot = plot(M, 1-MM(:,f), sprintf('%s%s%s', lstyle, markerstylevec(mstyleidx), colorvec(coloridx)));
+cur_plot = plot(D_interp, 1-MM_interp(:,f), sprintf('%s%s%s', lstyle, markerstylevec(mstyleidx), colorvec(coloridx)));
+set(cur_plot, 'markersize', plot_markersize, 'linewidth', plot_linewidth); % additional plot style
 set(cur_plot, 'DisplayName', strcat(fr, ' - mismatching measure')); % add the legend per plot, this is the best method, which also works with scatterplots and polar plots, see http://hattb.wordpress.com/2010/02/10/appending-legends-and-plots-in-matlab/
 counter = counter + 1;
 
 coloridx = mod(counter-1, numel(colorvec))+1; lstyleidx = mod(counter-1, numel(linestylevec))+1; mstyleidx = mod(counter-1, numel(markerstylevec))+1; lstyle = linestylevec(lstyleidx, 1); lstyle = lstyle{1}; % for MatLab, can't do that in one command...
-cur_plot = plot(M, 1-SM(:,f), sprintf('%s%s%s', lstyle, markerstylevec(mstyleidx), colorvec(coloridx)));
+cur_plot = plot(D_interp, 1-SM_interp(:,f), sprintf('%s%s%s', lstyle, markerstylevec(mstyleidx), colorvec(coloridx)));
+set(cur_plot, 'markersize', plot_markersize, 'linewidth', plot_linewidth); % additional plot style
 set(cur_plot, 'DisplayName', strcat(fr, ' - dissimilarity measure')); % add the legend per plot, this is the best method, which also works with scatterplots and polar plots, see http://hattb.wordpress.com/2010/02/10/appending-legends-and-plots-in-matlab/
 counter = counter + 1;
 
 coloridx = mod(counter-1, numel(colorvec))+1; lstyleidx = mod(counter-1, numel(linestylevec))+1; mstyleidx = mod(counter-1, numel(markerstylevec))+1; lstyle = linestylevec(lstyleidx, 1); lstyle = lstyle{1}; % for MatLab, can't do that in one command...
-cur_plot = plot(M, ED(:,f), sprintf('%s%s%s', lstyle, markerstylevec(mstyleidx), colorvec(coloridx)));
+cur_plot = plot(D_interp, ED_interp(:,f), sprintf('%s%s%s', lstyle, markerstylevec(mstyleidx), colorvec(coloridx)));
+set(cur_plot, 'markersize', plot_markersize, 'linewidth', plot_linewidth); % additional plot style
 set(cur_plot, 'DisplayName', strcat(fr, ' - error distance')); % add the legend per plot, this is the best method, which also works with scatterplots and polar plots, see http://hattb.wordpress.com/2010/02/10/appending-legends-and-plots-in-matlab/
 counter = counter + 1;
 
 coloridx = mod(counter-1, numel(colorvec))+1; lstyleidx = mod(counter-1, numel(linestylevec))+1; mstyleidx = mod(counter-1, numel(markerstylevec))+1; lstyle = linestylevec(lstyleidx, 1); lstyle = lstyle{1}; % for MatLab, can't do that in one command...
-cur_plot = plot(M, E(:,f), sprintf('%s%s%s', lstyle, markerstylevec(mstyleidx), colorvec(coloridx)));
+cur_plot = plot(D_interp, E_interp(:,f), sprintf('%s%s%s', lstyle, markerstylevec(mstyleidx), colorvec(coloridx)));
+set(cur_plot, 'markersize', plot_markersize, 'linewidth', plot_linewidth); % additional plot style
 set(cur_plot, 'DisplayName', strcat(fr, ' - error rate')); % add the legend per plot, this is the best method, which also works with scatterplots and polar plots, see http://hattb.wordpress.com/2010/02/10/appending-legends-and-plots-in-matlab/
 counter = counter + 1;
 
 % Refresh plot with legends
 legend(get(gca,'children'),get(get(gca,'children'),'DisplayName'), 'location', 'northwest'); % IMPORTANT: force refreshing to show the legend, else it won't show!
+
+% Add secondary axis on the top of the figure to show the number of messages
+aux.add_2nd_xaxis(D(:,1), M, sprintf('x%.1E', Mcoeff), '%g', 0);
+xlim([0 max(D(:,1))]); % adjust x axis zoom
+
+% Adjust axis drawing style
+set( gca(), ...
+  'linewidth', plot_axis_linewidth, ...
+  'tickdir', 'out', ...
+  'ticklength', [plot_axis_ticklength, plot_axis_ticklength] ...
+  );
+
+% Adjust text style
+set([gca; findall(gca, 'Type','text')], plot_text_params{:});
 
 
 % Print densities values and error rates

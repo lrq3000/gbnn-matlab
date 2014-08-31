@@ -25,6 +25,7 @@ function funs = importFunctions
     funs.rl_decode=@rl_decode;
     funs.interleave=@interleave;
     funs.interleaven=@interleaven;
+    funs.add_2nd_xaxis=@add_2nd_xaxis;
 end
 
 
@@ -486,3 +487,32 @@ function C = interleaven(dimmode, varargin)
         C = reshape(C', numel(varargin)*size(varargin{1},1), [])';
     end
 end
+
+
+
+% == Plotting auxiliary functions ==
+
+function add_2nd_xaxis(X, X2, X2_legend, num2str_format, text_rotation)
+% Plot a second x axis at the top of the figure
+% X = first X axis values
+% X2 = values of the second X axis (must be of same size as X)
+% X2_legend = an optional legend
+% num2str_format = format to print the X2 values
+% text_rotation = rotation of the X2 values
+%
+
+
+    if ~exist('num2str_format', 'var'); num2str_format = '%g'; end;
+    if ~exist('text_rotation', 'var'); text_rotation = 0; end;
+
+    %density_labels = @cellfun(@(x) num2str(x, '%1.1e'), num2cell(D(:,1)), 'UniformOutput', false); % convert to a cell array (necessary to be passed to text()) + convert to a better numerical format %.0E
+    messages_labels = @cellfun(@(x) num2str(x, num2str_format), num2cell(X2), 'UniformOutput', false); % convert to a cell array (necessary to be passed to text()) + convert to a better numerical format %.0E
+    xoffset_fix = (max(xlim)/100); % offset to the left because on the plot there's a glitch (as of Octave 3.8.1) which offsets a bit to the right...
+    yoffset_fix = ((max(ylim)-min(ylim))/20); % same for vertically, there is a small offset
+    text(X-xoffset_fix, ones(numel(X2), 1)+yoffset_fix, messages_labels, 'Rotation', text_rotation, 'VerticalAlignment', 'top', 'HorizontalAlignment', 'left'); % draw the secondary axis as a simple text
+    if exist('X2_legend', 'var')
+        text(max(X) * 1.02, 1+yoffset_fix, X2_legend, 'VerticalAlignment', 'top', 'HorizontalAlignment', 'left'); % add the coefficient for the messages numbers
+    end
+
+end % endfunction
+
