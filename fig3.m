@@ -29,7 +29,7 @@ tests = 1;
 enable_guiding = [false, true]; % here too, we will try with and without the guiding mask
 gamma_memory = 1;
 threshold = 0;
-propagation_rule = 'sum'; % TODO: not implemented yet, please always set 0 here
+propagation_rule = 'sum';
 filtering_rule = {'GWsTA'}; % this is a cell array (vector of strings) because we will try several different values of c (order of cliques)
 tampering_type = 'erase';
 

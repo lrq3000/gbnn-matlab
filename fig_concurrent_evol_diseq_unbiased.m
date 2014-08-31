@@ -19,8 +19,8 @@ M = 0.5:0.25:3.5; % this is a vector because we will try several values of m (nu
 Mcoeff = 1E5;
 miterator = zeros(1,numel(M)); %M/2;
 c = 12;
-l = 64;
-Chi = 100;
+l = 64; % 16
+Chi = 100; % 32
 erasures = 3;
 iterations = 4; % for convergence
 tampered_messages_per_test = 100;
@@ -29,7 +29,7 @@ tests = 1;
 enable_guiding = [true, false]; % here too, we will try with and without the guiding mask
 gamma_memory = 1;
 threshold = 0;
-propagation_rule = 'sum'; % TODO: not implemented yet, please always set 0 here
+propagation_rule = 'sum';
 filtering_rule = {'GWsTA'}; % this is a cell array (vector of strings) because we can try several different filtering rules
 tampering_type = 'erase';
 
@@ -48,10 +48,23 @@ Chi2 = Chi;
 trainingbatchs = 2;
 no_auxiliary_propagation = false;
 
-plot_theo = false;
-silent = false; % If you don't want to see the progress output
+% Plot tweaking
+statstries = 5; % retry n times with different networks to average (and thus smooth) the results
+smooth_factor = 2; % interpolate more points to get smoother curves. Set to 1 to avoid smoothing (and thus plot only the point of the real samples).
+smooth_method = 'cubic'; % use PCHIP or cubic to avoid interpolating into negative values as spline does
+plot_curves_params = { 'markersize', 10, ...
+                                            'linewidth', 1 ...
+                                            };
+plot_axis_params = { 'linewidth', 1, ...
+                                      'tickdir', 'out', ...
+                                      'ticklength', [0.01, 0.01] ...
+                                      };
+plot_text_params = { 'FontSize', 12, ... % in points
+                                       'FontName', 'Helvetica' ...
+                                       };
 
-statstries = 5; % retry n times with different networks to smooth the results
+plot_theo = false; % plot theoretical error rates?
+silent = false; % If you don't want to see the progress output
 
 % == Launching the runs
 D = zeros(numel(M), numel(filtering_rule)*numel(enable_guiding)*numel(concurrent_cliques));
@@ -122,9 +135,19 @@ printf('END of all tests!\n'); aux.flushout();
 
 % == Plotting
 
+% -- First interpolate data points to get smoother curves
+% Note: if smooth_factor == 1 then these commands won't change the data points nor add more.
+nsamples = numel(M);
+M_interp = interp1(1:nsamples, M, linspace(1, nsamples, nsamples*smooth_factor), smooth_method);
+D_interp = interp1(1:nsamples, D(:,1), linspace(1, nsamples, nsamples*smooth_factor), smooth_method);
+E_interp = interp1(D(:,1), E, D_interp, smooth_method);
+TE_interp = interp1(D(:,1), TE, D_interp, smooth_method);
+ED_interp = interp1(D(:,1), ED, D_interp, smooth_method);
+EC_interp = interp1(D(:,1), EC, D_interp, smooth_method);
+
 % -- Plot error rate with respect to the density (or number of messages stored) and a few other parameters
 figure; hold on;
-xlabel(sprintf('Number of stored messages (M) x %.1E', Mcoeff));
+xlabel(sprintf('(Bottom) Density  -- (Top) Number of stored messages (M) x%.1E', Mcoeff));
 ylabel('Unbiased Retrieval Error Rate for 2 cliques');
 counter = 1; % useful to keep track inside the matrix E. This is guaranteed to be OK since we use the same order of for loops (so be careful, if you move the forloops here in plotting you must also move them the same way in the tests above!)
 for cc=1:numel(concurrent_cliques)
@@ -154,7 +177,8 @@ for cc=1:numel(concurrent_cliques)
 
             % Draw the curves
             % => Error rate
-            cur_plot = plot(M, E(:,counter), sprintf('%s%s%s', lstyle, markerstylevec(mstyleidx), colorvec(coloridx))); % plot one line
+            cur_plot = plot(D_interp, E_interp(:,counter), sprintf('%s%s%s', lstyle, markerstylevec(mstyleidx), colorvec(coloridx))); % plot one line
+            set(cur_plot, plot_curves_params{:}); % additional plot style
             set(cur_plot, 'DisplayName', plot_title); % add the legend per plot, this is the best method, which also works with scatterplots and polar plots, see http://hattb.wordpress.com/2010/02/10/appending-legends-and-plots-in-matlab/
 
             counter = counter + 1;
@@ -172,7 +196,8 @@ if plot_theo
             mstyleidx = mod(tecounter-1, numel(markerstylevec))+1;
 
             lstyle = linestylevec(lstyleidx, 1); lstyle = lstyle{1}; % for MatLab, can't do that in one command...
-            cur_plot = plot(M, TE(:,tecounter), sprintf('%s%s%s', lstyle, markerstylevec(mstyleidx), colorvec(coloridx))); % plot one line
+            cur_plot = plot(D_interp, TE_interp(:,tecounter), sprintf('%s%s%s', lstyle, markerstylevec(mstyleidx), colorvec(coloridx))); % plot one line
+            set(cur_plot, plot_curves_params{:}); % additional plot style
 
             plot_title = '';
             if concurrent_cliques(1,cc) == 1
@@ -195,13 +220,21 @@ end
 % Refresh plot with legends
 legend(get(gca,'children'),get(get(gca,'children'),'DisplayName'), 'location', 'southeast'); % IMPORTANT: force refreshing to show the legend, else it won't show!
 legend('boxoff');
-xlim([0 max(M)]);
+% Add secondary axis on the top of the figure to show the number of messages
+aux.add_2nd_xaxis(D(:,1), M, sprintf('x%.1E', Mcoeff), '%g', 0);
+xlim([0 max(D(:,1))]); % adjust x axis zoom
+%xlim([0 max(M)]);
+% Adjust axis drawing style
+set( gca(), plot_axis_params{:} );
+% Adjust text style
+set([gca; findall(gca, 'Type','text')], plot_text_params{:});
+
 
 
 
 % -- Plot error distance
 figure; hold on;
-xlabel(sprintf('Number of stored messages (M) x %.1E', Mcoeff));
+xlabel(sprintf('(Bottom) Density  -- (Top) Number of stored messages (M) x%.1E', Mcoeff));
 ylabel('Mean Error Distance per message (above y=1 is random)');
 counter = 1; % useful to keep track inside the matrix E. This is guaranteed to be OK since we use the same order of for loops (so be careful, if you move the forloops here in plotting you must also move them the same way in the tests above!)
 for cc=1:numel(concurrent_cliques)
@@ -236,7 +269,8 @@ for cc=1:numel(concurrent_cliques)
 
             % Draw the curves
             % => Error distance
-            cur_plot = plot(M, ED(:,counter), sprintf('%s%s%s', lstyle, markerstylevec(mstyleidx), colorvec(coloridx))); % plot one line
+            cur_plot = plot(D_interp, ED_interp(:,counter), sprintf('%s%s%s', lstyle, markerstylevec(mstyleidx), colorvec(coloridx))); % plot one line
+            set(cur_plot, plot_curves_params{:}); % additional plot style
             set(cur_plot, 'DisplayName', plot_title); % add the legend per plot, this is the best method, which also works with scatterplots and polar plots, see http://hattb.wordpress.com/2010/02/10/appending-legends-and-plots-in-matlab/
 
             counter = counter + 1;
@@ -246,6 +280,13 @@ for cc=1:numel(concurrent_cliques)
 end
 % Refresh plot with legends
 legend(get(gca,'children'),get(get(gca,'children'),'DisplayName'), 'location', 'northwest'); % IMPORTANT: force refreshing to show the legend, else it won't show!
+% Add secondary axis on the top of the figure to show the number of messages
+aux.add_2nd_xaxis(D(:,1), M, sprintf('x%.1E', Mcoeff), '%g', 0);
+xlim([0 max(D(:,1))]); % adjust x axis zoom
+% Adjust axis drawing style
+set( gca(), plot_axis_params{:} );
+% Adjust text style
+set([gca; findall(gca, 'Type','text')], plot_text_params{:});
 
 
 % Print densities values and error rates

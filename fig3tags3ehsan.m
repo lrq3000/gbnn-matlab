@@ -43,10 +43,23 @@ enable_overlays = true;
 overlays_max = [1 5 20 100 1000 0];
 overlays_interpolation = {'uniform'};
 
-statstries = 5;
+% Plot tweaking
+statstries = 5; % retry n times with different networks to average (and thus smooth) the results
+smooth_factor = 2; % interpolate more points to get smoother curves. Set to 1 to avoid smoothing (and thus plot only the point of the real samples).
+smooth_method = 'cubic'; % use PCHIP or cubic to avoid interpolating into negative values as spline does
+plot_curves_params = { 'markersize', 10, ...
+                                            'linewidth', 1 ...
+                                            };
+plot_axis_params = { 'linewidth', 1, ...
+                                      'tickdir', 'out', ...
+                                      'ticklength', [0.01, 0.01] ...
+                                      };
+plot_text_params = { 'FontSize', 12, ... % in points
+                                       'FontName', 'Helvetica' ...
+                                       };
 
+plot_theo = false; % plot theoretical error rates?
 silent = false; % If you don't want to see the progress output
-thnodraw = true; % draw theoretical error rates?
 
 % == Launching the runs
 D = zeros(numel(M), numel(overlays_max)*numel(overlays_interpolation));
@@ -105,18 +118,25 @@ D = D ./ statstries;
 E = E ./ statstries;
 printf('END of all tests!\n'); aux.flushout();
 
-
-% == Plotting
-
 % Print densities values and error rates
 fprintf('Densities:\n'); disp(D);
 fprintf('Error rates:\n'); disp(E);
 fprintf('Theoretical error rates:\n'); disp(TE);
 aux.flushout();
 
+% == Plotting
+
+% -- First interpolate data points to get smoother curves
+% Note: if smooth_factor == 1 then these commands won't change the data points nor add more.
+nsamples = numel(M);
+M_interp = interp1(1:nsamples, M, linspace(1, nsamples, nsamples*smooth_factor), smooth_method);
+D_interp = interp1(1:nsamples, D(:,1), linspace(1, nsamples, nsamples*smooth_factor), smooth_method);
+E_interp = interp1(D(:,1), E, D_interp, smooth_method);
+TE_interp = interp1(D(:,1), TE, D_interp, smooth_method);
+
 % Plot error rate with respect to the density (or number of messages stored) and a few other parameters
 figure; hold on;
-xlabel(sprintf('Number of stored messages (M) x %.1E', Mcoeff));
+xlabel(sprintf('(Bottom) Density  -- (Top) Number of stored messages (M) x%.1E', Mcoeff));
 ylabel('Retrieval Error Rate');
 counter = 1; % useful to keep track inside the matrix E. This is guaranteed to be OK since we use the same order of for loops (so be careful, if you move the forloops here in plotting you must also move them the same way in the tests above!)
 for om=numel(overlays_max):-1:1
@@ -129,7 +149,8 @@ for om=numel(overlays_max):-1:1
         mstyleidx = mod(counter-1, numel(markerstylevec))+1; % and change marker style per plot
 
         lstyle = linestylevec(lstyleidx, 1); lstyle = lstyle{1}; % for MatLab, can't do that in one command...
-        cur_plot = plot(M, E(:,end+1-counter), sprintf('%s%s%s', lstyle, markerstylevec(mstyleidx), colorvec(coloridx))); % plot one line
+        cur_plot = plot(D_interp, E_interp(:,end+1-counter), sprintf('%s%s%s', lstyle, markerstylevec(mstyleidx), colorvec(coloridx))); % plot one line
+        set(cur_plot, plot_curves_params{:}); % additional plot style
 
         plot_title = sprintf('%s', filtering_rule);
         if enable_guiding
@@ -153,7 +174,7 @@ end
 
 
 % Plot theoretical error rates
-if ~thnodraw
+if plot_theo
     %coloridx = mod(counter, numel(colorvec))+1;
     colornm = 'k';
     counter = 1;
@@ -162,7 +183,8 @@ if ~thnodraw
         mstyleidx = mod(counter-1, numel(markerstylevec))+1;
 
         lstyle = linestylevec(lstyleidx, 1); lstyle = lstyle{1}; % for MatLab, can't do that in one command...
-        cur_plot = plot(M, TE(:,om), sprintf('%s%s%s', lstyle, markerstylevec(mstyleidx), colornm)); % plot one line
+        cur_plot = plot(D_interp, TE_interp(:,om), sprintf('%s%s%s', lstyle, markerstylevec(mstyleidx), colornm)); % plot one line
+        set(cur_plot, plot_curves_params{:}); % additional plot style
 
         plot_title = 'Theo. ';
         if enable_guiding
@@ -185,5 +207,12 @@ end
 
 % Refresh plot with legends
 legend(get(gca,'children'),get(get(gca,'children'),'DisplayName')); % IMPORTANT: force refreshing to show the legend, else it won't show!
+% Add secondary axis on the top of the figure to show the number of messages
+aux.add_2nd_xaxis(D(:,1), M, sprintf('x%.1E', Mcoeff), '%g', 0);
+xlim([0 max(D(:,1))]); % adjust x axis zoom
+% Adjust axis drawing style
+set( gca(), plot_axis_params{:} );
+% Adjust text style
+set([gca; findall(gca, 'Type','text')], plot_text_params{:});
 
 % The end!

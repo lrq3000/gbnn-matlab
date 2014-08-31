@@ -29,7 +29,7 @@ tests = 1;
 enable_guiding = true;
 gamma_memory = 0;
 threshold = 0;
-propagation_rule = 'sum'; % TODO: not implemented yet, please always set 0 here
+propagation_rule = 'sum';
 filtering_rule = 'GWsTA';
 tampering_type = 'erase';
 
