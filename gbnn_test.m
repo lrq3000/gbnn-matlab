@@ -437,6 +437,7 @@ real_density = full(  (nnz(cnetwork.primary.net) - nnz(diag(cnetwork.primary.net
 
 % Compute theoretical error rate
 theoretical_error_rate = -1;
+% Another error rate attempt for tagged network (TODO: not yet complete!)
 if strcmpi(propagation_rule, 'overlays') && cnetwork.primary.args.overlays_max ~= 1
     if cnetwork.primary.args.overlays_max == 0
         coeff = max(max(cnetwork.primary.net));
@@ -449,15 +450,27 @@ if strcmpi(propagation_rule, 'overlays') && cnetwork.primary.args.overlays_max ~
     else
         theoretical_error_rate = 1 - (1 - real_density)^(erasures*(l-1));
     end
+
+% Error rate for tagged network (TODO: not yet complete!)
 elseif strcmpi(propagation_rule, 'overlays_ehsan2') && cnetwork.primary.args.overlays_max ~= 1
     theoretical_error_rate = 1-(1-real_density^(c-1))^c;
+
+% Standard theoretical error rate computation
 else
-    if ~enable_guiding % different error rate when guided mask is enabled (and it's lower than blind decoding)
-        %theoretical_error_rate = 1 - (1 - real_density^(c-erasures))^(erasures*(l-1)+l*(Chi-c)); % = spurious_cliques_proba. spurious cliques = nonvalid cliques that we did not memorize and which rests inopportunely on the edges of valid cliques, which we learned and want to remember. In other words: what is the probability of emergence of wrong cliques that we did not learn but which emerges from combinations of cliques we learned? This is influenced heavily by the density (higher density = more errors). Also, error rate is only per one iteration, if you use more iterations to converge the real error may be considerably lower. % NOTE: this is the correct error rate from the 2014 Behrooz paper but works only if concurrent_cliques = 1.
-        theoretical_error_rate = 1 - binocdf(c-erasures-1, concurrent_cliques*(c-erasures), real_density)^(erasures*(l-1)+l*(Chi-c)); % generalization of the error rate given in the 2014 Behrooz paper, this works with any value of concurrent_cliques
-    else
-        %theoretical_error_rate = 1 - (1 - real_density^(c-erasures))^(erasures*(l-1)); % correct error rate from the 2014 Behrooz paper but works only if concurrent_cliques = 1.
-        theoretical_error_rate = 1 - binocdf(c-erasures-1, concurrent_cliques*(c-erasures), real_density)^(erasures*(l-1)); % still the same generalization, but in guided mode so we count less many potentially spurious fanals (since we can exclude all clusters that the mask is excluding)
+    if concurrent_cliques == 1 % standard theoretical error rate when there's only one clique
+        if ~enable_guiding
+            theoretical_error_rate = 1 - (1 - real_density^(c-erasures))^(erasures*(l-1)+l*(Chi-c)); % = spurious_cliques_proba. spurious cliques = nonvalid cliques that we did not memorize and which rests inopportunely on the edges of valid cliques, which we learned and want to remember. In other words: what is the probability of emergence of wrong cliques that we did not learn but which emerges from combinations of cliques we learned? This is influenced heavily by the density (higher density = more errors). Also, error rate is only per one iteration, if you use more iterations to converge the real error may be considerably lower. % NOTE: this is the correct error rate from the 2014 Behrooz paper but works only if concurrent_cliques = 1.
+        else
+            theoretical_error_rate = 1 - (1 - real_density^(c-erasures))^(erasures*(l-1)); % correct error rate from the 2014 Behrooz paper but works only if concurrent_cliques = 1.
+        end
+    else % generalized theoretical error rate when there's many concurrent cliques (but also works if there's only one)
+        if ~enable_guiding % different error rate when guided mask is enabled (and it's lower than blind decoding)
+            theoretical_error_rate = 1 - ( binocdf(c-erasures-1, concurrent_cliques*(c-erasures), real_density)^(concurrent_cliques*erasures*(l-1)+l*max(0,(Chi-concurrent_cliques*c))) * binocdf(c-erasures-1, (concurrent_cliques-1)*(c-erasures), real_density)^((l-1)*concurrent_cliques*(c-erasures)) ); % generalization of the error rate given in the 2014 Behrooz paper, this works with any value of concurrent_cliques. There are two terms because in addition to what we compute in the standard theoretical error rate from 2014 paper, we have to also account for the fact that we can now have spurious fanals inside known clusters (because we have concurrent cliques, thus a spurious fanal may appear in a cluster with a known fanal but is linked to a fanal of the other clique, thus we can't use the fact that there's no link between fanals in the same cluster: before with one clique this prevented spurious fanals to appear in known clusters, but now it doesn't.
+            %theoretical_error_rate = 1 - hygecdf(c-erasures-1, graph_size, graph_size*real_density, concurrent_cliques*(c-erasures))^(concurrent_cliques*erasures*(l-1)+l*max(0,(Chi-concurrent_cliques*c))); % Alternative generalization of the theoretical error rate for concurrent_cliques > 1 but using hypergeometric distribution instead of binomiale.
+        else
+            theoretical_error_rate = 1 - ( binocdf(c-erasures-1, concurrent_cliques*(c-erasures), real_density)^(concurrent_cliques*erasures*(l-1)) * binocdf(c-erasures-1, (concurrent_cliques-1)*(c-erasures), real_density)^((l-1)*concurrent_cliques*(c-erasures)) ); % still the same generalization, but in guided mode so we count less many potentially spurious fanals (since we can exclude all clusters that the mask is excluding)
+            %theoretical_error_rate = 1 - hygecdf(c-erasures-1, graph_size, graph_size*real_density, concurrent_cliques*(c-erasures))^(concurrent_cliques*erasures*(l-1)); % Alternative generalization of the theoretical error rate for concurrent_cliques > 1 but using hypergeometric distribution instead of binomiale.
+        end
     end
 end
 
