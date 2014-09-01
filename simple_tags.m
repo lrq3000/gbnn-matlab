@@ -1,4 +1,4 @@
-% Example of the simplest call script for the gbnn network
+% Example of the simplest call script for the gbnn network with overlays/tags disambiguation trick
 
 % Clear things up
 clear all; % don't forget to clear all; before, else some variables or sourcecode change may not be refreshed and the code you will run is the one from the cache, not the latest edition you did!
@@ -23,8 +23,9 @@ erasures = floor(c/2);
 enable_guiding = false;
 
 % Overlays / Tags
-enable_overlays = true;
-if enable_overlays; propagation_rule = 'overlays_ehsan2'; end;
+enable_overlays = true; % enable tags/overlays disambiguation?
+overlays_max = 0; % 0 for maximum number of tags (as many tags as messages/cliques) ; 1 to use only one tag (equivalent to standard network without tags) ; n > 1 for any definite number of tags
+overlays_interpolation = 'uniform'; % interpolation method to reduce the number of tags when overlays_max > 1: uniform, mod or norm
 
 % Concurrency params
 concurrent_cliques = 1;
@@ -46,6 +47,7 @@ error_rate = gbnn_test('cnetwork', cnetwork, 'thriftymessagestest', thriftymessa
                                                                                   'tests', tests, 'tampered_messages_per_test', tampered_messages_per_test, ...
                                                                                   'enable_guiding', enable_guiding, 'filtering_rule', filtering_rule, 'propagation_rule', propagation_rule, 'erasures', erasures, 'gamma_memory', gamma_memory, ...
                                                                                   'concurrent_cliques', concurrent_cliques, 'no_concurrent_overlap', no_concurrent_overlap, ...
+                                                                                  'enable_overlays', enable_overlays, 'overlays_max', overlays_max, 'overlays_interpolation', overlays_interpolation, ...
                                                                                   'silent', silent);
 
 if ~silent

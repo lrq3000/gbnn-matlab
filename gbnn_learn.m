@@ -2,6 +2,7 @@ function [cnetwork, thriftymessages, real_density] = gbnn_learn(varargin)
 %
 % [cnetwork, thriftymessages, density] = gbnn_learn(m, l, c, ...,
 %                                                                       Chi, cnetwork, miterator, ...
+%                                                                       enable_overlays, ...
 %                                                                       silent)
 %
 % Learns a network using one-shot learning (simply an adjacency matrix) using either a provided messages list, or either generate a random one. Returns both the network, thrifty messages and real density.
@@ -16,6 +17,7 @@ function [cnetwork, thriftymessages, real_density] = gbnn_learn(varargin)
 % NOTE: increasing c or decreasing miterator increase CPU usage and runtime ; increasing l or m increase memory usage.
 %- Chi : number of clusters, set Chi > c to enable sparse_cliques if you want c to define the length of messages and Chi the number of clusters (where Chi must be > c) to create sparse cliques (cliques that don't use all available clusters but just c clusters per one message)
 % Note: a sparse message is different from a thrifty message: a thrifty message is a message where values like 3 or 5 are replaced by thrifty codes like 00100 and 00001 (only one logical bit, all the others are sparse/zeros) and a sparse message where most clusters aren't used, like if c = 2 and Chi = 5 we will have sparse messages like 12000 or 00305. Combining a sparse message like 00305 + thrifty codes gives us: 00000 00000 00100 00000 00001 which is both thrifty and sparse (thrifty implies sparseness, but sparseness doesn't imply thriftiness. Here we have both!).
+%- enable_overlays : learn overlays/tags of edges at the same time as learning the network. This will allocate a unique integer id to every edges per message/clique, thus you will get m tags. You can later reduce the number of tags by using an interpolation method (see gbnn_correct()). Tags may be used as a way to disambiguate between several winning cliques/fanals.
 %
 % == LEARNING ALGORITHM
 % - Create random messages (matrix where each line is a messages composed of numbers between 1 and l, thus l is the range of values like the intensity of a pixel in an image)
@@ -44,8 +46,6 @@ arguments_defaults = struct( ...
     ...
     ... % Overlays / Tags extension
     'enable_overlays', false, ...
-    'overlays_max', 0, ...
-    'overlays_interpolation', 'norm', ...
     ...
     ... % Debug stuffs
     'silent', false);
@@ -238,10 +238,10 @@ for M = 1:mloop
     end
 
     % Attach overlays arguments in the network structure
-    if enable_overlays
-        cnetwork.primary.args.overlays_max = overlays_max;
-        cnetwork.primary.args.overlays_interpolation = overlays_interpolation;
-    end
+    %if enable_overlays
+        %cnetwork.primary.args.overlays_max = overlays_max;
+        %cnetwork.primary.args.overlays_interpolation = overlays_interpolation;
+    %end
 
     if ~silent; aux.printtime(toc()); end; % just to show performance, learning the network (adjacency matrix) _was_ the bottleneck
 

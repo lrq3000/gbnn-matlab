@@ -4,6 +4,7 @@ function [error_rate, theoretical_error_rate, test_stats, error_per_message, tes
 %                                                                                  erasures, iterations, tampered_messages_per_test, tests, ...
 %                                                                                  enable_guiding, gamma_memory, threshold, propagation_rule, filtering_rule, tampering_type, ...
 %                                                                                  residual_memory, concurrent_cliques, no_concurrent_overlap, concurrent_successive, filtering_rule_first_iteration, filtering_rule_last_iteration, ...
+%                                                                                  enable_overlays, overlays_max, overlays_interpolation, ...
 %                                                                                  silent)
 %
 % Feed a network and a matrix of thrifty messages from which to pick samples for test, and this function will automatically sample some messages, tamper them, and then try to correct them. Finally, the error rate over all the processed messages will be returned.
@@ -31,10 +32,22 @@ function [error_rate, theoretical_error_rate, test_stats, error_per_message, tes
 %
 % -- Custom extensions
 %- residual_memory : residual memory: previously activated nodes lingers a bit and participate in the next iteration.
+%- filtering_rule_first_iteration and filtering_rule_last_iteration : always use the specified filtering rule as the first/last filtering rule. Particularly useful with *G*LKO family of algorithms which need the first iteration to be GWSTA to kickstart the process.
+%- enable_dropconnect and dropconnect_p : enable dropconnect to reduce the density, and you can specify the probability p of removing an edge in the subgraph. See also: subsampling function for a deterrminist alternative (used in Xiaoran thesis on tournaments to also reduce density). Note: seems to work best when data has some topology (ie: messages are not stored randomly but there's some order, eg: storing similar messages closer).
+%
+%
+% -- Concurrent extension
 %- concurrent_cliques : allow to decode multiple messages concurrently/simultaneously (can specify the number here).
 %- no_concurrent_overlap : ensure that concurrent messages/cliques aren't overlapping, thus there won't be any shared fanal (with a big score).
 %- concurrent_successive : instead of simultaneously stimulate the concurrent messages, stimulate them one after the other in succession. This is a bit like tagging/coloring the cliques to better handle them. For example, guiding_mask is adapted at each step to allow a cumulation of one more message at each step (ie: at first step there will be c clusters allowed in the first guiding_mask, then 2*c in the second step, then 3*c in the third, etc.) instead of allowing all correct clusters for all concurrent messages at once..
-%- filtering_rule_first_iteration and filtering_rule_last_iteration : always use GWTA as the first/last filtering rule. Particularly useful with *G*LKO family of algorithms which need the first iteration to be GWTA to kickstart the process.
+%- concurrent_disequilibrium : this is a disambiguation trick in the concurrent case, it helps a great deal with the performance by trying to find only one clique at a time (thus this will multiply the number of iterations: if iterations == 4 and concurrent_cliques == 3, you will have a total 4*3=12 iterations if you enable concurrent_disequilibrium), but that's a small price to pay! Also note that you need to set iterations > 1 to get any beneficial effect from the disequilibrium (iterations = 4 is good). Set 1 for superscore mode, 2 for one fanal erasure, 3 for nothing at all just trying to decode one clique at a time without any trick.
+%
+% -- Overlays/Tags extension
+%- enable_overlays : enable tags/overlays disambiguation? Tags may be used as a way to disambiguate between several winning cliques/fanals.
+%- overlays_max : 0 for maximum number of tags (as many tags as messages/cliques) ; 1 to use only one tag (equivalent to standard network without tags) ; n > 1 for any definite number of tags
+%- overlays_interpolation : interpolation method to reduce the number of tags when overlays_max > 1: uniform, mod or norm
+%
+% -- Verbosity
 %- silent : silence all outputs
 %
 
@@ -74,6 +87,11 @@ arguments_defaults = struct( ...
     'concurrent_successive', false, ...
     'concurrent_disequilibrium', false, ...
     ...
+    ... % Overlays / Tags extension
+    'enable_overlays', false, ...
+    'overlays_max', 0, ...
+    'overlays_interpolation', 'uniform', ...
+    ...
     ... % Debug stuffs
     'silent', false);
 
@@ -100,6 +118,9 @@ end
 if ~exist('tampering_type', 'var') || ~ischar(tampering_type)
     if iscell(tampering_type); error('tampering_type is a cell, it should be a string! Maybe you did a typo?'); end;
     tampering_type = 'erase';
+end
+if enable_overlays && (islogical(cnetwork.primary.net) || max(max(cnetwork.primary.net)) == 1)
+    error('cannot use overlays because overlays were not learned. Please first use gbnn_learn() with argument enable_overlays = true');
 end
 
 % == Show vars (just for the record, user can debug or track experiments using diary)
@@ -336,6 +357,7 @@ for t=1:tests % TODO: replace by parfor (regression from past versions to allow 
                                   'residual_memory', residual_memory, 'concurrent_cliques', concurrent_cliques, 'filtering_rule_first_iteration', filtering_rule_first_iteration, 'filtering_rule_last_iteration', filtering_rule_last_iteration, ...
                                   'enable_dropconnect', enable_dropconnect, 'dropconnect_p', dropconnect_p, ...
                                   'concurrent_disequilibrium', concurrent_disequilibrium, ...
+                                  'enable_overlays', enable_overlays, 'overlays_max', overlays_max, 'overlays_interpolation', overlays_interpolation, ...
                                   'silent', silent);
         % DEBUG: show the original input and the corrected input interleaved by column. Thank's to Peter Yu http://www.peteryu.ca/tutorials/matlab/interleave_matrices
         %a = aux.interleave(inputm_full, inputm, 2); full([sum(a); a])
@@ -373,6 +395,7 @@ for t=1:tests % TODO: replace by parfor (regression from past versions to allow 
                                   'residual_memory', residual_memory, 'concurrent_cliques', cc, 'filtering_rule_first_iteration', filtering_rule_first_iteration, 'filtering_rule_last_iteration', filtering_rule_last_iteration, ...
                                   'enable_dropconnect', enable_dropconnect, 'dropconnect_p', dropconnect_p, ...
                                   'concurrent_disequilibrium', concurrent_disequilibrium, ...
+                                  'enable_overlays', enable_overlays, 'overlays_max', overlays_max, 'overlays_interpolation', overlays_interpolation, ...
                                   'silent', silent);
 
         end
@@ -438,11 +461,11 @@ real_density = full(  (nnz(cnetwork.primary.net) - nnz(diag(cnetwork.primary.net
 % Compute theoretical error rate
 theoretical_error_rate = -1;
 % Another error rate attempt for tagged network (TODO: not yet complete!)
-if strcmpi(propagation_rule, 'overlays') && cnetwork.primary.args.overlays_max ~= 1
-    if cnetwork.primary.args.overlays_max == 0
+if enable_overlays && strcmpi(propagation_rule, 'overlays') && overlays_max ~= 1
+    if overlays_max == 0
         coeff = max(max(cnetwork.primary.net));
     else
-        coeff = cnetwork.primary.args.overlays_max;
+        coeff = overlays_max;
     end
     real_density = real_density / coeff;
     if ~enable_guiding
@@ -452,7 +475,7 @@ if strcmpi(propagation_rule, 'overlays') && cnetwork.primary.args.overlays_max ~
     end
 
 % Error rate for tagged network (TODO: not yet complete!)
-elseif strcmpi(propagation_rule, 'overlays_ehsan2') && cnetwork.primary.args.overlays_max ~= 1
+elseif enable_overlays && overlays_max ~= 1
     theoretical_error_rate = 1-(1-real_density^(c-1))^c;
 
 % Standard theoretical error rate computation

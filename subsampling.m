@@ -1,6 +1,9 @@
 function net = subsampling(net, p)
 % function net = subsampling(net, p)
 % Random subsampling using a binomial process with a probability p of success per edge creation. You must input a non-binarized network (just after messages learning via matrix multiplication, and before the call to logical() so that we can know how many score each edge has)
+% Used in Xiaoran thesis on tournaments to also reduce density and enhance performances.
+% Note: seems to work best when data has some topology (ie: messages are not stored randomly but there's some order, eg: storing similar messages closer).
+% See also: dropconnect function for a stochastic alternative.
 
     % Subsampling, aka deterministic DropConnect (since we will always remove 1-p links exactly)
     %idxs = shuffle(find(net));
