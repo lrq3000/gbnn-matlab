@@ -511,7 +511,7 @@ function add_2nd_xaxis(X, X2, X2_legend, num2str_format, text_rotation)
     yoffset_fix = ((max(ylim)-min(ylim))/20); % same for vertically, there is a small offset
     text(X-xoffset_fix, ones(numel(X2), 1)*max(ylim)+yoffset_fix, messages_labels, 'Rotation', text_rotation, 'VerticalAlignment', 'top', 'HorizontalAlignment', 'left'); % draw the secondary axis as a simple text
     if exist('X2_legend', 'var')
-        text(max(X) * 1.02, 1+yoffset_fix, X2_legend, 'VerticalAlignment', 'top', 'HorizontalAlignment', 'left'); % add the coefficient for the messages numbers
+        text(max(X) * 1.02, max(ylim)+yoffset_fix, X2_legend, 'VerticalAlignment', 'top', 'HorizontalAlignment', 'left'); % add the coefficient for the messages numbers
     end
 
 end % endfunction

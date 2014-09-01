@@ -10,17 +10,17 @@ aux = gbnn_aux; % works with both MatLab and Octave
 
 % Preparing stuff to automate the plots
 % This will allow us to automatically select a different color and shape for each curve
-colorvec = 'rgbkmc';
+colorvec = 'rkgbmc';
 markerstylevec = '+o*.xsd^v><ph';
 linestylevec = {'-' ; '--' ; ':' ; '-.'};
 
 % Vars config, tweak the stuff here
-M = 0.5:0.5:4.5; % this is a vector because we will try several values of m (number of messages, which influences the density)
-Mcoeff = 1E5;
+M = [0.1 1:1:11 15:5:45]; % this is a vector because we will try several values of m (number of messages, which influences the density)
+Mcoeff = 1E3;
 miterator = zeros(1,numel(M)); %M/2;
 c = 12;
-l = 64;
-Chi = 100;
+l = 32;
+Chi = 64;
 erasures = 3;
 iterations = 1; % for convergence
 tampered_messages_per_test = 100;
@@ -34,7 +34,7 @@ filtering_rule = {'GWsTA'}; % this is a cell array (vector of strings) because w
 tampering_type = 'erase';
 
 residual_memory = 0;
-concurrent_cliques = 1:4;
+concurrent_cliques = 1:3;
 no_concurrent_overlap = true;
 concurrent_successive = false;
 filtering_rule_first_iteration = false;
@@ -49,7 +49,7 @@ trainingbatchs = 2;
 no_auxiliary_propagation = false;
 
 % Plot tweaking
-statstries = 1; % retry n times with different networks to average (and thus smooth) the results
+statstries = 3; % retry n times with different networks to average (and thus smooth) the results
 smooth_factor = 2; % interpolate more points to get smoother curves. Set to 1 to avoid smoothing (and thus plot only the point of the real samples).
 smooth_method = 'cubic'; % use PCHIP or cubic to avoid interpolating into negative values as spline does
 plot_curves_params = { 'markersize', 10, ...
@@ -212,7 +212,8 @@ if plot_theo
 end
 
 % Refresh plot with legends
-legend(get(gca,'children'),get(get(gca,'children'),'DisplayName')); % IMPORTANT: force refreshing to show the legend, else it won't show!
+legend(get(gca,'children'),get(get(gca,'children'),'DisplayName'), 'location', 'northwest'); % IMPORTANT: force refreshing to show the legend, else it won't show!
+legend('boxoff');
 % Add secondary axis on the top of the figure to show the number of messages
 aux.add_2nd_xaxis(D(:,1), M, sprintf('x%.1E', Mcoeff), '%g', 0);
 xlim([0 max(D(:,1))]); % adjust x axis zoom
@@ -263,7 +264,8 @@ for f=1:numel(filtering_rule) % for each different filtering rule and whether th
     end
 end
 % Refresh plot with legends
-legend(get(gca,'children'),get(get(gca,'children'),'DisplayName')); % IMPORTANT: force refreshing to show the legend, else it won't show!
+legend(get(gca,'children'),get(get(gca,'children'),'DisplayName'), 'location', 'northwest'); % IMPORTANT: force refreshing to show the legend, else it won't show!
+legend('boxoff');
 % Add secondary axis on the top of the figure to show the number of messages
 aux.add_2nd_xaxis(D(:,1), M, sprintf('x%.1E', Mcoeff), '%g', 0);
 xlim([0 max(D(:,1))]); % adjust x axis zoom
