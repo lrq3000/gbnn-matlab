@@ -222,7 +222,7 @@ function [y, n]=kfastmode(x, k)
     idx=find(dist);
     num=[idx(1); diff(idx)];
 
-    if k > 1
+    if k > 1 && numel(num) > 1
         % Get the k modes, including possible duplicates
         num_sorted = sort(num, 'descend');
         n = unique(num_sorted(1:k));
