@@ -196,7 +196,7 @@ for diter=1:diterations
             else
                 partial_messages = double(partial_messages); % must convert to double so that we can set an integer (non binary/logical) value
                 %partial_messages(diseq_idxs) = sum(partial_messages);
-                partial_messages(diseq_idxs) = concurrent_cliques_bak*c;
+                partial_messages(diseq_idxs) = concurrent_cliques_bak*c + 1;
             end
 
             % Clear memory
