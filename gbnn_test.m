@@ -475,8 +475,8 @@ if enable_overlays && strcmpi(propagation_rule, 'overlays') && overlays_max ~= 1
     end
 
 % Error rate for tagged network (TODO: not yet complete!)
-elseif enable_overlays && overlays_max ~= 1
-    theoretical_error_rate = 1-(1-real_density^(c-1))^c;
+%elseif enable_overlays && overlays_max ~= 1
+    %theoretical_error_rate = 1-(1-real_density^(c-1))^c;
 
 % Standard theoretical error rate computation
 else

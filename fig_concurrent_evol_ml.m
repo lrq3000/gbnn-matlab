@@ -22,7 +22,7 @@ c = 5;
 l = 12;
 Chi = 18;
 erasures = 1;
-tampered_messages_per_test = 50; % more messages tested means that the final error rate will be of finer granularity (precision = 1/50)
+tampered_messages_per_test = 30; % more messages tested means that the final error rate will be of finer granularity (precision = 1/50)
 tests = 1;
 
 enable_guiding = [true]; % here too, we will try with and without the guiding mask
