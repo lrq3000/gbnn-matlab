@@ -8,7 +8,7 @@ close all;
 aux = gbnn_aux; % works with both MatLab and Octave
 
 % Primary network params
-m = 0.7; % 10000;
+m = 0.8; % 10000;
 miterator = 0;
 c = 8; % 8;
 l = 16; % 32;

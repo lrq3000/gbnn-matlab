@@ -211,12 +211,14 @@ for t=1:tests % TODO: replace by parfor (regression from past versions to allow 
     no_concurrent_overlap_flag = false;
     overlap_idxs = [];
     mtogen = tampered_messages_per_test;
+    init_tags = [];
     while (~no_concurrent_overlap_flag)
 
         % Generate random indices to randomly choose messages
         % At first iteration, we generate the whole set of messages. Then subsequent iterations only serve (when concurrent_cliques > 1 and no_concurrent_overlap is true) to generate replacement messages (messages that will replace the previously overlapping messages).
         %rndidx = unidrnd(mtest, [mconcat tampered_messages_per_test]); % TRICKS: unidrnd(m, [SZ]) is twice as fast as unidrnd(m, dim1, dim2)
         rndidx = randi([1 mtest], mconcat, mtogen); % mtest is the total number of messages in the test set (available to be picked up), mconcat is the number of concurrent messages that we will squash together, tampered_messages_per_test is the number of messages we will try to correct per test (number of messages to test per batch).
+        init_tags = rndidx;
 
         % Fetch the random messages from the generated indices
         inputm = thriftymessagestest(rndidx,:)'; % just fetch the messages and transpose them so that we have one sparsemessage per column (we don't generate them this way even if it's possible because of optimization: any, or, and sum are more efficient column-wise than row-wise, as any other MatLab/Octave function).
@@ -225,6 +227,7 @@ for t=1:tests % TODO: replace by parfor (regression from past versions to allow 
             init = inputm; % backup the original message before tampering, we will use the original to check if the network correctly corrected the erasure(s)
         else % Else, we had overlapping messages in the previous while iteration, now we replace the overlapping messages by the new ones (so that we won't move around the previously generated messages, we are thus guaranteed that we won't produce more overlapping messages at replacement, we can only get better)
             init(:, overlap_idxs(:)) = inputm; % In-place replacement of overlapping messages by other randomly choosen messages.
+            init_tags(:, overlap_idxs(:)) = overlap_idxs;
             overlap_idxs = []; % empty the overlapping indices, so that we won't replace the same indices by mistake at next iteration
         end
         %if ~debug; clear rndidx; end; % clear up memory - DEPRECATED because it violates the transparency (preventing the parfor loop to work)
@@ -249,6 +252,9 @@ for t=1:tests % TODO: replace by parfor (regression from past versions to allow 
                 overlap_idxs = bsxfun(@plus, overlap_idxs, offsets'); % apply offset
                 %init(:, overlap_idxs) = []; % DEPRECATED: in-place remove, but then we can only append newly generated messages but they will unalign the other messages which won't be merged together like before but with other messages, and thus we may get even more overlapping!
             end
+        end
+        if ~isempty(overlap_idxs)
+            rnd_idxs(overlap_idxs) = [];
         end
     end
     inputm = init; % Finally, set inputm with init: we will work on inputm but leave init as a backup to later check the error correction performances
@@ -358,6 +364,7 @@ for t=1:tests % TODO: replace by parfor (regression from past versions to allow 
                                   'enable_dropconnect', enable_dropconnect, 'dropconnect_p', dropconnect_p, ...
                                   'concurrent_disequilibrium', concurrent_disequilibrium, ...
                                   'enable_overlays', enable_overlays, 'overlays_max', overlays_max, 'overlays_interpolation', overlays_interpolation, ...
+                                  'init', init, 'init_tags', init_tags, ...
                                   'silent', silent);
         % DEBUG: show the original input and the corrected input interleaved by column. Thank's to Peter Yu http://www.peteryu.ca/tutorials/matlab/interleave_matrices
         %a = aux.interleave(inputm_full, inputm, 2); full([sum(a); a])
@@ -477,6 +484,9 @@ if enable_overlays && strcmpi(propagation_rule, 'overlays') && overlays_max ~= 1
 % Error rate for tagged network (TODO: not yet complete!)
 %elseif enable_overlays && overlays_max ~= 1
     %theoretical_error_rate = 1-(1-real_density^(c-1))^c;
+    %theoretical_error_rate = (1-binocdf(floor(((c*(c-1))/2)/2), ((c*(c-1))/2), real_density))^overlays_max;
+    %theoretical_error_rate = (1-binocdf(c*erasures, ((c*(c-1))/2), real_density))^overlays_max;
+    % reseau trop petit = saturation? si overlays_max > nombre de cliques possibles à stocker dans le réseau alors erreur monte d'un coup? ca expliquerait la courbe d'Ehsan: son réseau était beaucoup plus grand ou les cliques beaucoup plus petites.
 
 % Standard theoretical error rate computation
 else
@@ -498,6 +508,12 @@ else
 end
 
 %theoretical_error_correction_proba = 1 - theoretical_error_rate
+%theoretical_error_rate = (1-(1-theoretical_error_rate)*binocdf(floor(((c*(c-1))/2)/2), ((c*(c-1))/2), real_density))^overlays_max;
+%theoretical_error_rate = (1-(1-theoretical_error_rate)*binocdf(floor(((c*(c-1))/2)/2), ((c*(c-1))/2), real_density))^overlays_max;
+%theoretical_error_rate = (1-(1-theoretical_error_rate)*binocdf(c*erasures, ((c*(c-1))/2), real_density))^overlays_max;
+
+theoretical_error_rate = 1 - (1-(real_density^(c-erasures))*binocdf(c-erasures, overlays_max, 1/overlays_max))^(erasures*(l-1)+l*(Chi-c));
+%theoretical_error_rate = (1-real_density^(c-erasures)*binocdf(c*erasures, ((c*(c-1))/2), real_density))^overlays_max;
 
 
 % Filling stats to return from function

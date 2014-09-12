@@ -40,11 +40,11 @@ filtering_rule_last_iteration = false;
 
 % Overlays
 enable_overlays = true;
-overlays_max = [1 5 20 100 1000 0];
+overlays_max = [100 0];
 overlays_interpolation = {'uniform'};
 
 % Plot tweaking
-statstries = 5; % retry n times with different networks to average (and thus smooth) the results
+statstries = 1; % retry n times with different networks to average (and thus smooth) the results
 smooth_factor = 2; % interpolate more points to get smoother curves. Set to 1 to avoid smoothing (and thus plot only the point of the real samples).
 smooth_method = 'cubic'; % use PCHIP or cubic to avoid interpolating into negative values as spline does
 plot_curves_params = { 'markersize', 10, ...
@@ -58,7 +58,7 @@ plot_text_params = { 'FontSize', 12, ... % in points
                                        'FontName', 'Helvetica' ...
                                        };
 
-plot_theo = false; % plot theoretical error rates?
+plot_theo = true; % plot theoretical error rates?
 silent = false; % If you don't want to see the progress output
 
 % == Launching the runs
