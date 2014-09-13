@@ -357,7 +357,7 @@ for t=1:tests % TODO: replace by parfor (regression from past versions to allow 
     if ~(concurrent_successive && concurrent_cliques > 1) % Normal case: just feed the messages (a matrix containing messages as vectors) and wait for convergence
         %inputm_full = inputm;
         % Correct and wait for convergence!
-        [inputm, propag] = gbnn_correct('cnetwork', cnetwork, 'partial_messages', inputm, ...
+        [inputm, propag, dtotalstats] = gbnn_correct('cnetwork', cnetwork, 'partial_messages', inputm, ...
                                   'iterations', iterations, ...
                                   'guiding_mask', guiding_mask, 'gamma_memory', gamma_memory, 'threshold', threshold, 'propagation_rule', propagation_rule, 'filtering_rule', filtering_rule, ...
                                   'residual_memory', residual_memory, 'concurrent_cliques', concurrent_cliques, 'filtering_rule_first_iteration', filtering_rule_first_iteration, 'filtering_rule_last_iteration', filtering_rule_last_iteration, ...
@@ -507,13 +507,17 @@ else
     end
 end
 
-%theoretical_error_correction_proba = 1 - theoretical_error_rate
-%theoretical_error_rate = (1-(1-theoretical_error_rate)*binocdf(floor(((c*(c-1))/2)/2), ((c*(c-1))/2), real_density))^overlays_max;
-%theoretical_error_rate = (1-(1-theoretical_error_rate)*binocdf(floor(((c*(c-1))/2)/2), ((c*(c-1))/2), real_density))^overlays_max;
-%theoretical_error_rate = (1-(1-theoretical_error_rate)*binocdf(c*erasures, ((c*(c-1))/2), real_density))^overlays_max;
+% For tags
+if enable_overlays
+    %theoretical_error_correction_proba = 1 - theoretical_error_rate
+    %theoretical_error_rate = (1-(1-theoretical_error_rate)*binocdf(floor(((c*(c-1))/2)/2), ((c*(c-1))/2), real_density))^overlays_max;
+    %theoretical_error_rate = (1-(1-theoretical_error_rate)*binocdf(floor(((c*(c-1))/2)/2), ((c*(c-1))/2), real_density))^overlays_max;
+    %theoretical_error_rate = (1-(1-theoretical_error_rate)*binocdf(c*erasures, ((c*(c-1))/2), real_density))^overlays_max;
 
-theoretical_error_rate = 1 - (1-(real_density^(c-erasures))*binocdf(c-erasures, overlays_max, 1/overlays_max))^(erasures*(l-1)+l*(Chi-c));
-%theoretical_error_rate = (1-real_density^(c-erasures)*binocdf(c*erasures, ((c*(c-1))/2), real_density))^overlays_max;
+    % For tags too
+    %theoretical_error_rate = 1 - (1-(real_density^(c-erasures))*binocdf(c-erasures, overlays_max, 1/overlays_max))^(erasures*(l-1)+l*(Chi-c));
+    %theoretical_error_rate = (1-real_density^(c-erasures)*binocdf(c*erasures, ((c*(c-1))/2), real_density))^overlays_max;
+end
 
 
 % Filling stats to return from function
@@ -534,6 +538,7 @@ if ~silent
     aux.printcputime(cputime - totalperf, 'Total elapsed cpu time for test is %g seconds.\n'); aux.flushout();
     %c_optimal_approx = log(Chi*l/P0)/(2*(1-alpha)) % you have to define alpha = rate of errors per message you want to be able to correct ; P0 = probability or error = theoretical_error_rate you want
 end
+test_stats.dtotalstats = dtotalstats;
 
 if ~silent; fprintf('=> Test done!\n'); aux.flushout(); end;
 

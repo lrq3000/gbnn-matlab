@@ -1,4 +1,4 @@
-function [partial_messages, propag] = gbnn_correct(varargin)
+function [partial_messages, propag, dtotalstats] = gbnn_correct(varargin)
 %
 % partial_messages = gbnn_correct(cnetwork, partial_messages, ...
 %                                                                                  iterations, ...
@@ -919,17 +919,21 @@ for diter=1:diterations
                     % Finally, push back the disambiguated clusters
                     out = or(out, out2);
                 end
-            % Overlays filtering ala Ehsan, correct and faithful version
+            % Overlays filtering ala Ehsan, enhanced version
+            % TODO: add back the faithful unmodified Ehsan version, and add a parameter 'overlays_rule'
             % this overlays filtering must only be applied after propagation + filtering. This is a post-processing step to remove ambiguity.
             else
                 dtotalstats = struct();
                 dtotalstats.tags_major_wrong = 0;
                 dtotalstats.tags_major_init_lost = 0;
+                dtotalstats.tags_major_wrong_no_lost = 0;
                 dtotalstats.tags_major_other_error = 0;
                 dtotalstats.tags_major_known_error = 0;
                 dtotalstats.tags_major_propagfiltfail = 0;
+                dtotalstats.tags_major_propagfiltfail_only = 0;
                 dtotalstats.tags_major_gwta_filtered_wrong = 0;
                 dtotalstats.tags_error = 0;
+                finalmsgall = sparse(n, mpartial);
 
                 for mi = 1:mpartial
                     % Pick one message
@@ -946,7 +950,10 @@ for diter=1:diterations
                         fanal_scores = sum(sign(decoded_edges));
                         winning_score = max(fanal_scores);
                         gwta_mask = (fanal_scores == winning_score);
-                        decoded_edges_tags = decoded_edges(gwta_mask, :) ;
+                        decoded_edges_tags = decoded_edges(gwta_mask, :) ; % update our network
+                        %decoded_edges_tags = decoded_edges(:, gwta_mask); % Alternative way of updating the network, normally the theoretically correct one but it gives a huge decrease in performances
+                        %decoded_edges_tags = decoded_edges(gwta_mask, gwta_mask); % Alternative way of updating the network, normally the theoretically correct one but it gives a huge decrease in performances
+                        %decoded_fanals = decoded_fanals(gwta_mask);
                     else % else i we have concurrent cliques and/or disequilibrium, use GWSTA to filter (because GWTA won't work in concurrent case).
                     % NOTE: this is even less necessary than in the non concurrent cliques case, here it only provides a small performance boost (but significative), so it's up to you to see if the additional CPU time needed to do the GWSTA filtering is worth it, but keep in mind that filtering also speeds up the tags filtering below, because we remove fanals whose edges won't have to be tag checked!
                         fanal_scores = sum(sign(decoded_edges));
@@ -957,8 +964,7 @@ for diter=1:diterations
                             kmax_score(kmax_score == 0) = realmin(); % No false winner trick: filter out kth winners that have value 0 by replacing the threshold with the minimum real value (greater than 0)
                             gwsta_mask = fanal_scores >= kmax_score; % filter out all fanals that get a score below the kth winner
                             decoded_edges_tags = decoded_edges(gwsta_mask, :); % update our network
-                            %decoded_edges = decoded_edges(:, gwsta_mask); % update our network
-                            %decoded_fanals = decoded_fanals(gwsta_mask);
+                            %decoded_edges_tags = decoded_edges(:, gwsta_mask); % Alternative way of updating the network, normally the theoretically correct one but it gives a huge decrease in performances
                             
                             % Alternative methods with lesser performances
                             %decoded_edges = decoded_edges((fanal_scores ~= min(nonzeros(fanal_scores))), :);
@@ -966,23 +972,31 @@ for diter=1:diterations
                         end
                     end
 
-% IDEE: utiliser le filtrage pour trouver tag majeur, mais ensuite reprendre le decoded_edges original pour le truc final
-% TODO: fix quand gwsta_mask est bien sur les colonnes et non pas sur les lignes (ca buggue alors que c'est bon normalement! donc pb doit etre dans les indexs à la fin)
-% POURQUOI est-ce que le filtrage fonctionne sur les lignes? C'est totalement du hasard! Par contre ca n'ameliore les perfs que si densité > 0.7 ou configuration particulière des paramètres du réseau (fig3tags1ehsan), sinon ca degrade beaucoup les perfs. C'est tres tres bizarre.
+% POURQUOI est-ce que le filtrage fonctionne sur les lignes? C'est totalement du hasard! Par contre ca n'ameliore les perfs que si densité > 0.7 ou configuration particulière des paramètres du réseau (fig3tags1ehsan) si iterations >= 2, sinon ca degrade beaucoup les perfs. C'est tres tres bizarre.
 
                     % Filter edges having a tag different than the major tag, and then filter out fanals that gets disconnected from the clique (all their incoming edges were filtered because they were of a different tag than the major tag)
+                    tagmode = 1; % tagmode 1 = faithful ehsan version, we first pre-filter using GWTA or GWsTA and then we compute major tag AND use this prefiltered subnet to find the final decoded message ; tagmode 2 = modified version: prefiltered subnet is still used to compute the major tag, but then it's NOT used to find the final decoded message, we use the full subnet before prefiltering. tagmode 1 is better when overlays_max = 0 (as many tags as there are messages), and tagmode 2 is better when using any other value of overlays_max.
                     if concurrent_cliques == 1
                         major_tag = aux.fastmode(nonzeros(decoded_edges_tags)) ; % get the major tag (the one which globally appears the most often in this clique). NOTE: nonzeros somewhat slows down the processing BUT it's necessary to ensure that 0 is not chosen as the major tag (since it represents the absence of edge!) - this problem often happens when using a sparse network (Chi > c).
                         %major_tag = aux.fastmode(cellfun(@min, aux.nnzcolmode(decoded_edges))); % IDEE: faire un mode par colonne, et ensuite faire le mode de tous. Ca permettra de supprimer le biais si on a écrasé des liens d'un fanal (ce qui fait qu'on va le filtrer au GWTA puisque basé sur le nombre d'arêtes entrantes...), mais il faut quand meme qu'on filtre car sinon on risque de faire major wrong! Comme ça, meme si plusieurs fanaux n'ont que d'autres tags, il suffit que pour quelques fanaux ce soit encore le tag majoritaire et que les fanaux bien écrasés aient au moins une fois ce tag pour que le message soit bien récupéré.
                         % IDEE ML pour tags net: on regarde tous les tags uniques et on garde le premier qui forme une clique.
-                        decoded_edges(decoded_edges ~= min(major_tag)) = 0 ; % shutdown edges who haven't got the maximum tag. NOTE: in case of ambiguity (two or more major tags), we keep the minimum (oldest) one.
+                        if tagmode == 1
+                            decoded_edges_tags(decoded_edges_tags ~= min(major_tag)) = 0 ; % shutdown edges who haven't got the maximum tag. NOTE: in case of ambiguity (two or more major tags), we keep the minimum (oldest) one.
+                        else
+                            decoded_edges(decoded_edges ~= min(major_tag)) = 0 ;
+                        end
                     else
                         major_tag = aux.kfastmode(nonzeros(decoded_edges_tags), concurrent_cliques);
                         decoded_edges(~ismember(decoded_edges, major_tag)) = 0; % shutdown edges who haven't got the maximum tag. NOTE: in case of ambiguity (two or more major tags), we keep them all. This seems to enhance performances a bit compared to select the minimum one or a random one.
                     end
-                    decoded_fanals = decoded_fanals(sum(decoded_edges) ~= 0) ; % kick out fanals which have no incoming edges after having deleted edges without major tag (ie: nodes that become isolated because their edges had different tags than the major tag will just be removed, because if these nodes become isolated it's because they obviously are part of another message, else they would have at least one edge with the correct tag).
+                    if tagmode == 1
+                        decoded_fanals = decoded_fanals(sum(decoded_edges_tags) ~= 0) ; % kick out fanals which have no incoming edges after having deleted edges without major tag (ie: nodes that become isolated because their edges had different tags than the major tag will just be removed, because if these nodes become isolated it's because they obviously are part of another message, else they would have at least one edge with the correct tag).
+                    else
+                        decoded_fanals = decoded_fanals(sum(decoded_edges) ~= 0) ;
+                    end
 
                     finalmsg = sparse(decoded_fanals, 1, 1, n, 1);
+                    finalmsgall(:,mi) = finalmsg;
                     if any(finalmsg ~= init(:,mi)) % if it's an error
                         dstats = struct();
                         dstats.real_density = full(  (nnz(cnetwork.primary.net) - nnz(diag(cnetwork.primary.net))) / (Chi*(Chi-1) * l^2)  );
@@ -1014,12 +1028,15 @@ for diter=1:diterations
                         dstats.tags_major_init_lost = full(any(~any(ismember(init_edges, dstats.tags_major_init), 1)));
                         if dstats.tags_major_init_lost; dstats.tags_major_init_lost_detail = full(any(init_edges == dstats.tags_major_init, 1)); end;
                         dstats.tags_major_wrong = (dstats.tags_major_init ~= min(dstats.tags_major));
+                        dstats.tags_major_wrong_no_lost = (~dstats.tags_major_init_lost && dstats.tags_major_wrong);
                         dstats.tags_major_propagfiltfail = (nnz(and(initm, outm1)) ~= nnz(initm));
+                        dstats.tags_major_propagfiltfail_only = (dstats.tags_major_propagfiltfail && ~(dstats.tags_major_init_lost || dstats.tags_major_wrong_no_lost) );
                         gmask = ones(1, size(out_edges, 1)); if exist('gwta_mask', 'var'); gmask = gwta_mask; elseif exist('gwsta_mask', 'var'); gmask = gwsta_mask; end;
                         %dstats.tags_major_gwta_filtered_wrong = any(initm(find(outm1)(~gmask)));
                         try
                             tg = ismember(out_edges, dstats.tags_major);
-                            dstats.tags_major_gwta_filtered_wrong = any(any(tg,1) ~= (any(tg, 1) .* any(tg(find(gmask), :), 1)));
+                            %dstats.tags_major_gwta_filtered_wrong = any(any(tg,1) ~= (any(tg, 1) .* any(tg(find(gmask), :), 1)));
+                            dstats.tags_major_gwta_filtered_wrong = any( ~any(tg(find(gmask), find(ismember(find(outm1), find(initm)))), 1) );
                             %dstats.tags_major_gwta_filtered_wrong_detail = (any(tg,1) ~= (any(tg, 1) .* any(tg(find(gmask), :))));
                             tgd = (any(tg,1) ~= (any(tg, 1) .* any(tg(find(gmask), :), 1)));
                             tgd2 = sparse(find(outm1)(tgd), 1, 1, n, 1);
@@ -1044,7 +1061,9 @@ for diter=1:diterations
                         dtotalstats.tags_major_wrong = dtotalstats.tags_major_wrong + dstats.tags_major_wrong;
                         dtotalstats.tags_major_init_lost = dtotalstats.tags_major_init_lost + dstats.tags_major_init_lost;
                         dtotalstats.tags_major_propagfiltfail = dtotalstats.tags_major_propagfiltfail + dstats.tags_major_propagfiltfail;
+                        dtotalstats.tags_major_propagfiltfail_only = dtotalstats.tags_major_propagfiltfail_only + dstats.tags_major_propagfiltfail_only;
                         dtotalstats.tags_major_gwta_filtered_wrong = dtotalstats.tags_major_gwta_filtered_wrong + dstats.tags_major_gwta_filtered_wrong;
+                        dtotalstats.tags_major_wrong_no_lost = dtotalstats.tags_major_wrong_no_lost + dstats.tags_major_wrong_no_lost;
                         if ~dstats.tags_major_wrong && ~dstats.tags_major_init_lost && ~dstats.tags_major_propagfiltfail && ~dstats.tags_major_gwta_filtered_wrong
                             dtotalstats.tags_major_other_error = dtotalstats.tags_major_other_error + 1;
                         else
@@ -1056,6 +1075,10 @@ for diter=1:diterations
                     % Finally, replace the disambiguated message back into the stack
                     out(:,mi) = sparse(decoded_fanals, 1, 1, n, 1);
                 end
+                dtotalstats.tags_error_predicted = dtotalstats.tags_major_wrong_no_lost + dtotalstats.tags_major_init_lost + dtotalstats.tags_major_propagfiltfail_only;
+                dtotalstats.tags_wrong_lost_ratio = dtotalstats.tags_major_wrong_no_lost / dtotalstats.tags_major_init_lost;
+                dtotalstats.tags_max = full(max(nonzeros(net)));
+                dtotalstats.tags_min = full(min(nonzeros(net)));
                 dtotalstats
                 aux.flushout();
             end
