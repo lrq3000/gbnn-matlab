@@ -15,12 +15,12 @@ markerstylevec = '+o*.xsd^v><ph';
 linestylevec = {'-' ; '--' ; ':' ; '-.'};
 
 % Vars config, tweak the stuff here
-M = [2:1:4 5:2:9 12:4:16]; % this is a vector because we will try several values of m (number of messages, which influences the density)
+M = [0.5:0.25:4 5:1:6]; % this is a vector because we will try several values of m (number of messages, which influences the density)
 %M = [0.005 5.1]; % to test both limits to check that the range is OK, the first point must be near 0 and the second point must be near 1, at least for one of the curves
 Mcoeff = 1E3;
 miterator = zeros(1,numel(M)); %M/2;
 c = 8;
-l = 32;
+l = 16;
 Chi = 16;
 erasures = floor(c/2); %floor(c*0.25);
 iterations = 2; % for convergence
@@ -44,8 +44,8 @@ overlays_max = [1000 0];
 overlays_interpolation = {'uniform'};
 
 % Plot tweaking
-statstries = 10; % retry n times with different networks to average (and thus smooth) the results
-smooth_factor = 2; % interpolate more points to get smoother curves. Set to 1 to avoid smoothing (and thus plot only the point of the real samples).
+statstries = 3; % retry n times with different networks to average (and thus smooth) the results
+smooth_factor = 1; % interpolate more points to get smoother curves. Set to 1 to avoid smoothing (and thus plot only the point of the real samples).
 smooth_method = 'cubic'; % use PCHIP or cubic to avoid interpolating into negative values as spline does
 plot_curves_params = { 'markersize', 10, ...
                                             'linewidth', 1 ...
@@ -71,6 +71,7 @@ DWrong = zeros(numel(M), numel(overlays_max)*numel(overlays_interpolation));
 DLost = zeros(numel(M), numel(overlays_max)*numel(overlays_interpolation));
 DPropag = zeros(numel(M), numel(overlays_max)*numel(overlays_interpolation));
 DGWTA = zeros(numel(M), numel(overlays_max)*numel(overlays_interpolation));
+LostEv = zeros(numel(M), numel(overlays_max)*numel(overlays_interpolation));
 
 for t=1:statstries
     tperf = cputime(); % to show the total time elapsed later
@@ -115,6 +116,19 @@ for t=1:statstries
                     DPropag(m, counter) = DPropag(m, counter) + test_stats.dtotalstats.tags_major_propagfiltfail_only/test_stats.dtotalstats.tags_error;
                     DGWTA(m, counter) = DGWTA(m, counter) + test_stats.dtotalstats.tags_major_gwta_filtered_wrong_only/test_stats.dtotalstats.tags_error;
                 end
+
+                % Compute the fanal tag overwriting error
+                fprintf('=> Computing the fanal tag overwriting error.\n'); aux.flushout(); % print total time elapsed
+                max_tag = M(m)*Mcoeff
+                init_lost_total = 0;
+                for mi=1:max_tag
+                    fanals_idxs = find(thriftymessages'(:,mi));
+                    init_edges = cnetwork.primary.net(fanals_idxs, fanals_idxs);
+                    init_lost = any(~any(ismember(init_edges, mi), 1));
+                    init_lost_total = init_lost_total + init_lost;
+                end
+                LostEv(m, counter) = LostEv(m, counter) + (init_lost_total/max_tag);
+
                 if ~silent; fprintf('-----------------------------\n\n'); end;
 
                 counter = counter + 1;
@@ -132,6 +146,7 @@ DWrong = DWrong ./ statstries;
 DLost = DLost ./ statstries;
 DPropag = DPropag ./ statstries;
 DGWTA = DGWTA ./ statstries;
+LostEv = LostEv ./ statstries;
 printf('END of all tests!\n'); aux.flushout();
 
 % Print densities values and error rates
@@ -155,6 +170,7 @@ DWrong_interp = interp1(D(:,1), DWrong, D_interp, smooth_method);
 DLost_interp = interp1(D(:,1), DLost, D_interp, smooth_method);
 DPropag_interp = interp1(D(:,1), DPropag, D_interp, smooth_method);
 DGWTA_interp = interp1(D(:,1), DGWTA, D_interp, smooth_method);
+LostEv_interp = interp1(D(:,1), LostEv, D_interp, smooth_method);
 
 % Plot error rate with respect to the density (or number of messages stored) and a few other parameters
 figure; hold on;
@@ -296,6 +312,12 @@ coloridx = mod(counter-1, numel(colorvec))+1; lstyleidx = mod(counter-1, numel(l
 cur_plot = plot(D_interp, DGWTA_interp(:,om), sprintf('%s%s%s', lstyle, markerstylevec(mstyleidx), colorvec(coloridx)));
 set(cur_plot, plot_curves_params{:}); % additional plot style
 set(cur_plot, 'DisplayName', strcat(plot_title, ' - gwta edges filter error')); % add the legend per plot, this is the best method, which also works with scatterplots and polar plots, see http://hattb.wordpress.com/2010/02/10/appending-legends-and-plots-in-matlab/
+counter = counter + 1;
+
+coloridx = mod(counter-1, numel(colorvec))+1; lstyleidx = mod(counter-1, numel(linestylevec))+1; mstyleidx = mod(counter-1, numel(markerstylevec))+1; lstyle = linestylevec(lstyleidx, 1); lstyle = lstyle{1}; % for MatLab, can't do that in one command...
+cur_plot = plot(D_interp, LostEv_interp(:,om), sprintf('%s%s%s', lstyle, markerstylevec(mstyleidx), colorvec(coloridx)));
+set(cur_plot, plot_curves_params{:}); % additional plot style
+set(cur_plot, 'DisplayName', strcat(plot_title, ' - lost evolution')); % add the legend per plot, this is the best method, which also works with scatterplots and polar plots, see http://hattb.wordpress.com/2010/02/10/appending-legends-and-plots-in-matlab/
 counter = counter + 1;
 
 % Refresh plot with legends

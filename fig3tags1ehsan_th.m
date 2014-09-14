@@ -15,7 +15,7 @@ markerstylevec = '+o*.xsd^v><ph';
 linestylevec = {'-' ; '--' ; ':' ; '-.'};
 
 % Vars config, tweak the stuff here
-M = [2:1:4 5:2:9 12:4:16]; % this is a vector because we will try several values of m (number of messages, which influences the density)
+M = [2:1:4 5:2:9 10 13 20]; % this is a vector because we will try several values of m (number of messages, which influences the density)
 %M = [0.005 5.1]; % to test both limits to check that the range is OK, the first point must be near 0 and the second point must be near 1, at least for one of the curves
 Mcoeff = 1E3;
 miterator = zeros(1,numel(M)); %M/2;
@@ -70,6 +70,7 @@ DPredictedError = zeros(numel(M), numel(overlays_max)*numel(overlays_interpolati
 DWrong = zeros(numel(M), numel(overlays_max)*numel(overlays_interpolation));
 DLost = zeros(numel(M), numel(overlays_max)*numel(overlays_interpolation));
 DPropag = zeros(numel(M), numel(overlays_max)*numel(overlays_interpolation));
+DGWTA = zeros(numel(M), numel(overlays_max)*numel(overlays_interpolation));
 
 for t=1:statstries
     tperf = cputime(); % to show the total time elapsed later
@@ -111,7 +112,8 @@ for t=1:statstries
                 if test_stats.dtotalstats.tags_error >0
                     DWrong(m, counter) = DWrong(m, counter) + test_stats.dtotalstats.tags_major_wrong_no_lost/test_stats.dtotalstats.tags_error;
                     DLost(m, counter) = DLost(m, counter) + test_stats.dtotalstats.tags_major_init_lost/test_stats.dtotalstats.tags_error;
-                    DPropag(m, counter) = DPropag(m, counter) + test_stats.dtotalstats.tags_major_propagfiltfail/test_stats.dtotalstats.tags_error;
+                    DPropag(m, counter) = DPropag(m, counter) + test_stats.dtotalstats.tags_major_propagfiltfail_only/test_stats.dtotalstats.tags_error;
+                    DGWTA(m, counter) = DGWTA(m, counter) + test_stats.dtotalstats.tags_major_gwta_filtered_wrong_only/test_stats.dtotalstats.tags_error;
                 end
                 if ~silent; fprintf('-----------------------------\n\n'); end;
 
@@ -129,6 +131,7 @@ DPredictedError = DPredictedError ./ statstries;
 DWrong = DWrong ./ statstries;
 DLost = DLost ./ statstries;
 DPropag = DPropag ./ statstries;
+DGWTA = DGWTA ./ statstries;
 printf('END of all tests!\n'); aux.flushout();
 
 % Print densities values and error rates
@@ -151,6 +154,7 @@ DPredictedError_interp = interp1(D(:,1), DPredictedError, D_interp, smooth_metho
 DWrong_interp = interp1(D(:,1), DWrong, D_interp, smooth_method);
 DLost_interp = interp1(D(:,1), DLost, D_interp, smooth_method);
 DPropag_interp = interp1(D(:,1), DPropag, D_interp, smooth_method);
+DGWTA_interp = interp1(D(:,1), DGWTA, D_interp, smooth_method);
 
 % Plot error rate with respect to the density (or number of messages stored) and a few other parameters
 figure; hold on;
@@ -286,6 +290,12 @@ coloridx = mod(counter-1, numel(colorvec))+1; lstyleidx = mod(counter-1, numel(l
 cur_plot = plot(D_interp, DPropag_interp(:,om), sprintf('%s%s%s', lstyle, markerstylevec(mstyleidx), colorvec(coloridx)));
 set(cur_plot, plot_curves_params{:}); % additional plot style
 set(cur_plot, 'DisplayName', strcat(plot_title, ' - propagation/filtering error')); % add the legend per plot, this is the best method, which also works with scatterplots and polar plots, see http://hattb.wordpress.com/2010/02/10/appending-legends-and-plots-in-matlab/
+counter = counter + 1;
+
+coloridx = mod(counter-1, numel(colorvec))+1; lstyleidx = mod(counter-1, numel(linestylevec))+1; mstyleidx = mod(counter-1, numel(markerstylevec))+1; lstyle = linestylevec(lstyleidx, 1); lstyle = lstyle{1}; % for MatLab, can't do that in one command...
+cur_plot = plot(D_interp, DGWTA_interp(:,om), sprintf('%s%s%s', lstyle, markerstylevec(mstyleidx), colorvec(coloridx)));
+set(cur_plot, plot_curves_params{:}); % additional plot style
+set(cur_plot, 'DisplayName', strcat(plot_title, ' - gwta edges filter error')); % add the legend per plot, this is the best method, which also works with scatterplots and polar plots, see http://hattb.wordpress.com/2010/02/10/appending-legends-and-plots-in-matlab/
 counter = counter + 1;
 
 % Refresh plot with legends

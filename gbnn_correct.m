@@ -148,6 +148,7 @@ if enable_overlays
             random_map = randi(overlays_max, maxa, 1);
             % net = spfun(@(x) random_map(x), net); % SLOWER than direct indexing!
             net(net > 0) = random_map(nonzeros(net)); % faster!
+            if ~isempty(init_tags); init_tags = random_map(init_tags)'; end;
         end
     end
 end
@@ -924,14 +925,17 @@ for diter=1:diterations
             % this overlays filtering must only be applied after propagation + filtering. This is a post-processing step to remove ambiguity.
             else
                 dtotalstats = struct();
-                dtotalstats.tags_major_wrong = 0;
                 dtotalstats.tags_major_init_lost = 0;
+                dtotalstats.tags_major_wrong = 0;
                 dtotalstats.tags_major_wrong_no_lost = 0;
-                dtotalstats.tags_major_other_error = 0;
-                dtotalstats.tags_major_known_error = 0;
                 dtotalstats.tags_major_propagfiltfail = 0;
                 dtotalstats.tags_major_propagfiltfail_only = 0;
                 dtotalstats.tags_major_gwta_filtered_wrong = 0;
+                dtotalstats.tags_major_gwta_filtered_wrong_only = 0;
+                dtotalstats.tags_major_init_lost_majority = 0;
+                dtotalstats.tags_major_init_lost_majority_but_no_fanal = 0;
+                dtotalstats.tags_major_other_error = 0;
+                dtotalstats.tags_major_known_error = 0;
                 dtotalstats.tags_error = 0;
                 finalmsgall = sparse(n, mpartial);
 
@@ -973,13 +977,13 @@ for diter=1:diterations
                     end
 
 % POURQUOI est-ce que le filtrage fonctionne sur les lignes? C'est totalement du hasard! Par contre ca n'ameliore les perfs que si densité > 0.7 ou configuration particulière des paramètres du réseau (fig3tags1ehsan) si iterations >= 2, sinon ca degrade beaucoup les perfs. C'est tres tres bizarre.
+% IDEE ML pour tags net: on regarde tous les tags uniques et on garde le premier qui forme une clique de c fanaux au moins (c fanaux exactement si overlays_max == 0, sinon on peut avoir plus de fanaux que c par overlap de deux cliques qui ont les mêmes tags).
 
                     % Filter edges having a tag different than the major tag, and then filter out fanals that gets disconnected from the clique (all their incoming edges were filtered because they were of a different tag than the major tag)
                     tagmode = 1; % tagmode 1 = faithful ehsan version, we first pre-filter using GWTA or GWsTA and then we compute major tag AND use this prefiltered subnet to find the final decoded message ; tagmode 2 = modified version: prefiltered subnet is still used to compute the major tag, but then it's NOT used to find the final decoded message, we use the full subnet before prefiltering. tagmode 1 is better when overlays_max = 0 (as many tags as there are messages), and tagmode 2 is better when using any other value of overlays_max.
                     if concurrent_cliques == 1
                         major_tag = aux.fastmode(nonzeros(decoded_edges_tags)) ; % get the major tag (the one which globally appears the most often in this clique). NOTE: nonzeros somewhat slows down the processing BUT it's necessary to ensure that 0 is not chosen as the major tag (since it represents the absence of edge!) - this problem often happens when using a sparse network (Chi > c).
                         %major_tag = aux.fastmode(cellfun(@min, aux.nnzcolmode(decoded_edges))); % IDEE: faire un mode par colonne, et ensuite faire le mode de tous. Ca permettra de supprimer le biais si on a écrasé des liens d'un fanal (ce qui fait qu'on va le filtrer au GWTA puisque basé sur le nombre d'arêtes entrantes...), mais il faut quand meme qu'on filtre car sinon on risque de faire major wrong! Comme ça, meme si plusieurs fanaux n'ont que d'autres tags, il suffit que pour quelques fanaux ce soit encore le tag majoritaire et que les fanaux bien écrasés aient au moins une fois ce tag pour que le message soit bien récupéré.
-                        % IDEE ML pour tags net: on regarde tous les tags uniques et on garde le premier qui forme une clique.
                         if tagmode == 1
                             decoded_edges_tags(decoded_edges_tags ~= min(major_tag)) = 0 ; % shutdown edges who haven't got the maximum tag. NOTE: in case of ambiguity (two or more major tags), we keep the minimum (oldest) one.
                         else
@@ -1005,15 +1009,15 @@ for diter=1:diterations
                         dstats.tags_max = full(max(nonzeros(decoded_edges)));
                         dstats.tags_min = full(min(nonzeros(decoded_edges)));
                         dstats.tags_major = major_tag;
-                        if dstats.tags_max == dstats.tags_min
-                            dstats.tags_count = nnz(decoded_edges);
-                            dstats.tags_list = nonzeros(decoded_edges)(1);
-                        else
-                            ytmp = unique(nonzeros(decoded_edges));
-                            [nb val] = hist(nonzeros(decoded_edges), ytmp);
-                            dstats.tags_count = nb;
-                            dstats.tags_list = val;
-                        end
+                        % if dstats.tags_max == dstats.tags_min
+                            % dstats.tags_count = nnz(decoded_edges);
+                            % dstats.tags_list = nonzeros(decoded_edges)(1);
+                        % else
+                            % ytmp = unique(nonzeros(decoded_edges));
+                            % [nb val] = hist(nonzeros(decoded_edges), ytmp);
+                            % dstats.tags_count = nb;
+                            % dstats.tags_list = val;
+                        % end
                         dstats.tags_nbedges = numel(decoded_edges);
                         dstats.tags_nbedges_nnz = nnz(decoded_edges);
                         initm = full(init(:,mi)); % correct fanals
@@ -1021,11 +1025,13 @@ for diter=1:diterations
                         outm2 = full(finalmsg); % final decoded fanals after tags disambiguation
                         init_edges = full(net(find(initm), find(initm)));
                         out_edges = full(net(find(outm1), find(outm1)));
-                        dstats.tags_major_init = init_tags(:, mi);
+                        dstats.tags_major_init = init_tags(mi); % original tag
                         dstats.tags_major_init_fromedges = aux.fastmode(nonzeros(init_edges));
 
 
                         dstats.tags_major_init_lost = full(any(~any(ismember(init_edges, dstats.tags_major_init), 1)));
+                        dstats.tags_major_init_lost_majority = ((numel(dstats.tags_major_init_fromedges) > 1) || (dstats.tags_major_init ~= dstats.tags_major_init_fromedges));
+                        dstats.tags_major_init_lost_majority_but_no_fanal = (dstats.tags_major_init_lost_majority && ~dstats.tags_major_init_lost);
                         if dstats.tags_major_init_lost; dstats.tags_major_init_lost_detail = full(any(init_edges == dstats.tags_major_init, 1)); end;
                         dstats.tags_major_wrong = (dstats.tags_major_init ~= min(dstats.tags_major));
                         dstats.tags_major_wrong_no_lost = (~dstats.tags_major_init_lost && dstats.tags_major_wrong);
@@ -1033,15 +1039,17 @@ for diter=1:diterations
                         dstats.tags_major_propagfiltfail_only = (dstats.tags_major_propagfiltfail && ~(dstats.tags_major_init_lost || dstats.tags_major_wrong_no_lost) );
                         gmask = ones(1, size(out_edges, 1)); if exist('gwta_mask', 'var'); gmask = gwta_mask; elseif exist('gwsta_mask', 'var'); gmask = gwsta_mask; end;
                         %dstats.tags_major_gwta_filtered_wrong = any(initm(find(outm1)(~gmask)));
+                        tg = ismember(out_edges, dstats.tags_major);
+                        %dstats.tags_major_gwta_filtered_wrong = any(any(tg,1) ~= (any(tg, 1) .* any(tg(find(gmask), :), 1)));
+                        dstats.tags_major_gwta_filtered_wrong_edges_nb = nnz( tg(find(~gmask), find(ismember(find(outm1), find(initm)))) ); % if gwta filtered wrongly at least one edge that was of the major tag
+                        dstats.tags_major_gwta_filtered_wrong = full(any(any(decoded_edges == min(dstats.tags_major), 1) - any(decoded_edges_tags == min(dstats.tags_major), 1))); % if gwta filtered wrongly one fanal which had at least one edge with the major tag before, but not after gwta
+                        dstats.tags_major_gwta_filtered_wrong_only = (dstats.tags_major_gwta_filtered_wrong && ~dstats.tags_major_wrong_no_lost && ~dstats.tags_major_init_lost && ~dstats.tags_major_init_lost_majority && ~dstats.tags_major_propagfiltfail_only);
+                        %dstats.tags_major_gwta_filtered_wrong_detail = (any(tg,1) ~= (any(tg, 1) .* any(tg(find(gmask), :))));
+                        tgd = (any(tg,1) ~= (any(tg, 1) .* any(tg(find(gmask), :), 1)));
+                        tgd2 = sparse(find(outm1)(tgd), 1, 1, n, 1);
+
+
                         try
-                            tg = ismember(out_edges, dstats.tags_major);
-                            %dstats.tags_major_gwta_filtered_wrong = any(any(tg,1) ~= (any(tg, 1) .* any(tg(find(gmask), :), 1)));
-                            dstats.tags_major_gwta_filtered_wrong = any( ~any(tg(find(gmask), find(ismember(find(outm1), find(initm)))), 1) );
-                            %dstats.tags_major_gwta_filtered_wrong_detail = (any(tg,1) ~= (any(tg, 1) .* any(tg(find(gmask), :))));
-                            tgd = (any(tg,1) ~= (any(tg, 1) .* any(tg(find(gmask), :), 1)));
-                            tgd2 = sparse(find(outm1)(tgd), 1, 1, n, 1);
-
-
                             tags_compare = full([initm tgd2 outm2 outm1]);
                             tags_compare_concat = full(any(tags_compare, 2));
                             tags_compare_small = full(tags_compare(find(tags_compare_concat), :));
@@ -1054,18 +1062,20 @@ for diter=1:diterations
                         
                         %dstats
                         %keyboard
-                        if ~dstats.tags_major_wrong && ~dstats.tags_major_init_lost && ~dstats.tags_major_propagfiltfail
-                            %keyboard
-                        end
-                        
+
+                        % Total stats (for all messages)
                         dtotalstats.tags_major_wrong = dtotalstats.tags_major_wrong + dstats.tags_major_wrong;
                         dtotalstats.tags_major_init_lost = dtotalstats.tags_major_init_lost + dstats.tags_major_init_lost;
                         dtotalstats.tags_major_propagfiltfail = dtotalstats.tags_major_propagfiltfail + dstats.tags_major_propagfiltfail;
                         dtotalstats.tags_major_propagfiltfail_only = dtotalstats.tags_major_propagfiltfail_only + dstats.tags_major_propagfiltfail_only;
                         dtotalstats.tags_major_gwta_filtered_wrong = dtotalstats.tags_major_gwta_filtered_wrong + dstats.tags_major_gwta_filtered_wrong;
+                        dtotalstats.tags_major_gwta_filtered_wrong_only = dtotalstats.tags_major_gwta_filtered_wrong_only + dstats.tags_major_gwta_filtered_wrong_only;
                         dtotalstats.tags_major_wrong_no_lost = dtotalstats.tags_major_wrong_no_lost + dstats.tags_major_wrong_no_lost;
-                        if ~dstats.tags_major_wrong && ~dstats.tags_major_init_lost && ~dstats.tags_major_propagfiltfail && ~dstats.tags_major_gwta_filtered_wrong
+                        dtotalstats.tags_major_init_lost_majority = dtotalstats.tags_major_init_lost_majority + dstats.tags_major_init_lost_majority;
+                        dtotalstats.tags_major_init_lost_majority_but_no_fanal = dtotalstats.tags_major_init_lost_majority_but_no_fanal + dstats.tags_major_init_lost_majority_but_no_fanal;
+                        if ~dstats.tags_major_init_lost && ~dstats.tags_major_wrong_no_lost && ~dstats.tags_major_propagfiltfail_only && ~dstats.tags_major_gwta_filtered_wrong_only && ~dstats.tags_major_init_lost_majority_but_no_fanal
                             dtotalstats.tags_major_other_error = dtotalstats.tags_major_other_error + 1;
+                            %keyboard
                         else
                             dtotalstats.tags_major_known_error = dtotalstats.tags_major_known_error + 1;
                         end
@@ -1075,7 +1085,7 @@ for diter=1:diterations
                     % Finally, replace the disambiguated message back into the stack
                     out(:,mi) = sparse(decoded_fanals, 1, 1, n, 1);
                 end
-                dtotalstats.tags_error_predicted = dtotalstats.tags_major_wrong_no_lost + dtotalstats.tags_major_init_lost + dtotalstats.tags_major_propagfiltfail_only;
+                dtotalstats.tags_error_predicted = dtotalstats.tags_major_wrong_no_lost + dtotalstats.tags_major_init_lost + dtotalstats.tags_major_propagfiltfail_only + dtotalstats.tags_major_gwta_filtered_wrong_only + dtotalstats.tags_major_init_lost_majority_but_no_fanal;
                 dtotalstats.tags_wrong_lost_ratio = dtotalstats.tags_major_wrong_no_lost / dtotalstats.tags_major_init_lost;
                 dtotalstats.tags_max = full(max(nonzeros(net)));
                 dtotalstats.tags_min = full(min(nonzeros(net)));
