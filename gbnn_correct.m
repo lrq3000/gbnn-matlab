@@ -949,32 +949,32 @@ for diter=1:diterations
 
                     decoded_edges_tags = decoded_edges;
                     % Filter useless fanals (fanals that do not possess as many edges as the maximum - meaning they're not part of the clique). Note: This is a pre-processing enhancement step, but it's not necessary if you use fastmode(nonzeros(decoded_edges)) (the nonzeros will take care of the false 0 tag) BUT it greatly enhances the performances when using iterations > 1.
-                    if concurrent_cliques == 1 && ~concurrent_disequilibrium % use GWTA to filter if we have only one clique and no disequilibrium, because if we have multiple concurrent cliques this won't work because the cliques may have different number of edges and shared fanals may have a lot of edges, but only this shared fanal will be kept and the others correct fanals will be filtered out because they have less edges than the shared fanal. Also avoid if concurrent_disequilibrium is enabled, for similar reasons AND because we don't want to filter out possibly correct fanals, which this does (check with matching measure, this trick here lowers down the matching).
-                        % Filter using GWTA (keep only the fanals with max score)
-                        fanal_scores = sum(sign(decoded_edges));
-                        winning_score = max(fanal_scores);
-                        gwta_mask = (fanal_scores == winning_score);
-                        decoded_edges_tags = decoded_edges(gwta_mask, :) ; % update our network
-                        %decoded_edges_tags = decoded_edges(:, gwta_mask); % Alternative way of updating the network, normally the theoretically correct one but it gives a huge decrease in performances
-                        %decoded_edges_tags = decoded_edges(gwta_mask, gwta_mask); % Alternative way of updating the network, normally the theoretically correct one but it gives a huge decrease in performances
-                        %decoded_fanals = decoded_fanals(gwta_mask);
-                    else % else i we have concurrent cliques and/or disequilibrium, use GWSTA to filter (because GWTA won't work in concurrent case).
-                    % NOTE: this is even less necessary than in the non concurrent cliques case, here it only provides a small performance boost (but significative), so it's up to you to see if the additional CPU time needed to do the GWSTA filtering is worth it, but keep in mind that filtering also speeds up the tags filtering below, because we remove fanals whose edges won't have to be tag checked!
-                        fanal_scores = sum(sign(decoded_edges));
-                        if numel(fanal_scores) > (c * concurrent_cliques)
-                            % Filter using GWSTA (reject fanals below the kth max score)
-                            max_scores = sort(fanal_scores,'descend'); % sort scores
-                            kmax_score = max_scores(k); % get the kth max score
-                            kmax_score(kmax_score == 0) = realmin(); % No false winner trick: filter out kth winners that have value 0 by replacing the threshold with the minimum real value (greater than 0)
-                            gwsta_mask = fanal_scores >= kmax_score; % filter out all fanals that get a score below the kth winner
-                            decoded_edges_tags = decoded_edges(gwsta_mask, :); % update our network
-                            %decoded_edges_tags = decoded_edges(:, gwsta_mask); % Alternative way of updating the network, normally the theoretically correct one but it gives a huge decrease in performances
+                    % if concurrent_cliques == 1 && ~concurrent_disequilibrium % use GWTA to filter if we have only one clique and no disequilibrium, because if we have multiple concurrent cliques this won't work because the cliques may have different number of edges and shared fanals may have a lot of edges, but only this shared fanal will be kept and the others correct fanals will be filtered out because they have less edges than the shared fanal. Also avoid if concurrent_disequilibrium is enabled, for similar reasons AND because we don't want to filter out possibly correct fanals, which this does (check with matching measure, this trick here lowers down the matching).
+                        % % Filter using GWTA (keep only the fanals with max score)
+                        % fanal_scores = sum(sign(decoded_edges));
+                        % winning_score = max(fanal_scores);
+                        % gwta_mask = (fanal_scores == winning_score);
+                        % decoded_edges_tags = decoded_edges(gwta_mask, :) ; % update our network
+                        % %decoded_edges_tags = decoded_edges(:, gwta_mask); % Alternative way of updating the network, normally the theoretically correct one but it gives a huge decrease in performances
+                        % %decoded_edges_tags = decoded_edges(gwta_mask, gwta_mask); % Alternative way of updating the network, normally the theoretically correct one but it gives a huge decrease in performances
+                        % %decoded_fanals = decoded_fanals(gwta_mask);
+                    % else % else i we have concurrent cliques and/or disequilibrium, use GWSTA to filter (because GWTA won't work in concurrent case).
+                    % % NOTE: this is even less necessary than in the non concurrent cliques case, here it only provides a small performance boost (but significative), so it's up to you to see if the additional CPU time needed to do the GWSTA filtering is worth it, but keep in mind that filtering also speeds up the tags filtering below, because we remove fanals whose edges won't have to be tag checked!
+                        % fanal_scores = sum(sign(decoded_edges));
+                        % if numel(fanal_scores) > (c * concurrent_cliques)
+                            % % Filter using GWSTA (reject fanals below the kth max score)
+                            % max_scores = sort(fanal_scores,'descend'); % sort scores
+                            % kmax_score = max_scores(k); % get the kth max score
+                            % kmax_score(kmax_score == 0) = realmin(); % No false winner trick: filter out kth winners that have value 0 by replacing the threshold with the minimum real value (greater than 0)
+                            % gwsta_mask = fanal_scores >= kmax_score; % filter out all fanals that get a score below the kth winner
+                            % decoded_edges_tags = decoded_edges(gwsta_mask, :); % update our network
+                            % %decoded_edges_tags = decoded_edges(:, gwsta_mask); % Alternative way of updating the network, normally the theoretically correct one but it gives a huge decrease in performances
                             
-                            % Alternative methods with lesser performances
-                            %decoded_edges = decoded_edges((fanal_scores ~= min(nonzeros(fanal_scores))), :);
-                            %decoded_edges = decoded_edges(ismember(fanal_scores, aux.fastmode(nonzeros(fanal_scores))), :);
-                        end
-                    end
+                            % % Alternative methods with lesser performances
+                            % %decoded_edges = decoded_edges((fanal_scores ~= min(nonzeros(fanal_scores))), :);
+                            % %decoded_edges = decoded_edges(ismember(fanal_scores, aux.fastmode(nonzeros(fanal_scores))), :);
+                        % end
+                    % end
 
 % POURQUOI est-ce que le filtrage fonctionne sur les lignes? C'est totalement du hasard! Par contre ca n'ameliore les perfs que si densité > 0.7 ou configuration particulière des paramètres du réseau (fig3tags1ehsan) si iterations >= 2, sinon ca degrade beaucoup les perfs. C'est tres tres bizarre.
 % IDEE ML pour tags net: on regarde tous les tags uniques et on garde le premier qui forme une clique de c fanaux au moins (c fanaux exactement si overlays_max == 0, sinon on peut avoir plus de fanaux que c par overlap de deux cliques qui ont les mêmes tags).
