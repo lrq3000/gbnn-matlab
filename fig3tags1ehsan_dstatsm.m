@@ -23,7 +23,7 @@ c = 8;
 l = 32;
 Chi = 16;
 erasures = floor(c/2); %floor(c*0.25);
-iterations = 1; % for convergence
+iterations = 2; % for convergence
 tampered_messages_per_test = 30;
 tests = 1;
 
