@@ -145,10 +145,12 @@ if enable_overlays
         % Random uniform reduction: reassign a random id to every message, in the range of overlays_max. Eg: for overlays_max == 3, the network [1 1 3 3 ; 5 5 7 7] _can_ be reduced to [2 2 1 1 ; 2 2 3 3] or to any other randomly picked set of reassignment. Note that all messages with the same id will be reassigned to the same id (eg: [1 1 1] can be reassigned to [3 3 3] but NOT to [1 2 3] because this breaks the message into parts instead of preserving it).
         elseif strcmpi(overlays_interpolation, 'uniform')
             maxa = max(nonzeros(net));
-            random_map = randi(overlays_max, maxa, 1);
-            % net = spfun(@(x) random_map(x), net); % SLOWER than direct indexing!
-            net(net > 0) = random_map(nonzeros(net)); % faster!
-            if ~isempty(init_tags); init_tags = random_map(init_tags)'; end;
+            if maxa > overlays_max
+                random_map = randi(overlays_max, maxa, 1);
+                % net = spfun(@(x) random_map(x), net); % SLOWER than direct indexing!
+                net(net > 0) = random_map(nonzeros(net)); % faster!
+                if ~isempty(init_tags); init_tags = random_map(init_tags)'; end;
+            end
         end
     end
 end

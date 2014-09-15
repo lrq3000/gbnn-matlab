@@ -482,11 +482,65 @@ if enable_overlays && strcmpi(propagation_rule, 'overlays') && overlays_max ~= 1
     end
 
 % Error rate for tagged network (TODO: not yet complete!)
-%elseif enable_overlays && overlays_max ~= 1
+elseif enable_overlays && overlays_max ~= 1
     %theoretical_error_rate = 1-(1-real_density^(c-1))^c;
     %theoretical_error_rate = (1-binocdf(floor(((c*(c-1))/2)/2), ((c*(c-1))/2), real_density))^overlays_max;
     %theoretical_error_rate = (1-binocdf(c*erasures, ((c*(c-1))/2), real_density))^overlays_max;
     % reseau trop petit = saturation? si overlays_max > nombre de cliques possibles à stocker dans le réseau alors erreur monte d'un coup? ca expliquerait la courbe d'Ehsan: son réseau était beaucoup plus grand ou les cliques beaucoup plus petites.
+    
+    maxtag = overlays_max;
+    if maxtag == 0; maxtag = max(max(cnetwork.primary.net)); end;
+    
+    compute_lost_error = 0;
+    if compute_lost_error
+        init_lost_total = 0;
+        for mi=1:maxtag
+            fanals_idxs = find(thriftymessagestest'(:,mi));
+            init_edges = cnetwork.primary.net(fanals_idxs, fanals_idxs);
+            init_lost = any(~any(ismember(init_edges, mi), 1));
+            init_lost_total = init_lost_total + init_lost;
+        end
+        lost_error = (init_lost_total/maxtag);
+    end
+    
+    cliquesize = (c*(c-1)/2);
+    netsize = (n*(n-1)/2);
+    %theoretical_error_rate = 1-binocdf((c-1), cliquesize * (maxtag-1), 1/netsize)^c;
+    theoretical_error_rate = (1-(1-binocdf(1, cliquesize * (maxtag-1), 1/netsize)^c)^c)/2;
+    %theoretical_error_rate = (1-binocdf(1, cliquesize * (maxtag-1), 1/netsize)^c)^maxtag;
+    %theoretical_error_rate = 1-(1-binopdf(7, cliquesize*(maxtag-1), 1/netsize)^c)^maxtag;
+    % TROUVER pourquoi avec binocdf maxtag/2 a moins que maxtag, normalement on a plus de chances!
+    
+    %p_edge_overwritten = 1/netsize;
+    %p_not_eo_by_one_clique = (1-p_edge_overwritten)^cliquesize;
+    %(1-(1-p_not_eo_by_one_clique)^c)^maxtag;
+
+    % CLOSE!
+    %p_edge_overwritten = c/netsize;
+    %p_not_eo_by_one_clique = (1-p_edge_overwritten)^maxtag;
+    %theoretical_error_rate = 1 - p_not_eo_by_one_clique;
+    
+    % ALT but too low
+    %theoretical_error_rate = (1-((1-(1/netsize))^maxtag)^c)/2;
+    
+    p_eo = 1/netsize;
+    p_clique =1-(1-p_eo)^c;
+    p_allmsg = (1-p_clique)^(maxtag-1);
+    theoretical_error_rate = 1 - p_allmsg;
+    
+    % on choisit une arête sur 
+    
+    % p_eo = 1/netsize;
+    % p_clique =1-(1-p_eo)^cliquesize;
+    % p_allmsg = (1-p_clique)^(c*(maxtag-1));
+    % theoretical_error_rate = 1 - p_allmsg;
+
+    % VERY close!
+    p_eo = 1/netsize;
+    p_clique =1-(1-p_eo)^cliquesize;
+    p_allmsg = (1-p_clique)^(maxtag-1);
+    theoretical_error_rate = (1 - p_allmsg)^c;
+    %keyboard
 
 % Standard theoretical error rate computation
 else

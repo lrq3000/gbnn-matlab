@@ -44,7 +44,7 @@ overlays_max = [1000 0];
 overlays_interpolation = {'uniform'};
 
 % Plot tweaking
-statstries = 3; % retry n times with different networks to average (and thus smooth) the results
+statstries = 1; % retry n times with different networks to average (and thus smooth) the results
 smooth_factor = 1; % interpolate more points to get smoother curves. Set to 1 to avoid smoothing (and thus plot only the point of the real samples).
 smooth_method = 'cubic'; % use PCHIP or cubic to avoid interpolating into negative values as spline does
 plot_curves_params = { 'markersize', 10, ...
@@ -119,14 +119,33 @@ for t=1:statstries
 
                 % Compute the fanal tag overwriting error
                 fprintf('=> Computing the fanal tag overwriting error.\n'); aux.flushout(); % print total time elapsed
-                max_tag = M(m)*Mcoeff
+                net = cnetwork.primary.net;
+                if overlays_max(om) > 0
+                    maxa = max(nonzeros(net));
+                    if maxa > overlays_max(om)
+                        random_map = randi(overlays_max(om), maxa, 1);
+                        net(net > 0) = random_map(nonzeros(net)); % faster!
+                    end
+                end
+
+                max_tag = M(m)*Mcoeff;
                 init_lost_total = 0;
                 for mi=1:max_tag
+                    % Find if one of the fanals in the original clique lost its original tag on all of its edges (effectively losing this fanal for this clique)
                     fanals_idxs = find(thriftymessages'(:,mi));
-                    init_edges = cnetwork.primary.net(fanals_idxs, fanals_idxs);
+                    init_edges = net(fanals_idxs, fanals_idxs);
                     init_lost = any(~any(ismember(init_edges, mi), 1));
-                    init_lost_total = init_lost_total + init_lost;
+                    % Find edges outside the clique but linked to the clique that got assigned to the same tag. If one such edge exists, then when we will decode we will inevitably also keep wrong fanals outside the clique.
+                    init_conflict = 0;
+                    if overlays_max(om) > 0
+                        other_fanals_idxs = find(~thriftymessages'(:,mi));
+                        other_edges = net(other_fanals_idxs, fanals_idxs); % other_edges = net(:, other_fanals_idxs);
+                        init_conflict = any(any(ismember(other_edges, mi), 1));
+                    end
+                    % Compute the error
+                    init_lost_total = init_lost_total + (init_lost || init_conflict);
                 end
+                % Compute the ratio
                 LostEv(m, counter) = LostEv(m, counter) + (init_lost_total/max_tag);
 
                 if ~silent; fprintf('-----------------------------\n\n'); end;
@@ -205,6 +224,12 @@ for om=numel(overlays_max):-1:1
             plot_title = strcat(plot_title, sprintf(' (%s)', overlays_interpolation{oi}));
         end
         set(cur_plot, 'DisplayName', plot_title); % add the legend per plot, this is the best method, which also works with scatterplots and polar plots, see http://hattb.wordpress.com/2010/02/10/appending-legends-and-plots-in-matlab/
+
+        cc2 = 8;
+        coloridx = mod(cc2-1, numel(colorvec))+1; lstyleidx = mod(counter-1, numel(linestylevec))+1; mstyleidx = mod(counter-1, numel(markerstylevec))+1; lstyle = linestylevec(lstyleidx, 1); lstyle = lstyle{1}; % for MatLab, can't do that in one command...
+        cur_plot = plot(D_interp, LostEv_interp(:,end+1-counter), sprintf('%s%s%s', lstyle, markerstylevec(mstyleidx), colorvec(coloridx)));
+        set(cur_plot, plot_curves_params{:}); % additional plot style
+        set(cur_plot, 'DisplayName', strcat(plot_title, ' - lost evolution')); % add the legend per plot, this is the best method, which also works with scatterplots and polar plots, see http://hattb.wordpress.com/2010/02/10/appending-legends-and-plots-in-matlab/
 
         counter = counter + 1;
     end
