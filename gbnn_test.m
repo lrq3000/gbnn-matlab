@@ -488,10 +488,9 @@ elseif enable_overlays && overlays_max ~= 1
     %theoretical_error_rate = (1-binocdf(c*erasures, ((c*(c-1))/2), real_density))^overlays_max;
     % reseau trop petit = saturation? si overlays_max > nombre de cliques possibles à stocker dans le réseau alors erreur monte d'un coup? ca expliquerait la courbe d'Ehsan: son réseau était beaucoup plus grand ou les cliques beaucoup plus petites.
     
-    maxtag = overlays_max;
-    if maxtag == 0; maxtag = max(max(cnetwork.primary.net)); end;
-    
-    compute_lost_error = 0;
+    maxtag = max(max(cnetwork.primary.net));
+
+    compute_lost_error = 1;
     if compute_lost_error
         init_lost_total = 0;
         for mi=1:maxtag
@@ -503,8 +502,8 @@ elseif enable_overlays && overlays_max ~= 1
         lost_error = (init_lost_total/maxtag);
     end
     
-    cliquesize = (c*(c-1)/2);
-    netsize = (n*(n-1)/2);
+    cliquesize = (c.*(c-1)/2);
+    netsize = (Chi*(Chi-1) * l.^2) / 2;
     %theoretical_error_rate = 1-binocdf((c-1), cliquesize * (maxtag-1), 1/netsize)^c;
     theoretical_error_rate = (1-(1-binocdf(1, cliquesize * (maxtag-1), 1/netsize)^c)^c)/2;
     %theoretical_error_rate = (1-binocdf(1, cliquesize * (maxtag-1), 1/netsize)^c)^maxtag;
@@ -540,6 +539,12 @@ elseif enable_overlays && overlays_max ~= 1
     p_clique =1-(1-p_eo)^cliquesize;
     p_allmsg = (1-p_clique)^(maxtag-1);
     theoretical_error_rate = (1 - p_allmsg)^c;
+    % (1-(1-p_eo)^(cliquesize*(maxtag-1)))^c
+    if overlays_max > 1 % TODO
+        p_other = binocdf(0, c, 1/overlays_max); % proba that another edge outside the clique got the same tag, hence provoking a parasite
+        
+    end
+    
     %keyboard
 
 % Standard theoretical error rate computation

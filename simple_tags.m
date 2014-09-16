@@ -8,10 +8,10 @@ close all;
 aux = gbnn_aux; % works with both MatLab and Octave
 
 % Primary network params
-m = 0.99; % 10000;
+m = 0.9; % 10000;
 miterator = 0;
-c = 8; % 8;
-l = 16; % 32;
+c = 4; % 8;
+l = 32; % 32;
 Chi = 16; % 64;
 gamma_memory = 0; % gamma 0 is best for tags
 iterations = 2; % IMPORTANT: try with 1 and with 4 iterations, because both will give different results for different overlays_rule
