@@ -132,20 +132,21 @@ netargs = cnetwork.(cnetwork_choose).args;
 % Note: we reduce the number of tags at correction and not at learning just for efficiency sake in experiments: this allows us to learn only one network and then try any number of tags we want with any method without having to recompute the network everytime. Of course, in a real setting, you should do the reduction just after the learning (or even during) to reduce the prediction/correction step footprint (at the cost of a longer learning step).
 if enable_overlays
     if overlays_max > 0 % If overlays_max == 0 then we use all overlays
-        % Modulo reduction: use a sort of roulette to assign new overlay ids. Eg: for overlays_max == 3, the network [1 2 3 ; 4 5 6] will be reduced to [1 2 3 ; 1 2 3]
-        if strcmpi(overlays_interpolation, 'mod')
-            net = spfun(@(x) mod(x-1, overlays_max)+1, net);
-        % Renormalization reduction: renormalize all overlays into the reduced range, but preserve their order (old messages will still get the lowest numbers and most recent messages will have highest). Eg: for overlays_max == 3, the network [1 2 3 ; 4 5 6] will be reduced to [1 1 2 ; 2 3 3]
-        elseif strcmpi(overlays_interpolation, 'norm')
-            maxa = max(nonzeros(net));
-            mina = min(nonzeros(net));
-            net = ceil(spfun(@(x) ((x-(mina-1)) / (maxa-(mina-1))), net) * overlays_max); % note: we use ceil to make sure that we don't lose any fanal because of rounding (near 0 isn't 0 but is an activable fanal, thus we should not set it to 0)
-        % Random uniform reduction: reassign a random id to every message, in the range of overlays_max. Eg: for overlays_max == 3, the network [1 1 3 3 ; 5 5 7 7] _can_ be reduced to [2 2 1 1 ; 2 2 3 3] or to any other randomly picked set of reassignment. Note that all messages with the same id will be reassigned to the same id (eg: [1 1 1] can be reassigned to [3 3 3] but NOT to [1 2 3] because this breaks the message into parts instead of preserving it).
-        elseif strcmpi(overlays_interpolation, 'uniform')
-            maxa = max(nonzeros(net));
-            random_map = randi(overlays_max, maxa, 1);
-            % net = spfun(@(x) random_map(x), net); % SLOWER than direct indexing!
-            net(net > 0) = random_map(nonzeros(net)); % faster!
+        maxa = max(nonzeros(net));
+        if maxa > overlays_max % and reassign tags only if necessary (if the number of messages is above the number of tags) - this check is optional and does not change the result, this is just an optimization to save CPU cycles
+            % Modulo reduction: use a sort of roulette to assign new overlay ids. Eg: for overlays_max == 3, the network [1 2 3 ; 4 5 6] will be reduced to [1 2 3 ; 1 2 3]
+            if strcmpi(overlays_interpolation, 'mod')
+                net = spfun(@(x) mod(x-1, overlays_max)+1, net);
+            % Renormalization reduction: renormalize all overlays into the reduced range, but preserve their order (old messages will still get the lowest numbers and most recent messages will have highest). Eg: for overlays_max == 3, the network [1 2 3 ; 4 5 6] will be reduced to [1 1 2 ; 2 3 3]
+            elseif strcmpi(overlays_interpolation, 'norm')
+                mina = min(nonzeros(net));
+                net = ceil(spfun(@(x) ((x-(mina-1)) / (maxa-(mina-1))), net) * overlays_max); % note: we use ceil to make sure that we don't lose any fanal because of rounding (near 0 isn't 0 but is an activable fanal, thus we should not set it to 0)
+            % Random uniform reduction: reassign a random id to every message, in the range of overlays_max. Eg: for overlays_max == 3, the network [1 1 3 3 ; 5 5 7 7] _can_ be reduced to [2 2 1 1 ; 2 2 3 3] or to any other randomly picked set of reassignment. Note that all messages with the same id will be reassigned to the same id (eg: [1 1 1] can be reassigned to [3 3 3] but NOT to [1 2 3] because this breaks the message into parts instead of preserving it).
+            elseif strcmpi(overlays_interpolation, 'uniform')
+                random_map = randi(overlays_max, maxa, 1);
+                % net = spfun(@(x) random_map(x), net); % SLOWER than direct indexing!
+                net(net > 0) = random_map(nonzeros(net)); % faster!
+            end
         end
     end
 end

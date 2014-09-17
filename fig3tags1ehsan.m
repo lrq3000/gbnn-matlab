@@ -58,7 +58,7 @@ plot_text_params = { 'FontSize', 12, ... % in points
                                        'FontName', 'Helvetica' ...
                                        };
 
-plot_theo = false; % plot theoretical error rates?
+plot_theo = true; % plot theoretical error rates?
 silent = false; % If you don't want to see the progress output
 
 % == Launching the runs

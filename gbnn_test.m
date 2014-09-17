@@ -460,23 +460,34 @@ real_density = full(  (nnz(cnetwork.primary.net) - nnz(diag(cnetwork.primary.net
 
 % Compute theoretical error rate
 theoretical_error_rate = -1;
-% Another error rate attempt for tagged network (TODO: not yet complete!)
-if enable_overlays && strcmpi(propagation_rule, 'overlays') && overlays_max ~= 1
-    if overlays_max == 0
-        coeff = max(max(cnetwork.primary.net));
-    else
-        coeff = overlays_max;
-    end
-    real_density = real_density / coeff;
-    if ~enable_guiding
-        theoretical_error_rate = 1 - (1 - real_density)^(erasures*(l-1)+l*(Chi-c));
-    else
-        theoretical_error_rate = 1 - (1 - real_density)^(erasures*(l-1));
-    end
 
-% Error rate for tagged network (TODO: not yet complete!)
-%elseif enable_overlays && overlays_max ~= 1
-    %theoretical_error_rate = 1-(1-real_density^(c-1))^c;
+% Error rate for tagged network
+if enable_overlays && overlays_max ~= 1
+    maxtag = max(max(cnetwork.primary.net));
+
+    % Compute the theoretical lost error rate (the number of tagged cliques whose all edges were overwritten by another tag, hence losing the fanal for this clique, and hence losing this clique)
+    % NOTE: this error depends solely on the structure of the network, ie: on the learning step. The decoding step doesn't have any influence on this error.
+    compute_lost_error = 0;
+    if compute_lost_error
+        init_lost_total = 0;
+        for mi=1:maxtag
+            fanals_idxs = find(thriftymessagestest'(:,mi));
+            init_edges = cnetwork.primary.net(fanals_idxs, fanals_idxs);
+            init_lost = any(~any(ismember(init_edges, mi), 1));
+            init_lost_total = init_lost_total + init_lost;
+        end
+        lost_error = (init_lost_total/maxtag);
+    end
+    
+    cliquesize = (c.*(c-1)/2);
+    netsize = (Chi*(Chi-1) * l.^2) / 2;
+
+    % VERY close! Compute the theoretical lost rate, which is close to the error rate (this is the main kind of error for the tagged network)
+    % NOTE: we assume that all messages are independently overwriting the edges, which is not the case, thus this is an approximation
+    count_learnt_msg = maxtag;
+    p_eo = 1-(1/netsize); % proba that a new edge overwrites any other edge EXCEPT one of the node we don't want to overwrite
+    p_allmsg = p_eo^(cliquesize*(count_learnt_msg-1)); % proba that the edge does not get overwritten by any learnt message
+    theoretical_error_rate = (1 - p_allmsg)^c; % proba that the edge GETS overwritten by any learnt message, and we multiply c times because for the node to be lost, we need to lose c edges, not just one
 
 % Standard theoretical error rate computation
 else

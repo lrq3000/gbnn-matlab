@@ -27,7 +27,7 @@ tampered_messages_per_test = 30;
 tests = 1;
 
 enable_guiding = false;
-gamma_memory = 1;
+gamma_memory = 0;
 threshold = 0;
 propagation_rule = 'sum';
 filtering_rule = {'GWsTA', 'GWsTA', 'GWsTA', 'GWsTA', 'GWsTA'}; % this is a cell array (vector of strings) because we will try several different values of c (order of cliques)
