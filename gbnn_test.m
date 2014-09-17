@@ -507,8 +507,12 @@ elseif enable_overlays && overlays_max ~= 1
     %theoretical_error_rate = 1-binocdf((c-1), cliquesize * (maxtag-1), 1/netsize)^c;
     theoretical_error_rate = (1-(1-binocdf(1, cliquesize * (maxtag-1), 1/netsize)^c)^c)/2;
     %theoretical_error_rate = (1-binocdf(1, cliquesize * (maxtag-1), 1/netsize)^c)^maxtag;
-    %theoretical_error_rate = 1-(1-binopdf(7, cliquesize*(maxtag-1), 1/netsize)^c)^maxtag;
+    %theoretical_error_rate = 1-(1-binopdf(c-1, cliquesize*(maxtag-1), 1/netsize)^c)^maxtag;
     % TROUVER pourquoi avec binocdf maxtag/2 a moins que maxtag, normalement on a plus de chances!
+    
+    % not working
+    %(1-(1-binocdf(1, (c*(c-1)/2) * (overlays_max-1), 1/(n*(n-1)/2)))^c)^c; % proba qu'au moins une arête soit choisie parmis les arêtes d'une autre clique, multiplié par toutes les cliques qu'on va apprendre (overlays_max ou count_learnt_msg), on prend le complément car on veut qu'il n'y ait pas au moins une arête de perdue, on multiplie par le nombre d'arêtes pour un fanal (c) et ensuite on multiplie par le nombre de fanaux de la clique? (car il ne faut pas qu'au moins un fanal ne soit perdu). Dernière partie à revoir.
+    %1-binocdf((c-1), (c*(c-1)/2) * (overlays_max-1), 1/(n*(n-1)/2))^c;
     
     %p_edge_overwritten = 1/netsize;
     %p_not_eo_by_one_clique = (1-p_edge_overwritten)^cliquesize;
@@ -535,10 +539,10 @@ elseif enable_overlays && overlays_max ~= 1
     % theoretical_error_rate = 1 - p_allmsg;
 
     % VERY close!
-    p_eo = 1/netsize;
-    p_clique =1-(1-p_eo)^cliquesize;
-    p_allmsg = (1-p_clique)^(maxtag-1);
-    theoretical_error_rate = (1 - p_allmsg)^c;
+    count_learnt_msg = maxtag;
+    p_eo = 1-1/netsize; % proba that a new edge overwrites any other edge EXCEPT one of the node we don't want to overwrite
+    p_allmsg = p_eo^(cliquesize*(count_learnt_msg-1)); % proba that the edge does not get overwritten by any learnt message
+    theoretical_error_rate = (1 - p_allmsg)^c; % proba that the edge GETS overwritten by any learnt message, and we multiply c times because for the node to be lost, we need to lose c edges, not just one
     % (1-(1-p_eo)^(cliquesize*(maxtag-1)))^c
     if overlays_max > 1 % TODO
         p_other = binocdf(0, c, 1/overlays_max); % proba that another edge outside the clique got the same tag, hence provoking a parasite
