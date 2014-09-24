@@ -111,7 +111,7 @@ close all;
 aux = gbnn_aux; % works with both MatLab and Octave
 
 % Vars config, tweak the stuff here
-m = 10E4;
+m = 10E4; % can be one of 3 types: a scalar > 1 to specify the exact number of messages to generate and learn ; or a scalar between [0, 1] to specify the density the network should have after learning ; or a matrix of real messages you want to learn.
 miterator = 0;
 c = 8;
 l = 64;
@@ -122,25 +122,41 @@ tampered_messages_per_test = 2000;
 tests = 1;
 
 enable_guiding = false;
-gamma_memory = 0;
+gamma_memory = 1;
 threshold = c-erasures;
 propagation_rule = 'sum'; % TODO: not implemented yet, please always set 0 here
 filtering_rule = 'GWsTA';
 tampering_type = 'erase';
 
 residual_memory = 0;
-concurrent_cliques = 1;
-no_concurrent_overlap = true;
-concurrent_successive = false;
 filtering_rule_first_iteration = false;
 filtering_rule_last_iteration = false;
 
-training = false; % switch to true to do the training step (disambiguation of conflicting memories)
-c2 = 2; % should be << c
-l2 = 1; % can be set to 1
-Chi2 = Chi;
-trainingbatchs = 2;
-no_auxiliary_propagation = true;
+% Overlays / Tags
+enable_overlays = false; % enable tags/overlays disambiguation?
+overlays_max = 0; % 0 for maximum number of tags (as many tags as messages/cliques) ; 1 to use only one tag (equivalent to standard network without tags) ; n > 1 for any definite number of tags
+overlays_interpolation = 'uniform'; % interpolation method to reduce the number of tags when overlays_max > 1: uniform, mod or norm
+
+% Concurrency parameters
+concurrent_cliques = 1;
+no_concurrent_overlap = true;
+concurrent_successive = false;
+concurrent_disequilibrium = 1; % 1 for superscore mode, 2 for one fanal erasure, 3 for nothing at all just trying to decode one clique at a time without any trick, 0 to disable
+
+% Training params (auxiliary network)
+train = false;
+c2 = 2;
+l2 = Chi;
+Chi2 = 2;
+training_batchs = 1;
+trainsetsize = m*training_batchs; %floor(m/trainingbatchs);
+no_auxiliary_propagation = false; % false for concur cliques
+train_on_full_cliques = 0; % false for concur cliques
+train_enable_dropconnect = false;
+train_dropconnect_p = 0.9;
+train_subsampling_p = []; % [] to disable, value between 0 and 1 to enable
+enable_dropconnect = false;
+dropconnect_p = 0;
 
 silent = false; % If you don't want to see the progress output
 
@@ -151,8 +167,14 @@ tperf = cputime();
 [cnetwork, thriftymessages, density] = gbnn_learn('m', m, 'miterator', miterator, 'l', l, 'c', c, 'Chi', Chi, 'silent', silent);
 
 % Training phase (optional)
-if training
-    cnetwork = gbnn_train('cnetwork', cnetwork, 'thriftymessagestest', thriftymessages, 'l', l2, 'c', c2, 'Chi', Chi2, 'tampered_messages_per_test', tampered_messages_per_test, 'tests', trainingbatchs, 'no_auxiliary_propagation', no_auxiliary_propagation);
+if train
+    fprintf('Training the network...\n'); aux.flushout();
+    [cnetwork, real_density_aux, real_density_bridge, auxfullcell] = gbnn_train('cnetwork', cnetwork, 'thriftymessagestest', thriftymessages, 'l', l2, 'c', c2, 'Chi', Chi2, ...
+                                             'tampered_messages_per_test', trainsetsize, 'training_batchs', training_batchs, 'no_auxiliary_propagation', no_auxiliary_propagation, 'train_on_full_cliques', train_on_full_cliques, ...
+                                             'iterations', iterations, 'enable_guiding', enable_guiding, 'gamma_memory', gamma_memory, 'filtering_rule', filtering_rule, 'erasures', erasures, ...
+                                             'concurrent_cliques', concurrent_cliques, 'no_concurrent_overlap', no_concurrent_overlap, ...
+                                             'enable_dropconnect', train_enable_dropconnect, 'dropconnect_p', train_dropconnect_p, 'subsampling_p', train_subsampling_p, ...
+                                             'silent', true);
 end
 
 % Testing phase
@@ -160,6 +182,9 @@ error_rate = gbnn_test('cnetwork', cnetwork, 'thriftymessagestest', thriftymessa
                                                                                   'erasures', erasures, 'iterations', iterations, 'tampered_messages_per_test', tampered_messages_per_test, 'tests', tests, ...
                                                                                   'enable_guiding', enable_guiding, 'gamma_memory', gamma_memory, 'threshold', threshold, 'propagation_rule', propagation_rule, 'filtering_rule', filtering_rule, 'tampering_type', tampering_type, ...
                                                                                   'residual_memory', residual_memory, 'concurrent_cliques', concurrent_cliques, 'no_concurrent_overlap', no_concurrent_overlap, 'concurrent_successive', concurrent_successive, 'filtering_rule_first_iteration', filtering_rule_first_iteration, 'filtering_rule_last_iteration', filtering_rule_last_iteration, ...
+                                                                                  'enable_overlays', enable_overlays, 'overlays_max', overlays_max, 'overlays_interpolation', overlays_interpolation, ...
+                                                                                  'concurrent_disequilibrium', concurrent_disequilibrium, ...
+                                                                                  'enable_dropconnect', enable_dropconnect, 'dropconnect_p', dropconnect_p, ...
                                                                                   'silent', silent);
 aux.printcputime(cputime() - tperf, 'Total cpu time elapsed to do everything: %g seconds.\n'); aux.flushout(); % print total time elapsed
 

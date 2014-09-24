@@ -23,8 +23,6 @@ tampered_messages_per_test = 100;
 filtering_rule = 'GWsTA';
 erasures = 2; %floor(c/2);
 enable_guiding = false;
-enable_dropconnect = false;
-dropconnect_p = 0;
 
 % Training params (auxiliary network)
 train = true;
@@ -38,6 +36,8 @@ train_on_full_cliques = 0; % false for concur cliques
 train_enable_dropconnect = false;
 train_dropconnect_p = 0.9;
 train_subsampling_p = []; % [] to disable, value between 0 and 1 to enable
+enable_dropconnect = false;
+dropconnect_p = 0;
 
 % Concurrency params
 concurrent_cliques = 2;
