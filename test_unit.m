@@ -1,6 +1,5 @@
 % Test unit for the gbnn network matlab/octave package
 % great to check compatibility between matlab/octave!
-% Note: this only tests that the network works with various configurations, but it does not check the results!
 
 % Clear things up
 clear all; % don't forget to clear all; before, else some variables or sourcecode change may not be refreshed and the code you will run is the one from the cache, not the latest edition you did!
@@ -9,44 +8,91 @@ close all;
 % Importing auxiliary functions
 aux = gbnn_aux; % works with both MatLab and Octave
 
-% Vars config, tweak the stuff here
-m = 2; %1E4;
-c = 12;
+% Basic network config
+% Note: these parameters can be overwritten for specific test cases if you want.
+m = 10E3; %1E4;
+c = 8;
 l = 32;
 Chi = 64;
 erasures = 3;
-tampered_messages_per_test = 5;
+tampered_messages_per_test = 100;
 silent = true;
 
 % Setup the test cases
-% Format: a big cell array, containing one cell array per test case, each test case containing one string for the title and two cell arrays: one for the learning parameters, and one for the testing parameters
+% Format: a big cell array, containing one cell array per test case, each test case containing 4 fields;
+% 1- one string for the title
+% 2- one cell array for the learning parameters (with named arguments format)
+% 3- one cell array for the testing parameters
+% 4- one function to assert/check the resulting error rate (if it ought to be within a certain bound) - Keep in mind that the result is a bit stochastic so you should make sure your bound is correct! (so that your assert won't be triggered off just because sometimes the result is out of your bound because of the usual network variability)
+% Note: you can also overwrite basic parameters above (for example you can specify a different number of messages m to learn {'m', 20E1} just for one specific test case)
 test_cases = { ...
                             { ...
-                                ... % 1st test case: concurrent + ml
-                                'filtering rule: ML + concurrent',
-                                {},
-                                {'concurrent_cliques', 2, 'filtering_rule', 'ML'}
+                                ... % 1st test case
+                                'filtering rule: GWsTA', ...
+                                {}, ...
+                                {'concurrent_cliques', 1, 'filtering_rule', 'GWsTA'}, ...
+                                (@(x) x < 0.15) ...
+                            }, ...
+                            { ...
                                 ... % 2nd test case
-                                'filtering rule: GWsTA'
-                                {},
-                                {'concurrent_cliques', 1, 'filtering_rule', 'GWsTA'}
-                            }
-                            
+                                'filtering rule: WTA sparse no guiding', ...
+                                {}, ...
+                                {'concurrent_cliques', 1, 'filtering_rule', 'WTA'}, ...
+                                (@(x) x == 1) ...
+                            }, ...
+                            { ...
+                                ... % test case: WTA guided
+                                'filtering rule: WTA sparse with guiding', ...
+                                {}, ...
+                                {'concurrent_cliques', 1, 'filtering_rule', 'WTA', 'enable_guiding', true}, ...
+                                (@(x) x < 0.1) ...
+                            }, ...
+                            { ...
+                                ... % test case: WTA in non sparse network
+                                'filtering rule: WTA non sparse ', ...
+                                {'m', 20E1, 'Chi', c}, ...
+                                {'concurrent_cliques', 1, 'filtering_rule', 'WTA'}, ...
+                                (@(x) x < 0.1) ...
+                            }, ...
+                            { ...
+                                ... % test case: concurrent + ml
+                                'filtering rule: ML + concurrent', ...
+                                {}, ...
+                                {'concurrent_cliques', 2, 'filtering_rule', 'ML'}, ...
+                                (@(x) x < 0.02) ...
+                            } ...
                         };
 
 % == Launching the runs
+oktests = 0;
 for i=1:numel(test_cases)
     all_args = test_cases{i};
     title_arg = all_args{1};
     learn_args = all_args{2};
     test_args = all_args{3};
+    assert_func = all_args{4};
+
     printf('=================\n== Test case %i/%i: %s ==\n=================\n', i, numel(test_cases), title_arg); aux.flushout();
     tperf = cputime();
     [cnetwork, thriftymessages, density] = gbnn_learn('silent', silent, 'm', m, 'l', l, 'c', c, 'Chi', Chi, learn_args{:});
     error_rate = gbnn_test('silent', silent, 'cnetwork', cnetwork, 'thriftymessagestest', thriftymessages, 'tampered_messages_per_test', tampered_messages_per_test, 'erasures', erasures, test_args{:});
-    aux.printcputime(cputime() - tperf, sprintf('Finished test case %i%s', i, 'total cpu time elapsed to do everything: %g seconds.\n\n')); aux.flushout(); % print total time elapsed
+    % Assert: test the value of error rate to check that this is ok
+    if isempty(assert_func)
+        printf('Assert: NA\n');
+        oktests = oktests + 1;
+    else
+        if assert_func(error_rate)
+            printf('Assert: OK: %s\n', func2str(assert_func));
+            oktests = oktests + 1;
+        else
+            printf('Assert: KO: %s\n', func2str(assert_func));
+        end
+    end
+    aux.printcputime(cputime() - tperf, sprintf('Finished test case %i. %s', i, 'total cpu time elapsed: %g seconds.\n\n')); aux.flushout(); % print total time elapsed
 end
 
+printf('====================================\n');
+printf('Total number of tests passed: %i/%i\n', oktests, numel(test_cases));
 printf('If you have got no error thus far, then alright! All test cases passed!\n');
 
 % The end!
