@@ -84,6 +84,9 @@ end
 if enable_overlays && (islogical(cnetwork.primary.net) || max(max(cnetwork.primary.net)) == 1)
     error('cannot use overlays because overlays were not learned. Please first use gbnn_learn() with argument enable_overlays = true');
 end
+if Chi > c && (strcmpi(filtering_rule, 'wta') || strcmpi(filtering_rule, 'kwta')) && isempty(guiding_mask)
+    warning('network may not be able to decode when sparse (Chi > c) using only WTA or k-WTA filtering rule. Please either set Chi = c or enable guiding to use WTA, or if Chi > c use GWTA or GWsTA.');
+end
 
 % == Init data structures and other vars - DO NOT TOUCH
 sparse_cliques = true; % enable the creation of sparse cliques if Chi > c (cliques that don't use all available clusters but just c clusters per one message)

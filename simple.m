@@ -12,11 +12,16 @@ m = 10E4;
 c = 8;
 l = 64;
 Chi = 100;
+erasures = 3;
+filtering_rule = 'GWsTA';
+enable_guiding = false;
+
+tampered_messages_per_test = 100;
 
 % == Launching the runs
 tperf = cputime();
 [cnetwork, thriftymessages, density] = gbnn_learn('m', m, 'l', l, 'c', c, 'Chi', Chi);
-error_rate = gbnn_test('cnetwork', cnetwork, 'thriftymessagestest', thriftymessages);
+error_rate = gbnn_test('cnetwork', cnetwork, 'thriftymessagestest', thriftymessages, 'erasures', erasures, 'filtering_rule', filtering_rule, 'tampered_messages_per_test', tampered_messages_per_test, 'enable_guiding', enable_guiding);
 aux.printcputime(cputime() - tperf, 'Total cpu time elapsed to do everything: %g seconds.\n'); aux.flushout(); % print total time elapsed
 
 % The end!
