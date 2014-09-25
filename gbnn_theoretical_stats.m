@@ -35,6 +35,7 @@ arguments_defaults = struct( ...
     ... % Totally optional
     'erasures', -1, ...
     'error_rate', 0, ...
+    'overlays_max', 1, ...
     ...
     ... % Debug stuffs
     'silent', false);
@@ -66,7 +67,7 @@ if numel(c) == 1
 	redundancy_number = (clique_size - data_per_clique); % = r = codeword = number of redundant nodes, that is the surplus of nodes that are not necessary to define the clique (but are useful to increase the minimum distance).
 	redundancy_rate = redundancy_number / data_per_clique; % or tau
 	Fmerit = min_distance / (1 + redundancy_rate); % merit rate of the code encoder
-	autofix = floor((min_distance - 1) / 2) % = c - 2 in this case
+	autofix = floor((min_distance - 1) / 2); % = c - 2 in this case
 
     % Graph density (the basis of the computations)
     graph_size = (Chi*(Chi-1) * l.^2) / 2; % graph size = maximum number of potential connexions that may exist in the graph, which is equivalent to the binary resource Q (so the unit is either the number of edges, or in bits).
@@ -82,20 +83,33 @@ if numel(c) == 1
 
     % Compute all the other stats
     M = log2(1 - d) / log2(1 - (c*(c-1)) / (Chi*(Chi-1) * l.^2)); % maximum number of messages (cliques) that can be stored with this network (and density). This is the exact formula, derived from the theoretical_density = 1 - (1 - (c*(c-1)) / (Chi*(Chi-1) * l.^2))^M
+    if overlays_max == 0; overlays_max = M; end;
     Mapprox = ((Chi*(Chi-1) * l.^2) / c*(c-1)) * d ; % approximation of the maximum number of messages that can be stored (this approximation is valid only when M << l^2)
     entropy_per_message = (log2(nchoosek(Chi, c)) + (c * log2(l))); % entropy_per_message = binary resource per message = shannon information contained in each message
     entropy = M * entropy_per_message; % total entropy for all messages
-    efficiency = entropy / graph_size; % efficaciency = eta = B/Q = entropy/graph_size = ratio between amount of information storable in the network over the resource/material necessary to use to store this amount of information.
+    efficiency = entropy / (graph_size * log2(overlays_max+1)); % efficaciency = eta = B/Q = entropy/graph_size = ratio between amount of information storable in the network over the resource/material necessary to use to store this amount of information.
     Mmax = graph_size / entropy_per_message; % Efficiency-1 = optimal number of messages to store in the network to get the best efficiency.
     false_positive_rate = d ^ clique_size; % error rate of second type (false positive)
     if erasures >= 0 || error_rate > 0
         if error_rate > 0
             theoretical_error_rate = error_rate;
         else
-            theoretical_error_rate = 1 - (1 - d^(c-erasures))^(erasures*(l - 1) + (Chi - c)*l); % theoretical error rate
+            if overlays_max == 1
+                theoretical_error_rate = 1 - (1 - d^(c-erasures))^(erasures*(l - 1) + (Chi - c)*l); % theoretical error rate
+            else
+                % VERY close! Compute the theoretical lost rate, which is close to the error rate (this is the main kind of error for the tagged network)
+                % NOTE: we assume that all messages are independently overwriting the edges, which is not the case, thus this is an approximation
+                p_eo = 1-(1/graph_size); % proba that a new edge overwrites any other edge EXCEPT one of the node we don't want to overwrite
+                p_allmsg = p_eo^(clique_size*(M-1)); % proba that the edge does not get overwritten by any learnt message
+                theoretical_error_rate = (1 - p_allmsg)^c; % proba that the edge GETS overwritten by any learnt message, and we multiply c times because for the node to be lost, we need to lose c edges, not just one
+            end
             error_rate = theoretical_error_rate;
         end
-        c_optimal_approx = log((Chi * l) / error_rate) / (2 * (1 - (erasures/c))); % approximation of the optimal length/order of messages/cliques in order to optimize the diversity (number of messages stored) given a target error rate
+        if error_rate > 0
+            c_optimal_approx = log((Chi * l) / error_rate) / (2 * (1 - (erasures/c))); % approximation of the optimal length/order of messages/cliques in order to optimize the diversity (number of messages stored) given a target error rate
+        else
+            c_optimal_approx = NaN;
+        end
     end
 % Variable-length case
 elseif numel(c) == 2
