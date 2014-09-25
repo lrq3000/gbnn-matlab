@@ -63,6 +63,7 @@ plot_text_params = { 'FontSize', 12, ... % in points
                                        'FontName', 'Helvetica' ...
                                        };
 
+unbias_one_to_concurrent_error_rate = false; % unbias error rate of 1 message to take into account that with concurrency, we decode multiple messages and not just one? (this will be automatically unbiased to the max concurrent cliquse max(concurrent_cliques))
 plot_theo = true; % plot theoretical error rates?
 silent = false; % If you don't want to see the progress output
 
@@ -109,6 +110,10 @@ for t=1:statstries
 
                     % Store the results
                     D(m,counter) = D(m,counter) + density;
+                    if unbias_one_to_concurrent_error_rate && (concurrent_cliques(cc) == 1)
+                        error_rate = 1-(1-error_rate)^max(concurrent_cliques); % Unbias error rate by computing the error rate for two cliques
+                        theoretical_error_rate = 1-(1-theoretical_error_rate)^max(concurrent_cliques);
+                    end
                     E(m,counter) = E(m,counter) + error_rate;
                     ED(m, counter) = ED(m, counter) + test_stats.error_distance;
                     TE(m, tecounter) = theoretical_error_rate;
