@@ -148,7 +148,7 @@ M_interp = interp1(1:nsamples, M, linspace(1, nsamples, nsamples*smooth_factor),
 D_interp = interp1(1:nsamples, D(:,1), linspace(1, nsamples, nsamples*smooth_factor), smooth_method);
 E_interp = interp1(D(:,1), E, D_interp, smooth_method);
 TE_interp = interp1(D(:,1), TE, D_interp, smooth_method);
-ED_interp = interp1(D(:,1), ED, D_interp, smooth_method);;
+ED_interp = interp1(D(:,1), ED, D_interp, smooth_method);
 EC_interp = interp1(D(:,1), EC, D_interp, smooth_method);
 
 % -- Save results to a file

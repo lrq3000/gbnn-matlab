@@ -61,6 +61,7 @@ plot_text_params = { 'FontSize', 12, ... % in points
 
 plot_theo = false; % plot theoretical error rates?
 silent = false; % If you don't want to see the progress output
+save_results = true; % save results to a file?
 
 % == Launching the runs
 D = zeros(numel(M), numel(overlays_max)*numel(overlays_interpolation));
@@ -134,6 +135,23 @@ M_interp = interp1(1:nsamples, M, linspace(1, nsamples, nsamples*smooth_factor),
 D_interp = interp1(1:nsamples, D(:,1), linspace(1, nsamples, nsamples*smooth_factor), smooth_method);
 E_interp = interp1(D(:,1), E, D_interp, smooth_method);
 TE_interp = interp1(D(:,1), TE, D_interp, smooth_method);
+
+% -- Save results to a file
+if save_results
+    blacklist_vars = {'cnetwork', 's2', 'thriftymessages', 'currentpath', 'currentscriptname', 'outfile', 'blacklist_vars'}; % vars to NOT save because they are really to huge (several MB or even GB)
+
+    % Prepare filepath, filename and mkdir
+    [currentpath, currentscriptname] = fileparts(mfilename('fullpath'));
+    outfile = sprintf('%s/results/%s.mat', currentpath, currentscriptname);
+    printf('Saving results into results/%s\n', currentscriptname);
+    if ~isequal(exist('results', 'dir'),7)
+        mkdir('results');
+    end
+
+    % Write data to file in MATLAB format
+    %save(outfile, 'results'); % save ALL the workspace into a file
+    aux.savex(outfile, blacklist_vars{:}); % save ALL the workspace into a file except for a few variables which are just too big
+end
 
 % Plot error rate with respect to the density (or number of messages stored) and a few other parameters
 figure; hold on;

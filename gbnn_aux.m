@@ -26,6 +26,7 @@ function funs = importFunctions
     funs.interleave=@interleave;
     funs.interleaven=@interleaven;
     funs.add_2nd_xaxis=@add_2nd_xaxis;
+    funs.savex=@savex;
 end
 
 
@@ -83,7 +84,7 @@ function [Y, I, J] = shake(X,dim)
     %      %  3     2     1
     %      %  6     4     5
     %      %  7     8     9
-    %      % 11    10    12%   
+    %      % 11    10    12%
     %     C = sort(B,Dim) % -> equals A!
     %
     %     The function of SHAKE can be thought of as holding a matrix and shake
@@ -111,7 +112,7 @@ function [Y, I, J] = shake(X,dim)
 
     error(nargchk(1,2,nargin)) ;
 
-    if nargin==1, 
+    if nargin==1,
         dim = min(find(size(X)>1)) ;
     elseif (numel(dim) ~= 1) || (fix(dim) ~= dim) || (dim < 1),
         error('Shake:DimensionError','Dimension argument must be a positive integer scalar.') ;
@@ -120,7 +121,7 @@ function [Y, I, J] = shake(X,dim)
     % we are shaking the indices
     I = reshape(1:numel(X),size(X)) ;
 
-    if numel(X) < 2 || dim > ndims(X) || size(X,dim) < 2,    
+    if numel(X) < 2 || dim > ndims(X) || size(X,dim) < 2,
         % in some cases, do nothing
     else
         % put the dimension of interest first
@@ -131,13 +132,13 @@ function [Y, I, J] = shake(X,dim)
         I = reshape(I,sz(1),[]) ;
         [~,ri] = sort(rand(size(I)),1) ;  % get new row indices
         ci = repmat([1:size(I,2)],size(I,1),1) ; % but keep old column indices
-        I = I(sub2ind(size(I),ri,ci)) ; % retrieve values    
+        I = I(sub2ind(size(I),ri,ci)) ; % retrieve values
         % restore the size and dimensions
-        I = shiftdim(reshape(I,sz),ndim) ;    
+        I = shiftdim(reshape(I,sz),ndim) ;
     end
 
     % re-index
-    Y = X(I) ; 
+    Y = X(I) ;
 
     if nargout==3,
         J = zeros(size(X)) ;
@@ -149,18 +150,18 @@ end
 % Fastmode: mode implementation by Harold Bien that can return multiple results if multiple values are modes (while MatLab returns the smallest by default, and there's no way to change that).
 function [y, n]=fastmode(x)
     % FASTMODE  Returns the most frequently occuring element
-    % 
+    %
     %   y = fastmode(x) returns the element in the vector 'x' that occurs the
     %   most number of times. If more than one element occurs at equal
     %   frequency, all elements with equal frequency are returned.
-    % 
+    %
     %   [y, n] = fastmode(x) does the same as above but also returns the
     %   frequency of the element(s) in 'n'.
-    % 
+    %
     %   Note that due to speed considerations, no error checking is performed
     %   on the input data. Matrices will be reduced to vectors via the colon
     %   (:) operator, NaN's are ignored.
-    % 
+    %
     %   Example
     %   % Generate a data set of values between 0 and 9
     %   >> data=fix(rand(1000,1).*9);
@@ -169,12 +170,12 @@ function [y, n]=fastmode(x)
     %   % To confirm, run this simple script
     %   >> for i=1:9 disp(sprintf('Element %d: Frequency %d', i,
     %   length(data(data==i)))); end;
-    % 
+    %
     %   % Note if you give it only unique values, all values will be
     %   % returned with a frequency count of 1, i.e.
     %   >> [y, n]=fastmode([1:9]);
     %   % will result in y=[1:9] and n=1
-    % 
+    %
     %   See also MEAN, MEDIAN, STD.
 
     %   Copyright 2006 Harold Bien
@@ -186,7 +187,7 @@ function [y, n]=fastmode(x)
     % The data must be sorted in order for this algorithm to work
     sorted=sort(x(:));
     % Compute element-by-element difference. This will return 0 for
-    % identical valued elements (since it is sorted) and non-zero for 
+    % identical valued elements (since it is sorted) and non-zero for
     % different elements. We add a dummy element at the end in order to
     % pick up repeated elements at the end (make sure last element is not
     % equal to the next-to-last element). This value will never be used for
@@ -288,7 +289,7 @@ end
 
 function argStruct = getnargs(varargin, defaults, restrict_flag)
 %GETNARGS Converts name/value pairs to a struct (this allows to process named optional arguments).
-% 
+%
 % ARGSTRUCT = GETNARGS(VARARGIN, DEFAULTS, restrict_flag) converts
 % name/value pairs to a struct, with defaults.  The function expects an
 % even number of arguments in VARARGIN, alternating NAME then VALUE.
@@ -297,7 +298,7 @@ function argStruct = getnargs(varargin, defaults, restrict_flag)
 % Optionally: you can set restrict_flag to true if you want that only arguments names specified in defaults be allowed. Also, if restrict_flag = 2, arguments that aren't in the defaults will just be ignored.
 % After calling this function, you can access your arguments using: argstruct.your_argument_name
 %
-% Examples: 
+% Examples:
 %
 % No defaults
 % getnargs( {'foo', 123, 'bar', 'qwerty'} )
@@ -362,7 +363,7 @@ function varspull(s)
 % Import variables in a structures into the local namespace/workspace
 % eg: s = struct('foo', 1, 'bar', 'qwerty'); varspull(s); disp(foo); disp(bar);
 % Will print: 1 and qwerty
-% 
+%
 %
 % Author: Jason S
 %
@@ -516,3 +517,150 @@ function add_2nd_xaxis(X, X2, X2_legend, num2str_format, text_rotation)
 
 end % endfunction
 
+
+
+% == System auxiliary functions ==
+
+function savex(varargin)
+% % SAVEX
+% %
+% % save all variables that are present in the workspace EXCEPT what you
+% % specify explicitly (by including the variable names or by using regular
+% % expressions).
+% %
+% % This is an alternative for Octave to the -regexp option in save() of MatLab, which allows to do: save(outfile, '-regexp', '^(?!(', strjoin(blacklist_vars, '|'), ')$).'); with blacklist_vars = {'var1', 'var2'};
+% %
+% % Author         : J.H. Spaaks
+% % Date           : April 2009
+% % MATLAB version : R2006a on Windows NT 6.0 32-bit
+% %
+% % % % % % % % % % % % % % % % % % % % % % % % % % % % % % % % % % % % % % %
+% %
+% % test1a = 0;
+% % test2a = 2;
+% % test3a = 4;
+% % test4a = 6;
+% % test5a = 8;
+% %
+% % test1b = 1;
+% % test2b = 3;
+% % test3b = 5;
+% % test4b = 7;
+% % test5b = 9;
+% %
+% % % This example saves all variables that are present in the workspace except
+% % % 'test2a' and 'test5b'. 'test3' is ignored since there is no variable by
+% % % that name:
+% % savex('save-by-varname.mat','test2a','test3','test5b')
+% %
+% % % This example saves all variables that are present in the workspace except
+% % % 'test4a', 'test4b' and 'test2b':
+% % savex('save-by-regexp.mat','-regexp','test4[ab]','t[aeiou]st2[b-z]')
+% %
+% % % This example saves all variables that are present in the workspace except
+% % % those formatted as Octave system variables, such as '__nargin__':
+% % savex('no-octave-system-vars.mat','-regexp','^__+.+__$')
+% %
+% % % This example saves all variables that are present in the workspace except
+% % % those which are specified using regular expressions, saving in ascii
+% % % format. Supported options are the same as for SAVE.
+% % savex('save-with-options.txt','-regexp','test4[ab]',...
+% % 't[aeiou]st2[b-z]','-ascii')
+% %
+% %
+% %
+% % % clear
+% % % load('save-by-varname.mat')
+% % %
+% % % clear
+% % % load('save-by-regexp.mat')
+% % %
+% % % clear
+% % % load('no-octave-system-vars.mat')
+% % %
+% % % clear
+% % % load('save-with-options.txt','-ascii')
+% % %
+
+
+    varList = evalin('caller','who');
+    saveVarList = {};
+
+    if ismember(nargin,[0,1])
+        % save all variables
+        saveVarList = varList
+        for u = 1:numel(saveVarList)
+            eval([saveVarList{u},' = evalin(',char(39),'caller',char(39),',',char(39),saveVarList{u},char(39),');'])
+        end
+        save('matlab.mat',varList{:})
+
+    elseif strcmp(varargin{2},'-regexp')
+        % save everything except the variables that match the regular expression
+
+        optionsList = {};
+        inputVars ={};
+        for k=3:numel(varargin)
+            if strcmp(varargin{k}(1),'-')
+                optionsList{1,end+1} = varargin{k};
+            else
+                inputVars{1,end+1} = varargin{k};
+            end
+        end
+
+
+        for k=1:numel(varList)
+
+            matchCell = regexp(varList{k},inputVars,'ONCE');
+
+            matchBool = repmat(false,size(matchCell));
+            for m=1:numel(matchCell)
+                if ~isempty(matchCell{m})
+                    matchBool(m) = true;
+                end
+            end
+            if ~any(matchBool)
+                saveVarList{end+1} = varList{k};
+            end
+        end
+
+        for u = 1:numel(saveVarList)
+            eval([saveVarList{u},' = evalin(',char(39),'caller',char(39),',',char(39),saveVarList{u},char(39),');'])
+        end
+
+        save(varargin{1},saveVarList{:},optionsList{:})
+
+
+
+    elseif ischar(varargin{1})
+        % save everything except the variables that the user defined in
+        % varargin{2:end}
+        optionsList = {};
+        inputVars = {};
+        for k=2:numel(varargin)
+            if strcmp(varargin{k}(1),'-')
+                optionsList{1,end+1} = varargin{k};
+            else
+                inputVars{1,end+1} = varargin{k};
+            end
+        end
+
+        for k=1:numel(varList)
+
+            if ~ismember(varList{k},inputVars)
+
+                saveVarList{end+1} = varList{k};
+
+            end
+
+        end
+
+        for u = 1:numel(saveVarList)
+            eval([saveVarList{u},' = evalin(',char(39),'caller',char(39),',',char(39),saveVarList{u},char(39),');'])
+        end
+
+        save(varargin{1},saveVarList{:},optionsList{:})
+
+    else
+        error('Unknown function usage.')
+    end
+end %endfunction
