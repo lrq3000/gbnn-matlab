@@ -15,7 +15,7 @@ Chi = 18;
 erasures = 1;
 
 tampered_messages_per_test = 30;
-concurrent_cliques = 7;
+concurrent_cliques = 2;
 no_concurrent_overlap = false;
 concurrent_disequilibrium = false;
 

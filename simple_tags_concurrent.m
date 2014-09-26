@@ -8,7 +8,7 @@ close all;
 aux = gbnn_aux; % works with both MatLab and Octave
 
 % Primary network params
-m = 40E2;
+m = 0.3;
 c = 8;
 l = 16;
 Chi = 32;
@@ -17,7 +17,7 @@ erasures = 3;
 tampered_messages_per_test = 100;
 tests = 1;
 
-iterations = 4;
+iterations = 2;
 gamma_memory = 1;
 propagation_rule = 'sum';
 filtering_rule = 'GWSTA';
@@ -34,7 +34,7 @@ overlays_max = 0; % 0 for maximum number of tags (as many tags as messages/cliqu
 overlays_interpolation = 'uniform'; % interpolation method to reduce the number of tags when overlays_max > 1: uniform, mod or norm
 
 % Concurrent disequilibrium trick
-concurrent_disequilibrium = 3; % 1 for superscore mode, 2 for one fanal erasure, 3 for nothing at all just trying to decode one clique at a time without any trick, 0 to disable
+concurrent_disequilibrium = 1; % 1 for superscore mode, 2 for one fanal erasure, 3 for nothing at all just trying to decode one clique at a time without any trick, 0 to disable
 
 % Verbose?
 silent = false;
