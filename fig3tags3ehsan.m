@@ -1,4 +1,4 @@
-% This example main file shows how to reproduce the figure 3 of the 2014 article but with concurrent messages. This is mainly used to analyze and compare the performances of the different filtering_rules when concurrency is enabled.
+% Overlays network: Willshaw vs overlays benchmark. Please use Octave >= 3.8.1 for reasonable performances!
 
 % Clear things up
 clear all;
@@ -10,35 +10,38 @@ aux = gbnn_aux; % works with both MatLab and Octave
 
 % Preparing stuff to automate the plots
 % This will allow us to automatically select a different color and shape for each curve
-colorvec = 'rgbkmc';
+colorvec = 'rgbmc';
 markerstylevec = '+o*.xsd^v><ph';
 linestylevec = {'-' ; '--' ; ':' ; '-.'};
 
 % Vars config, tweak the stuff here
-M = 0.5:0.5:4.5; % this is a vector because we will try several values of m (number of messages, which influences the density)
-Mcoeff = 1E5;
+M = 0.5:1:20.5; % this is a vector because we will try several values of m (number of messages, which influences the density)
+%M = [0.005 5.1]; % to test both limits to check that the range is OK, the first point must be near 0 and the second point must be near 1, at least for one of the curves
+Mcoeff = 1E2;
 miterator = zeros(1,numel(M)); %M/2;
-c = 12;
-l = 64;
-Chi = 100;
-erasures = 3;
+c = 8;
+l = 1;
+Chi = 256;
+erasures = floor(c/2); %floor(c*0.25);
 iterations = 4; % for convergence
-tampered_messages_per_test = 100;
+tampered_messages_per_test = 50;
 tests = 1;
 
-enable_guiding = [false, true]; % here too, we will try with and without the guiding mask
+enable_guiding = false;
 gamma_memory = 1;
 threshold = 0;
+filtering_rule = 'GWsTA';
 propagation_rule = 'sum';
-filtering_rule = {'LKO', 'GLKO', 'WTA', 'kWTA', 'WsTA', 'GkWTA', 'GWsTA', 'CGkWTA'}; % this is a cell array (vector of strings) because we will try several different values of c (order of cliques)
 tampering_type = 'erase';
 
 residual_memory = 0;
-concurrent_cliques = 2;
-no_concurrent_overlap = true;
-concurrent_successive = true;
 filtering_rule_first_iteration = false;
 filtering_rule_last_iteration = false;
+
+% Overlays
+enable_overlays = true;
+overlays_max = [1 5 20 100 1000 0];
+overlays_interpolation = {'uniform'};
 
 % Plot tweaking
 statstries = 5; % retry n times with different networks to average (and thus smooth) the results
@@ -55,14 +58,14 @@ plot_text_params = { 'FontSize', 12, ... % in points
                                        'FontName', 'Helvetica' ...
                                        };
 
-plot_theo = true; % plot theoretical error rates?
+plot_theo = false; % plot theoretical error rates?
 silent = false; % If you don't want to see the progress output
 save_results = true; % save results to a file?
 
 % == Launching the runs
-D = zeros(numel(M), numel(filtering_rule)*numel(enable_guiding));
-E = zeros(numel(M), numel(filtering_rule)*numel(enable_guiding));
-TE = zeros(numel(M), numel(enable_guiding)); % theoretical error rate depends on: Chi, l, c, erasures, enable_guiding and of course the density (theoretical or real) and thus on any parameter that changes the network (thus as the number of messages m to learn)
+D = zeros(numel(M), numel(overlays_max)*numel(overlays_interpolation));
+E = zeros(numel(M), numel(overlays_max)*numel(overlays_interpolation));
+TE = zeros(numel(M), numel(overlays_max)); % theoretical error rate depends on: Chi, l, c, erasures, enable_guiding and of course the density (theoretical or real) and thus on any parameter that changes the network (thus as the number of messages m to learn)
 
 for t=1:statstries
     tperf = cputime(); % to show the total time elapsed later
@@ -71,35 +74,34 @@ for t=1:statstries
     for m=1:numel(M) % and for each value of m, we will do a run
         % Launch the run
         if m == 1
-            [cnetwork, thriftymessages, density] = gbnn_learn('m', round(M(1, 1)*Mcoeff), 'miterator', miterator(1,m), 'l', l, 'c', c, 'Chi', Chi, 'silent', silent);
+            [cnetwork, thriftymessages, density] = gbnn_learn('m', round(M(1, 1)*Mcoeff), 'miterator', miterator(1,m), 'l', l, 'c', c, 'Chi', Chi, ...
+                                                                                                        'enable_overlays', enable_overlays, ...
+                                                                                                        'silent', silent);
         else % Optimization trick: instead of relearning the whole network, we will reuse the previous network and just add more messages, this allows to decrease the learning time exponentially, rendering it constant (at each learning, the network will learn the same amount of messages: eg: iteration 1 will learn 1E5 messages, iteration 2 will learn 1E5 messages and reuse 1E5, which will totalize as 2E5, etc...)
             [cnetwork, s2, density] = gbnn_learn('cnetwork', cnetwork, ...
                                                         'm', round((M(1, m)-M(1,m-1))*Mcoeff), 'miterator', miterator(1,m), 'l', l, 'c', c, 'Chi', Chi, ...
+                                                        'enable_overlays', enable_overlays, ...
                                                         'silent', silent);
             thriftymessages = [thriftymessages ; s2]; % append new messages
         end
 
         counter = 1;
-        for f=1:numel(filtering_rule)
-            for g=1:numel(enable_guiding)
-                fr = filtering_rule(1,f); fr = fr{1}; % need to prepare beforehand because of MatLab, can't do it in one command...
-                if strcmpi(fr, 'GLKO')
-                    filtering_rule_first_iteration = true;
-                else
-                    filtering_rule_first_iteration = false;
-                end
+        for om=1:numel(overlays_max)
+            for oi=1:numel(overlays_interpolation)
                 [error_rate, theoretical_error_rate] = gbnn_test('cnetwork', cnetwork, 'thriftymessagestest', thriftymessages, ...
                                                                                       'erasures', erasures, 'iterations', iterations, 'tampered_messages_per_test', tampered_messages_per_test, 'tests', tests, ...
-                                                                                      'enable_guiding', enable_guiding(1,g), 'gamma_memory', gamma_memory, 'threshold', threshold, 'propagation_rule', propagation_rule, 'filtering_rule', fr, 'tampering_type', tampering_type, ...
-                                                                                      'residual_memory', residual_memory, 'concurrent_cliques', concurrent_cliques, 'no_concurrent_overlap', no_concurrent_overlap, 'concurrent_successive', concurrent_successive, 'filtering_rule_first_iteration', filtering_rule_first_iteration, 'filtering_rule_last_iteration', filtering_rule_last_iteration, ...
+                                                                                      'enable_guiding', enable_guiding, 'gamma_memory', gamma_memory, 'threshold', threshold, 'propagation_rule', propagation_rule, 'filtering_rule', filtering_rule, 'tampering_type', tampering_type, ...
+                                                                                      'residual_memory', residual_memory, 'filtering_rule_first_iteration', filtering_rule_first_iteration, 'filtering_rule_last_iteration', filtering_rule_last_iteration, ...
+                                                                                      'enable_overlays', enable_overlays, 'overlays_max', overlays_max(om), 'overlays_interpolation', overlays_interpolation{oi}, ...
                                                                                       'silent', silent);
 
                 % Store the results
+                %colidx = counter+(size(D,2)/numel(enable_overlays))*(o-1);
                 D(m,counter) = D(m,counter) + density;
                 E(m,counter) = E(m,counter) + error_rate;
-                TE(m, g) = theoretical_error_rate;
+                TE(m, om) = theoretical_error_rate;
                 if ~silent; fprintf('-----------------------------\n\n'); end;
-                
+
                 counter = counter + 1;
             end
         end
@@ -110,6 +112,12 @@ end
 D = D ./ statstries;
 E = E ./ statstries;
 fprintf('END of all tests!\n'); aux.flushout();
+
+% Print densities values and error rates
+fprintf('Densities:\n'); disp(D);
+fprintf('Error rates:\n'); disp(E);
+fprintf('Theoretical error rates:\n'); disp(TE);
+aux.flushout();
 
 % == Plotting
 
@@ -143,22 +151,32 @@ figure; hold on;
 xlabel(sprintf('(Bottom) Density  -- (Top) Number of stored messages (M) x%.1E', Mcoeff));
 ylabel('Retrieval Error Rate');
 counter = 1; % useful to keep track inside the matrix E. This is guaranteed to be OK since we use the same order of for loops (so be careful, if you move the forloops here in plotting you must also move them the same way in the tests above!)
-for f=1:numel(filtering_rule) % for each different filtering rule and whether there is guiding or not, we willl print a different curve, with an automatically selected color and shape
-    coloridx = mod(f-1, numel(colorvec))+1; % change color per filtering rule
-    for g=1:numel(enable_guiding)
+for om=numel(overlays_max):-1:1
+    for oi=1:numel(overlays_interpolation)
+        colorcounter = om;
+        if numel(overlays_interpolation) > 1; colorcounter = oi; end;
+        coloridx = mod(colorcounter-1, numel(colorvec))+1; % change color if overlay or not
+
         lstyleidx = mod(counter-1, numel(linestylevec))+1; % change line style ...
         mstyleidx = mod(counter-1, numel(markerstylevec))+1; % and change marker style per plot
 
         lstyle = linestylevec(lstyleidx, 1); lstyle = lstyle{1}; % for MatLab, can't do that in one command...
-        cur_plot = plot(D_interp, E_interp(:,counter), sprintf('%s%s%s', lstyle, markerstylevec(mstyleidx), colorvec(coloridx))); % plot one line
+        cur_plot = plot(D_interp, E_interp(:,end+1-counter), sprintf('%s%s%s', lstyle, markerstylevec(mstyleidx), colorvec(coloridx))); % plot one line
         set(cur_plot, plot_curves_params{:}); % additional plot style
 
-        fr = filtering_rule(1,f); fr = fr{1};
-        plot_title = sprintf('%s', fr);
-        if enable_guiding(1,g)
+        plot_title = sprintf('%s', filtering_rule);
+        if enable_guiding
             plot_title = strcat(plot_title, sprintf(' - Guided'));
         else
             plot_title = strcat(plot_title, sprintf(' - Blind'));
+        end
+        if overlays_max(om) == 1
+            plot_title = strcat(plot_title, sprintf(' - One/No tags'));
+        elseif overlays_max(om) == 0
+            plot_title = strcat(plot_title, sprintf(' - M tags'));
+        else
+            plot_title = strcat(plot_title, sprintf(' - %i tags', overlays_max(om)));
+            plot_title = strcat(plot_title, sprintf(' (%s)', overlays_interpolation{oi}));
         end
         set(cur_plot, 'DisplayName', plot_title); % add the legend per plot, this is the best method, which also works with scatterplots and polar plots, see http://hattb.wordpress.com/2010/02/10/appending-legends-and-plots-in-matlab/
 
@@ -166,25 +184,37 @@ for f=1:numel(filtering_rule) % for each different filtering rule and whether th
     end
 end
 
+
 % Plot theoretical error rates
-counter = counter + 1;
-coloridx = mod(counter, numel(colorvec))+1;
-for g=1:numel(enable_guiding)
-    lstyleidx = mod(counter+g-1, numel(linestylevec))+1;
-    mstyleidx = mod(counter+g-1, numel(markerstylevec))+1;
+if plot_theo
+    %coloridx = mod(counter, numel(colorvec))+1;
+    colornm = 'k';
+    counter = 1;
+    for om=numel(overlays_max):-1:1
+        lstyleidx = mod(counter-1, numel(linestylevec))+1;
+        mstyleidx = mod(counter-1, numel(markerstylevec))+1;
 
-    lstyle = linestylevec(lstyleidx, 1); lstyle = lstyle{1}; % for MatLab, can't do that in one command...
-    cur_plot = plot(D_interp, TE_interp(:,g), sprintf('%s%s%s', lstyle, markerstylevec(mstyleidx), colorvec(coloridx))); % plot one line
-    set(cur_plot, plot_curves_params{:}); % additional plot style
+        lstyle = linestylevec(lstyleidx, 1); lstyle = lstyle{1}; % for MatLab, can't do that in one command...
+        cur_plot = plot(D_interp, TE_interp(:,om), sprintf('%s%s%s', lstyle, markerstylevec(mstyleidx), colornm)); % plot one line
+        set(cur_plot, plot_curves_params{:}); % additional plot style
 
-    plot_title = '';
-    if enable_guiding(1,g)
-        plot_title = strcat(plot_title, sprintf('Guided'));
-    else
-        plot_title = strcat(plot_title, sprintf('Blind'));
+        plot_title = 'Theo. ';
+        if enable_guiding
+            plot_title = strcat(plot_title, sprintf(' - Guided'));
+        else
+            plot_title = strcat(plot_title, sprintf(' - Blind'));
+        end
+        if overlays_max(om) == 1
+                plot_title = strcat(plot_title, sprintf(' - One/No tags'));
+        elseif overlays_max(om) == 0
+            plot_title = strcat(plot_title, sprintf(' - M tags'));
+        else
+            plot_title = strcat(plot_title, sprintf(' - %i tags', overlays_max(om)));
+        end
+        set(cur_plot, 'DisplayName', plot_title); % add the legend per plot, this is the best method, which also works with scatterplots and polar plots, see http://hattb.wordpress.com/2010/02/10/appending-legends-and-plots-in-matlab/
+
+        counter = counter + 1;
     end
-    plot_title = strcat(plot_title, ' (Theo.)');
-    set(cur_plot, 'DisplayName', plot_title); % add the legend per plot, this is the best method, which also works with scatterplots and polar plots, see http://hattb.wordpress.com/2010/02/10/appending-legends-and-plots-in-matlab/
 end
 
 % Refresh plot with legends
@@ -196,10 +226,5 @@ xlim([0 max(D(:,1))]); % adjust x axis zoom
 set( gca(), plot_axis_params{:} );
 % Adjust text style
 set([gca; findall(gca, 'Type','text')], plot_text_params{:});
-
-% Print densities values and error rates
-fprintf('Densities:\n'); disp(D);
-fprintf('Error rates:\n'); disp(E);
-fprintf('Theoretical error rates:\n'); disp(TE);
 
 % The end!

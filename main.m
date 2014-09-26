@@ -1,7 +1,7 @@
 % #### Gripon-Berrou Neural Network, aka thrifty clique codes ####
 % Original implementation in Octave by Vincent Gripon.
 % Optimized (compatibility Octave/MatLab, vectorizations, binary sparse matrices, etc.), comments additions and functionality extensions by Stephen Larroque.
-% Coded and tested on Octave 3.6.4 Windows and MatLab 2013a Linux. No external library nor toolbox is needed for this software to run.
+% Coded and tested on Octave 3.6.4 Windows (3.8.1 is necessary for reasonable performances on overlays networks) and MatLab 2013a Linux. No external library nor toolbox is needed for this software to run.
 % To run the code even faster, first use MatLab (which has a sparse-aware bsxfun() function) and use libraries replacements advised in https://research.microsoft.com/en-us/um/people/minka/software/matlab.html and also sparse2 instead of sparse as advised at http://blogs.mathworks.com/loren/2007/03/01/creating-sparse-finite-element-matrices-in-matlab/
 % The code is also parallelizable, just enable multithreading in your MatLab config. You can also enable the use of GPU for implicit GPU parallelization in MatLab and/or for explicit GPU parallelization (to enable the for loops or if you want to convert some of the code to explicitly process on GPU) you can use third-party libraries like GPUmat for free or ArrayFire for maximum speedup.
 %
@@ -45,7 +45,7 @@
 %- gamma_memory : memory effect: keep a bit of the previous nodes value. This helps when the original message is sure to contain the correct bits (ie: works with messages partially erased, but maybe not with noise)
 %- threshold : activation threshold. Nodes having a score below this threshold will be deactivated (ie: the nodes won't produce a spike). Unlike the article, this here is just a scalar (a global threshold for all nodes), rather than a vector containing per-cluster thresholds.
 %- propagation_rule : also called "dynamic rule", defines the type of propagation algorithm to use (how nodes scores will be computed at next iteration). "sum"=Sum-of-Sum ; "normalized"=Normalized-Sum-of-Sum ; "max"=Sum-of-Max % TODO: only 0 SoS is implemented right now!
-%- filtering_rule : also called "activation rule", defines the type of filtering algorithm (how to select the nodes that should remain active), generally a Winner-take-all algorithm in one of the following (case insensitive): 'WTA'=Winner-take-all (keep per-cluster nodes with max activation score) ; 'kWTA'=k-Winners-take-all (keep exactly k best nodes per cluster) ; 'oGWTA'=One-Global-Winner-take-all (same as GWTA but only one node per message can stay activated, not all nodes having the max score) ; 'GWTA'=Global Winner-take-all (keep nodes that have the max score in the whole network) ; 'GkWTA'=Global k-Winner-take-all (keep nodes that have a score equal to one of k best scores) ; 'WsTA'=WinnerS-take-all (per cluster, select the kth best score, and accept all nodes with a score greater or equal to this score - similar to kWTA but all nodes with the kth score are accepted, not only a fixed number k of nodes) ; 'GWsTA'=Global WinnerS-take-all (same as WsTA but per the whole message) ; 'GLKO'=Global Loser-kicked-out (kick nodes that have the worst score globally) ; 'GkLKO'=Global k-Losers-kicked-out (kick all nodes that have a score equal to one of the k worst scores globally) ; 'LKO'=Losers-Kicked-Out (locally, kick k nodes with worst score per-cluster) ; 'kLKO'=k-Losers-kicked-out (kick k nodes with worst score per-cluster) ; 'CGkWTA'=Concurrent Global k-Winners-Take-All (kGWTA + trimming out all scores that are below the k-th max score) ; 'oLKO'=Optimal-Loser-Kicked-Out (kick only exactly one loser per cluster and per iteration, and only if it's not the max score) ; 'oGLKO'=Optimal-Global-Loser-Kicked-Out (kick exactly one loser per iteration for the whole message, and only if not the max score, equivalent to GkLKO but with k = 1)
+%- filtering_rule : also called "activation rule", defines the type of filtering algorithm (how to select the nodes that should remain active), generally a Winner-take-all algorithm in one of the following (case insensitive): 'WTA'=Winner-take-all (keep per-cluster nodes with max activation score) ; 'kWTA'=k-Winners-take-all (keep exactly k best nodes per cluster) ; 'oGWTA'=One-Global-Winner-take-all (same as GWTA but only one node per message can stay activated, not all nodes having the max score) ; 'GWTA'=Global Winner-take-all (keep nodes that have the max score in the whole network) ; 'GkWTA'=Global k-Winner-take-all (keep nodes that have a score equal to one of k best scores) ; 'WsTA'=WinnerS-take-all (per cluster, select the kth best score, and accept all nodes with a score greater or equal to this score - similar to kWTA but all nodes with the kth score are accepted, not only a fixed number k of nodes) ; 'GWsTA'=Global WinnerS-take-all (same as WsTA but per the whole message) ; 'GLKO'=Global Loser-kicked-out (kick nodes that have the worst score globally) ; 'GkLKO'=Global k-Losers-kicked-out (kick all nodes that have a score equal to one of the k worst scores globally) ; 'LKO'=Losers-Kicked-Out (locally, kick k nodes with worst score per-cluster) ; 'kLKO'=k-Losers-kicked-out (kick k nodes with worst score per-cluster) ; 'CGkWTA'=Concurrent Global k-Winners-Take-All (kGWTA + trimming out all scores that are below the k-th max score) ; 'oLKO'=Optimal-Loser-Kicked-Out (kick only exactly one loser per cluster and per iteration, and only if it's not the max score) ; 'oGLKO'=Optimal-Global-Loser-Kicked-Out (kick exactly one loser per iteration for the whole message, and only if not the max score, equivalent to GkLKO but with k = 1) ; 'ML'=Maximum Likelihood, or Exhaustive search for the kclique where k = c, this filtering will not use scores, it will rather try all combinations of fanals until it finds a clique with c fanals, by default it will use 'DFS' (ascending Depth-First Search), but you can also use 'BFS' (ascending Breadth-First Search).
 %- tampering_type : type of message tampering in the tests. "erase"=erasures (random activated bits are switched off) ; "noise"=noise (random bits are flipped, so a 0 becomes 1 and a 1 becomes 0).
 %
 % -- Custom extensions
@@ -111,40 +111,80 @@ close all;
 aux = gbnn_aux; % works with both MatLab and Octave
 
 % Vars config, tweak the stuff here
-m = 10E4;
+m = 10E4; % can be one of 3 types: a scalar > 1 to specify the exact number of messages to generate and learn ; or a scalar between [0, 1] to specify the density the network should have after learning ; or a matrix of real messages you want to learn.
 miterator = 0;
 c = 8;
 l = 64;
 Chi = 100;
 erasures = floor(c/2);
 iterations = 4;
-tampered_messages_per_test = 200;
+tampered_messages_per_test = 2000;
 tests = 1;
 
-enable_guiding = true;
-gamma_memory = 0;
-threshold = 0;
+enable_guiding = false;
+gamma_memory = 1;
+threshold = c-erasures;
 propagation_rule = 'sum'; % TODO: not implemented yet, please always set 0 here
 filtering_rule = 'GWsTA';
 tampering_type = 'erase';
 
 residual_memory = 0;
-concurrent_cliques = 2;
+filtering_rule_first_iteration = false;
+filtering_rule_last_iteration = false;
+
+% Overlays / Tags
+enable_overlays = false; % enable tags/overlays disambiguation?
+overlays_max = 0; % 0 for maximum number of tags (as many tags as messages/cliques) ; 1 to use only one tag (equivalent to standard network without tags) ; n > 1 for any definite number of tags
+overlays_interpolation = 'uniform'; % interpolation method to reduce the number of tags when overlays_max > 1: uniform, mod or norm
+
+% Concurrency parameters
+concurrent_cliques = 1;
 no_concurrent_overlap = true;
 concurrent_successive = false;
-GWTA_first_iteration = false;
-GWTA_last_iteration = false;
+concurrent_disequilibrium = 1; % 1 for superscore mode, 2 for one fanal erasure, 3 for nothing at all just trying to decode one clique at a time without any trick, 0 to disable
+
+% Training params (auxiliary network)
+train = false;
+c2 = 2;
+l2 = Chi;
+Chi2 = 2;
+training_batchs = 1;
+trainsetsize = m*training_batchs; %floor(m/trainingbatchs);
+no_auxiliary_propagation = false; % false for concur cliques
+train_on_full_cliques = 0; % false for concur cliques
+train_enable_dropconnect = false;
+train_dropconnect_p = 0.9;
+train_subsampling_p = []; % [] to disable, value between 0 and 1 to enable
+enable_dropconnect = false;
+dropconnect_p = 0;
 
 silent = false; % If you don't want to see the progress output
 
 % == Launching the runs
 tperf = cputime();
+
+% Learning phase
 [cnetwork, thriftymessages, density] = gbnn_learn('m', m, 'miterator', miterator, 'l', l, 'c', c, 'Chi', Chi, 'silent', silent);
+
+% Training phase (optional)
+if train
+    fprintf('Training the network...\n'); aux.flushout();
+    [cnetwork, real_density_aux, real_density_bridge, auxfullcell] = gbnn_train('cnetwork', cnetwork, 'thriftymessagestest', thriftymessages, 'l', l2, 'c', c2, 'Chi', Chi2, ...
+                                             'tampered_messages_per_test', trainsetsize, 'training_batchs', training_batchs, 'no_auxiliary_propagation', no_auxiliary_propagation, 'train_on_full_cliques', train_on_full_cliques, ...
+                                             'iterations', iterations, 'enable_guiding', enable_guiding, 'gamma_memory', gamma_memory, 'filtering_rule', filtering_rule, 'erasures', erasures, ...
+                                             'concurrent_cliques', concurrent_cliques, 'no_concurrent_overlap', no_concurrent_overlap, ...
+                                             'enable_dropconnect', train_enable_dropconnect, 'dropconnect_p', train_dropconnect_p, 'subsampling_p', train_subsampling_p, ...
+                                             'silent', true);
+end
+
+% Testing phase
 error_rate = gbnn_test('cnetwork', cnetwork, 'thriftymessagestest', thriftymessages, ...
-                                                                                  'l', l, 'c', c, 'Chi', Chi, ...
                                                                                   'erasures', erasures, 'iterations', iterations, 'tampered_messages_per_test', tampered_messages_per_test, 'tests', tests, ...
                                                                                   'enable_guiding', enable_guiding, 'gamma_memory', gamma_memory, 'threshold', threshold, 'propagation_rule', propagation_rule, 'filtering_rule', filtering_rule, 'tampering_type', tampering_type, ...
-                                                                                  'residual_memory', residual_memory, 'concurrent_cliques', concurrent_cliques, 'no_concurrent_overlap', no_concurrent_overlap, 'concurrent_successive', concurrent_successive, 'GWTA_first_iteration', GWTA_first_iteration, 'GWTA_last_iteration', GWTA_last_iteration, ...
+                                                                                  'residual_memory', residual_memory, 'concurrent_cliques', concurrent_cliques, 'no_concurrent_overlap', no_concurrent_overlap, 'concurrent_successive', concurrent_successive, 'filtering_rule_first_iteration', filtering_rule_first_iteration, 'filtering_rule_last_iteration', filtering_rule_last_iteration, ...
+                                                                                  'enable_overlays', enable_overlays, 'overlays_max', overlays_max, 'overlays_interpolation', overlays_interpolation, ...
+                                                                                  'concurrent_disequilibrium', concurrent_disequilibrium, ...
+                                                                                  'enable_dropconnect', enable_dropconnect, 'dropconnect_p', dropconnect_p, ...
                                                                                   'silent', silent);
 aux.printcputime(cputime() - tperf, 'Total cpu time elapsed to do everything: %g seconds.\n'); aux.flushout(); % print total time elapsed
 

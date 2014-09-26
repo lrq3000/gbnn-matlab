@@ -8,20 +8,24 @@ close all;
 aux = gbnn_aux; % works with both MatLab and Octave
 
 % Vars config, tweak the stuff here
-m = 10E4;
-c = 8;
-l = 64;
-Chi = 100;
-erasures = 3;
-filtering_rule = 'GWsTA';
-enable_guiding = false;
+m = 2E2 % 0.5E2 7E2; 14E2
+c = 5;
+l = 12;
+Chi = 18;
+erasures = 1;
 
-tampered_messages_per_test = 100;
+tampered_messages_per_test = 30;
+concurrent_cliques = 2;
+no_concurrent_overlap = false;
+concurrent_disequilibrium = false;
+
+iterations = 1;
+filtering_rule = 'ML';
 
 % == Launching the runs
 tperf = cputime();
 [cnetwork, thriftymessages, density] = gbnn_learn('m', m, 'l', l, 'c', c, 'Chi', Chi);
-error_rate = gbnn_test('cnetwork', cnetwork, 'thriftymessagestest', thriftymessages, 'erasures', erasures, 'filtering_rule', filtering_rule, 'tampered_messages_per_test', tampered_messages_per_test, 'enable_guiding', enable_guiding);
+error_rate = gbnn_test('cnetwork', cnetwork, 'thriftymessagestest', thriftymessages, 'tampered_messages_per_test', tampered_messages_per_test, 'filtering_rule', filtering_rule, 'concurrent_cliques', concurrent_cliques, 'iterations', iterations, 'erasures', erasures, 'no_concurrent_overlap', no_concurrent_overlap, 'concurrent_disequilibrium', concurrent_disequilibrium);
 aux.printcputime(cputime() - tperf, 'Total cpu time elapsed to do everything: %g seconds.\n'); aux.flushout(); % print total time elapsed
 
 % The end!

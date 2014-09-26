@@ -10,7 +10,7 @@ aux = gbnn_aux; % works with both MatLab and Octave
 
 % Preparing stuff to automate the plots
 % This will allow us to automatically select a different color and shape for each curve
-colorvec = 'rkgbmc';
+colorvec = 'rkgbkmc';
 markerstylevec = '+o*.xsd^v><ph';
 linestylevec = {'-' ; '--' ; ':' ; '-.'};
 
@@ -22,20 +22,21 @@ c = 12;
 l = 32;
 Chi = 64;
 erasures = 3;
-iterations = 1; % for convergence
+iterations = 4; % for convergence
 tampered_messages_per_test = 100;
 tests = 1;
 
-enable_guiding = [false, true]; % here too, we will try with and without the guiding mask
+enable_guiding = [false]; % here too, we will try with and without the guiding mask
 gamma_memory = 1;
 threshold = 0;
 propagation_rule = 'sum'; % TODO: not implemented yet, please always set 0 here
-filtering_rule = {'GWsTA'}; % this is a cell array (vector of strings) because we will try several different values of c (order of cliques)
+filtering_rule = {'GWsTA'}; % this is a cell array (vector of strings) because we can try several different filtering rules
 tampering_type = 'erase';
 
 residual_memory = 0;
 concurrent_cliques = 1:3;
-no_concurrent_overlap = true;
+concurrent_disequilibrium = 1; % 1 for superscore mode, 2 for one fanal erasure, 3 for nothing at all just trying to decode one clique at a time without any trick, 0 to disable
+no_concurrent_overlap = false;
 concurrent_successive = false;
 filtering_rule_first_iteration = false;
 filtering_rule_last_iteration = false;
@@ -49,7 +50,7 @@ trainingbatchs = 2;
 no_auxiliary_propagation = false;
 
 % Plot tweaking
-statstries = 3; % retry n times with different networks to average (and thus smooth) the results
+statstries = 10; % retry n times with different networks to average (and thus smooth) the results
 smooth_factor = 2; % interpolate more points to get smoother curves. Set to 1 to avoid smoothing (and thus plot only the point of the real samples).
 smooth_method = 'cubic'; % use PCHIP or cubic to avoid interpolating into negative values as spline does
 plot_curves_params = { 'markersize', 10, ...
@@ -63,7 +64,7 @@ plot_text_params = { 'FontSize', 12, ... % in points
                                        'FontName', 'Helvetica' ...
                                        };
 
-unbias_one_to_concurrent_error_rate = false; % unbias error rate of 1 message to take into account that with concurrency, we decode multiple messages and not just one? (this will be automatically unbiased to the max concurrent cliquse max(concurrent_cliques))
+unbias_one_to_concurrent_error_rate = true; % unbias error rate of 1 message to take into account that with concurrency, we decode multiple messages and not just one? (this will be automatically unbiased to the max concurrent cliquse max(concurrent_cliques))
 plot_theo = true; % plot theoretical error rates?
 silent = false; % If you don't want to see the progress output
 save_results = true; % save results to a file?
@@ -73,6 +74,7 @@ D = zeros(numel(M), numel(filtering_rule)*numel(enable_guiding)*numel(concurrent
 E = zeros(numel(M), numel(filtering_rule)*numel(enable_guiding)*numel(concurrent_cliques));
 ED = zeros(numel(M), numel(filtering_rule)*numel(enable_guiding)*numel(concurrent_cliques));
 TE = zeros(numel(M), numel(enable_guiding)*numel(concurrent_cliques)); % theoretical error rate depends on: Chi, l, c, erasures, enable_guiding and of course the density (theoretical or real) and thus on any parameter that changes the network (thus as the number of messages m to learn)
+EC = zeros(numel(M), numel(filtering_rule)*numel(enable_guiding)*numel(concurrent_cliques));
 
 for t=1:statstries
     tperf = cputime(); % to show the total time elapsed later
@@ -106,7 +108,7 @@ for t=1:statstries
                     [error_rate, theoretical_error_rate, test_stats] = gbnn_test('cnetwork', cnetwork, 'thriftymessagestest', thriftymessages, ...
                                                                                           'erasures', erasures, 'iterations', iterations, 'tampered_messages_per_test', tampered_messages_per_test, 'tests', tests, ...
                                                                                           'enable_guiding', enable_guiding(1,g), 'gamma_memory', gamma_memory, 'threshold', threshold, 'propagation_rule', propagation_rule, 'filtering_rule', fr, 'tampering_type', tampering_type, 'filtering_rule_first_iteration', filtering_rule_first_iteration, 'filtering_rule_last_iteration', filtering_rule_last_iteration, ...
-                                                                                          'residual_memory', residual_memory, 'concurrent_cliques', concurrent_cliques(1,cc), 'no_concurrent_overlap', no_concurrent_overlap, 'concurrent_successive', concurrent_successive, ...
+                                                                                          'residual_memory', residual_memory, 'concurrent_cliques', concurrent_cliques(1,cc), 'concurrent_disequilibrium', concurrent_disequilibrium, 'no_concurrent_overlap', no_concurrent_overlap, 'concurrent_successive', concurrent_successive, ...
                                                                                           'silent', silent);
 
                     % Store the results
@@ -118,6 +120,7 @@ for t=1:statstries
                     E(m,counter) = E(m,counter) + error_rate;
                     ED(m, counter) = ED(m, counter) + test_stats.error_distance;
                     TE(m, tecounter) = theoretical_error_rate;
+                    EC(m, counter) = EC(m, counter) + test_stats.concurrent_unbiased_error_rate;
                     if ~silent; fprintf('-----------------------------\n\n'); end;
                     
                     counter = counter + 1;
@@ -132,7 +135,9 @@ end
 D = D ./ statstries;
 E = E ./ statstries;
 ED = ED ./ statstries;
+EC = EC ./ statstries;
 fprintf('END of all tests!\n'); aux.flushout();
+
 
 % == Plotting
 
@@ -144,6 +149,7 @@ D_interp = interp1(1:nsamples, D(:,1), linspace(1, nsamples, nsamples*smooth_fac
 E_interp = interp1(D(:,1), E, D_interp, smooth_method);
 TE_interp = interp1(D(:,1), TE, D_interp, smooth_method);
 ED_interp = interp1(D(:,1), ED, D_interp, smooth_method);
+EC_interp = interp1(D(:,1), EC, D_interp, smooth_method);
 
 % -- Save results to a file
 if save_results
@@ -190,6 +196,7 @@ for f=1:numel(filtering_rule) % for each different filtering rule and whether th
             else
                 plot_title = strcat(plot_title, sprintf(' - Blind'));
             end
+            plot_title = strcat(plot_title, sprintf(' - %i it', iterations(f)));
 
             % Draw the curves
             % => Error rate
@@ -235,7 +242,60 @@ if plot_theo
 end
 
 % Refresh plot with legends
-legend(get(gca,'children'),get(get(gca,'children'),'DisplayName'), 'location', 'northwest'); % IMPORTANT: force refreshing to show the legend, else it won't show!
+legend(get(gca,'children'),get(get(gca,'children'),'DisplayName'), 'location', 'southeast'); % IMPORTANT: force refreshing to show the legend, else it won't show!
+legend('boxoff');
+% Add secondary axis on the top of the figure to show the number of messages
+aux.add_2nd_xaxis(D(:,1), M, sprintf('x%.1E', Mcoeff), '%g', 0);
+xlim([0 max(D(:,1))]); % adjust x axis zoom
+% Adjust axis drawing style
+set( gca(), plot_axis_params{:} );
+% Adjust text style
+set([gca; findall(gca, 'Type','text')], plot_text_params{:});
+
+
+% -- Plot concurrent unbiased error rate with respect to the density
+figure; hold on;
+xlabel(sprintf('(Bottom) Density  -- (Top) Number of stored messages (M) x%.1E', Mcoeff));
+ylabel('Unbiased Retrieval Error Rate per clique');
+counter = 1; % useful to keep track inside the matrix E. This is guaranteed to be OK since we use the same order of for loops (so be careful, if you move the forloops here in plotting you must also move them the same way in the tests above!)
+for f=1:numel(filtering_rule) % for each different filtering rule and whether there is guiding or not, we willl print a different curve, with an automatically selected color and shape
+    coloridx = mod(f-1, numel(colorvec))+1; % change color per filtering rule
+    counterstyle = 1; % use another counter for styles, so that each curve will get the exact same style for each set of parameters
+    for cc=1:numel(concurrent_cliques)
+        for g=1:numel(enable_guiding)
+            lstyleidx = mod(counterstyle-1, numel(linestylevec))+1; % change line style ...
+            mstyleidx = mod(counterstyle-1, numel(markerstylevec))+1; % and change marker style per plot
+
+            lstyle = linestylevec(lstyleidx, 1); lstyle = lstyle{1}; % for MatLab, can't do that in one command...
+
+            % Prepare the legend
+            fr = filtering_rule(1,f); fr = fr{1};
+            plot_title = sprintf('%s', fr);
+            if concurrent_cliques(1,cc) == 1
+                plot_title = strcat(plot_title, sprintf(' - no cc'));
+            else
+                plot_title = strcat(plot_title, sprintf(' - cc = %i', concurrent_cliques(1, cc)));
+            end
+            if enable_guiding(1,g)
+                plot_title = strcat(plot_title, sprintf(' - Guided'));
+            else
+                plot_title = strcat(plot_title, sprintf(' - Blind'));
+            end
+            plot_title = strcat(plot_title, sprintf(' - %i it', iterations(f)));
+
+            % Draw the curves
+            % => Error rate
+            cur_plot = plot(D_interp, EC_interp(:,counter), sprintf('%s%s%s', lstyle, markerstylevec(mstyleidx), colorvec(coloridx))); % plot one line
+            set(cur_plot, plot_curves_params{:}); % additional plot style
+            set(cur_plot, 'DisplayName', plot_title); % add the legend per plot, this is the best method, which also works with scatterplots and polar plots, see http://hattb.wordpress.com/2010/02/10/appending-legends-and-plots-in-matlab/
+
+            counter = counter + 1;
+            counterstyle = counterstyle + 1;
+        end
+    end
+end
+% Refresh plot with legends
+legend(get(gca,'children'),get(get(gca,'children'),'DisplayName'), 'location', 'southeast'); % IMPORTANT: force refreshing to show the legend, else it won't show!
 legend('boxoff');
 % Add secondary axis on the top of the figure to show the number of messages
 aux.add_2nd_xaxis(D(:,1), M, sprintf('x%.1E', Mcoeff), '%g', 0);
@@ -274,6 +334,12 @@ for f=1:numel(filtering_rule) % for each different filtering rule and whether th
             else
                 plot_title = strcat(plot_title, sprintf(' - Blind'));
             end
+            if concurrent_disequilibrium(f)
+                plot_title = strcat(plot_title, sprintf(' - Diseq type %i', concurrent_disequilibrium(f)));
+            else
+                plot_title = strcat(plot_title, sprintf(' - No diseq'));
+            end
+            plot_title = strcat(plot_title, sprintf(' - %i it', iterations(f)));
 
             % Draw the curves
             % => Error distance

@@ -10,7 +10,7 @@ aux = gbnn_aux; % works with both MatLab and Octave
 
 % Preparing stuff to automate the plots
 % This will allow us to automatically select a different color and shape for each curve
-colorvec = 'rkgbmc';
+colorvec = 'rkgbkmc';
 markerstylevec = '+o*.xsd^v><ph';
 linestylevec = {'-' ; '--' ; ':' ; '-.'};
 
@@ -26,7 +26,7 @@ iterations = 1; % for convergence
 tampered_messages_per_test = 100;
 tests = 1;
 
-enable_guiding = [false, true]; % here too, we will try with and without the guiding mask
+enable_guiding = [false]; % here too, we will try with and without the guiding mask
 gamma_memory = 1;
 threshold = 0;
 propagation_rule = 'sum'; % TODO: not implemented yet, please always set 0 here
@@ -49,7 +49,7 @@ trainingbatchs = 2;
 no_auxiliary_propagation = false;
 
 % Plot tweaking
-statstries = 3; % retry n times with different networks to average (and thus smooth) the results
+statstries = 10; % retry n times with different networks to average (and thus smooth) the results
 smooth_factor = 2; % interpolate more points to get smoother curves. Set to 1 to avoid smoothing (and thus plot only the point of the real samples).
 smooth_method = 'cubic'; % use PCHIP or cubic to avoid interpolating into negative values as spline does
 plot_curves_params = { 'markersize', 10, ...
@@ -63,7 +63,7 @@ plot_text_params = { 'FontSize', 12, ... % in points
                                        'FontName', 'Helvetica' ...
                                        };
 
-unbias_one_to_concurrent_error_rate = false; % unbias error rate of 1 message to take into account that with concurrency, we decode multiple messages and not just one? (this will be automatically unbiased to the max concurrent cliquse max(concurrent_cliques))
+unbias_one_to_concurrent_error_rate = true; % unbias error rate of 1 message to take into account that with concurrency, we decode multiple messages and not just one? (this will be automatically unbiased to the max concurrent cliquse max(concurrent_cliques))
 plot_theo = true; % plot theoretical error rates?
 silent = false; % If you don't want to see the progress output
 save_results = true; % save results to a file?

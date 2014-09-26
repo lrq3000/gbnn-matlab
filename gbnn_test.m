@@ -1,10 +1,10 @@
-function [error_rate, theoretical_error_rate, error_distance] = gbnn_test(varargin)
+function [error_rate, theoretical_error_rate, test_stats, error_per_message, testset, inputm] = gbnn_test(varargin)
 %
-% [error_rate, theoretical_error_rate, error_distance] = gbnn_test(cnetwork, thriftymessagestest, ...
-%                                                                                  l, c, Chi, ...
+% [error_rate, theoretical_error_rate, test_stats] = gbnn_test(cnetwork, thriftymessagestest, ...
 %                                                                                  erasures, iterations, tampered_messages_per_test, tests, ...
 %                                                                                  enable_guiding, gamma_memory, threshold, propagation_rule, filtering_rule, tampering_type, ...
-%                                                                                  residual_memory, concurrent_cliques, no_concurrent_overlap, concurrent_successive, GWTA_first_iteration, GWTA_last_iteration, ...
+%                                                                                  residual_memory, concurrent_cliques, no_concurrent_overlap, concurrent_successive, filtering_rule_first_iteration, filtering_rule_last_iteration, ...
+%                                                                                  enable_overlays, overlays_max, overlays_interpolation, ...
 %                                                                                  silent)
 %
 % Feed a network and a matrix of thrifty messages from which to pick samples for test, and this function will automatically sample some messages, tamper them, and then try to correct them. Finally, the error rate over all the processed messages will be returned.
@@ -13,7 +13,7 @@ function [error_rate, theoretical_error_rate, error_distance] = gbnn_test(vararg
 % gbnn_test('cnetwork', mynetwork, 'thriftymessagestest', thriftymessagestest, 'l', 4, 'c', 3)
 %
 % -- Test variables
-%- cnetwork : specify the network to use that you previously learned.
+%- cnetwork : specify the network to use that you previously learned. This is a struct containing the network and which should also contain the parameters (eg: l, c and Chi).
 %- thriftymessagestest : matrix of messages that will be used as a test set. NOTE: you can either provide a thrifty messages matrix (only composed of 0's and 1's, eg: 001010) or a full messages matrix (eg: 23040), so that you can use the same format of messages matrix both in gbnn_learn.m and gbnn_test.m
 %- erasures : number of characters that will be erased (or noised if tampering_type == "noise") from a message for test. NOTE: must be lower than c!
 %- iterations : number of iterations to let the network converge
@@ -32,16 +32,29 @@ function [error_rate, theoretical_error_rate, error_distance] = gbnn_test(vararg
 %
 % -- Custom extensions
 %- residual_memory : residual memory: previously activated nodes lingers a bit and participate in the next iteration.
+%- filtering_rule_first_iteration and filtering_rule_last_iteration : always use the specified filtering rule as the first/last filtering rule. Particularly useful with *G*LKO family of algorithms which need the first iteration to be GWSTA to kickstart the process.
+%- enable_dropconnect and dropconnect_p : enable dropconnect to reduce the density, and you can specify the probability p of removing an edge in the subgraph. See also: subsampling function for a deterrminist alternative (used in Xiaoran thesis on tournaments to also reduce density). Note: seems to work best when data has some topology (ie: messages are not stored randomly but there's some order, eg: storing similar messages closer).
+%
+%
+% -- Concurrent extension
 %- concurrent_cliques : allow to decode multiple messages concurrently/simultaneously (can specify the number here).
 %- no_concurrent_overlap : ensure that concurrent messages/cliques aren't overlapping, thus there won't be any shared fanal (with a big score).
 %- concurrent_successive : instead of simultaneously stimulate the concurrent messages, stimulate them one after the other in succession. This is a bit like tagging/coloring the cliques to better handle them. For example, guiding_mask is adapted at each step to allow a cumulation of one more message at each step (ie: at first step there will be c clusters allowed in the first guiding_mask, then 2*c in the second step, then 3*c in the third, etc.) instead of allowing all correct clusters for all concurrent messages at once..
-%- GWTA_first_iteration and GWTA_last_iteration : always use GWTA as the first/last filtering rule. Particularly useful with *G*LKO family of algorithms which need the first iteration to be GWTA to kickstart the process.
+%- concurrent_disequilibrium : this is a disambiguation trick in the concurrent case, it helps a great deal with the performance by trying to find only one clique at a time (thus this will multiply the number of iterations: if iterations == 4 and concurrent_cliques == 3, you will have a total 4*3=12 iterations if you enable concurrent_disequilibrium), but that's a small price to pay! Also note that you need to set iterations > 1 to get any beneficial effect from the disequilibrium (iterations = 4 is good). Set 1 for superscore mode, 2 for one fanal erasure, 3 for nothing at all just trying to decode one clique at a time without any trick.
+%
+% -- Overlays/Tags extension
+%- enable_overlays : enable tags/overlays disambiguation? Tags may be used as a way to disambiguate between several winning cliques/fanals.
+%- overlays_max : 0 for maximum number of tags (as many tags as messages/cliques) ; 1 to use only one tag (equivalent to standard network without tags) ; n > 1 for any definite number of tags
+%- overlays_interpolation : interpolation method to reduce the number of tags when overlays_max > 1: uniform, mod or norm
+%
+% -- Verbosity
 %- silent : silence all outputs
 %
 
 
 % == Importing some useful functions
 aux = gbnn_aux; % works with both MatLab and Octave
+if ~aux.isOctave(); binocdf = aux.binocdf; end; % provide binocdf function to MatLab users without the Statistics Toolbox (which is freely available in Octave btw)
 
 % == Arguments processing
 % List of possible arguments and their default values
@@ -49,11 +62,6 @@ arguments_defaults = struct( ...
     ... % Mandatory
     'cnetwork', [], ...
     'thriftymessagestest', [], ...
-    'l', 0, ...
-    'c', 0, ...
-    ...
-    ... % 2014 sparse enhancement
-    'Chi', 0, ...
     ...
     ... % Test settings
     'erasures', 1, ...
@@ -69,13 +77,21 @@ arguments_defaults = struct( ...
     'propagation_rule', 'sum', ...
     'filtering_rule', 'wta', ...
     'tampering_type', 'erase', ...
-    'GWTA_first_iteration', false, ...
-    'GWTA_last_iteration', false, ...
+    'filtering_rule_first_iteration', false, ...
+    'filtering_rule_last_iteration', false, ...
+    'enable_dropconnect', false, ...
+    'dropconnect_p', 0.5, ...
     ...
     ... % Concurrency extension (simultaneous messages/cliques)
     'concurrent_cliques', 1, ... % 1 is disabled, > 1 enables and specify the number of concurrent messages/cliques to decode concurrently
     'no_concurrent_overlap', false, ...
     'concurrent_successive', false, ...
+    'concurrent_disequilibrium', false, ...
+    ...
+    ... % Overlays / Tags extension
+    'enable_overlays', false, ...
+    'overlays_max', 0, ...
+    'overlays_interpolation', 'uniform', ...
     ...
     ... % Debug stuffs
     'silent', false);
@@ -85,15 +101,11 @@ arguments = aux.getnargs(varargin, arguments_defaults, true);
 
 % Load variables into local namespace (called workspace in MatLab)
 aux.varspull(arguments);
+aux.varspull(cnetwork.primary.args);
 
 % == Sanity Checks
-if isempty(cnetwork) || isempty(thriftymessagestest) || l == 0 || c == 0
-    error('Missing arguments: cnetwork, thriftymessagestest, l and c are mandatory!');
-end
-
-variable_length = false;
-if isvector(c) && ~isscalar(c)
-    variable_length = true;
+if isempty(cnetwork) || isempty(thriftymessagestest) || isfield(cnetwork.primary.args, 'l') == 0 || isfield(cnetwork.primary.args, 'c') == 0
+    error('Missing arguments: cnetwork, thriftymessagestest, cnetwork.primary.args.l and cnetwork.primary.args.c are mandatory!');
 end
 
 if ~exist('propagation_rule', 'var') || ~ischar(propagation_rule)
@@ -108,16 +120,19 @@ if ~exist('tampering_type', 'var') || ~ischar(tampering_type)
     if iscell(tampering_type); error('tampering_type is a cell, it should be a string! Maybe you did a typo?'); end;
     tampering_type = 'erase';
 end
+if enable_overlays && (islogical(cnetwork.primary.net) || max(max(cnetwork.primary.net)) == 1)
+    error('cannot use overlays because overlays were not learned. Please first use gbnn_learn() with argument enable_overlays = true');
+end
 
 % == Show vars (just for the record, user can debug or track experiments using diary)
 if ~silent
     % -- Network variables
     l
     c
-    Chi % -- 2014 update
+    Chi
 
     % -- Test variables
-    alpha = erasures / c
+    alpha = erasures / c % percent of erased bits per message
     erasures
     iterations
     tampered_messages_per_test
@@ -133,27 +148,15 @@ if ~silent
 
     % -- Custom extensions
     residual_memory
-    variable_length
     concurrent_cliques
     no_concurrent_overlap
     concurrent_successive
+    concurrent_disequilibrium
 end
 
 
 
 % == Init data structures and other vars - DO NOT TOUCH
-sparse_cliques = true; % enable the creation of sparse cliques if Chi > c (cliques that don't use all available clusters but just c clusters per one message)
-if Chi <= c
-    Chi = c; % Chi can't be < c, thus here we ensure that
-    sparse_cliques = false;
-end
-n = Chi * l; % total number of nodes ( = length of a message = total number of characters slots per message)
-
-% Setup correct values for k (this is an automatic guess, but a manual value can be better depending on your dataset)
-k = c*concurrent_cliques; % with propagation_rules GWTA and k-GWTA, usually we are looking to find at least as many winners as there are characters in the initial messages, which is at most c*concurrent_cliques (it can be less if the concurrent_cliques share some nodes, but this is unlikely if the density is low)
-if strcmpi(filtering_rule, 'kWTA') || strcmpi(filtering_rule, 'kLKO') || strcmpi(filtering_rule, 'WsTA') % for all k local algorithms (k-WTA, k-LKO, WsTA, ...), k should be equal to the number of concurrent_cliques, since per cluster (remember that the rule here is local, thus per cluster) there is at most as many different characters per cluster as there are concurrent_cliques (since one clique can only use one node per cluster).
-    k = concurrent_cliques;
-end
 
 % Smart messages management: if user provide a non thrifty messages matrix, we convert it on-the-fly (a lot easier for users to manage in their applications since they can use the same messages to learn and to test the network)
 if ~islogical(thriftymessagestest) && any(thriftymessagestest(:) > 1)
@@ -174,6 +177,10 @@ if n ~= size(thriftymessagestest, 2)
     error('Provided arguments Chi and L do not match with the size of thriftymessagestest.');
 end
 
+if nargin > 3
+    error_per_message = logical(sparse(1, tests*tampered_messages_per_test));
+    testset = logical(sparse(n, tests*tampered_messages_per_test));
+end
 
 if ~silent; totalperf = cputime(); end; % for total time perfs
 
@@ -183,6 +190,8 @@ if ~silent; fprintf('#### Testing phase (error correction of tampered messages w
 %thriftymessagestest = thriftymessages; % by default, use to test the same set as for learning
 err = 0; % error score
 derr = 0; % euclidian error distance
+similarity_measure = 0; % similarity between the corrected messages and the initial messages (number of matching characters over the total number of the biggest message)
+matching_measure = 0; % does the corrected message contains at least all the fanals of the initial message?
 for t=1:tests % TODO: replace by parfor (regression from past versions to allow for better compatibility because Octave cannot do parallel processing, but parfor should work with little modifications)
     if ~silent
         if tests < 20 || mod(tests, t) == 0
@@ -265,7 +274,7 @@ for t=1:tests % TODO: replace by parfor (regression from past versions to allow 
     elseif strcmpi(tampering_type, 'noise')
         % The idea is simple: we generate random indices to be "noised" and we bit-flip them using modulo.
         %idxs = unidrnd(n, [erasures mconcat*tampered_messages_per_test]); % generate random indices to be tampered
-        idxs = unidrnd([1 n], erasures, mconcat*tampered_messages_per_test); % generate random indices to be tampered
+        idxs = randi([1 n], erasures, mconcat*tampered_messages_per_test); % generate random indices to be tampered
         idxs = bsxfun(@plus, idxs, 0:n:n*(tampered_messages_per_test*concurrent_cliques-1) ); % offset indices to take account of the column = message (since sort resets indices count per column)
         inputm(idxs) = mod(inputm(idxs) + 1, 2); % bit-flipping! simply add one to all those entries and modulo one, this will effectively bit-flip them.
     % Else error, the tampering_type does not exist
@@ -341,13 +350,19 @@ for t=1:tests % TODO: replace by parfor (regression from past versions to allow 
 
     % Correction of the tampered messages
     if ~(concurrent_successive && concurrent_cliques > 1) % Normal case: just feed the messages (a matrix containing messages as vectors) and wait for convergence
+        %inputm_full = inputm;
         % Correct and wait for convergence!
-        inputm = gbnn_correct('cnetwork', cnetwork, 'partial_messages', inputm, ...
-                                  'l', l, 'c', c, 'Chi', Chi, ...
+        [inputm, propag] = gbnn_correct('cnetwork', cnetwork, 'partial_messages', inputm, ...
                                   'iterations', iterations, ...
-                                  'k', k, 'guiding_mask', guiding_mask, 'gamma_memory', gamma_memory, 'threshold', threshold, 'propagation_rule', propagation_rule, 'filtering_rule', filtering_rule, 'tampering_type', tampering_type, ...
-                                  'residual_memory', residual_memory, 'concurrent_cliques', concurrent_cliques, 'GWTA_first_iteration', GWTA_first_iteration, 'GWTA_last_iteration', GWTA_last_iteration, ...
+                                  'guiding_mask', guiding_mask, 'gamma_memory', gamma_memory, 'threshold', threshold, 'propagation_rule', propagation_rule, 'filtering_rule', filtering_rule, ...
+                                  'residual_memory', residual_memory, 'concurrent_cliques', concurrent_cliques, 'filtering_rule_first_iteration', filtering_rule_first_iteration, 'filtering_rule_last_iteration', filtering_rule_last_iteration, ...
+                                  'enable_dropconnect', enable_dropconnect, 'dropconnect_p', dropconnect_p, ...
+                                  'concurrent_disequilibrium', concurrent_disequilibrium, ...
+                                  'enable_overlays', enable_overlays, 'overlays_max', overlays_max, 'overlays_interpolation', overlays_interpolation, ...
                                   'silent', silent);
+        % DEBUG: show the original input and the corrected input interleaved by column. Thank's to Peter Yu http://www.peteryu.ca/tutorials/matlab/interleave_matrices
+        %a = aux.interleave(inputm_full, inputm, 2); full([sum(a); a])
+        %keyboard
     % Concurrent_successive case: we won't feed the mixed messages at once but instead we will try to converge for one message at a time, and then at each step we append another concurrent message and try again to converge, etc.
     else
         inputm_full = inputm; % Backup the unmixed messages
@@ -375,11 +390,13 @@ for t=1:tests % TODO: replace by parfor (regression from past versions to allow 
             end
 
             % Correct and wait for convergence!
-            inputm = gbnn_correct('cnetwork', cnetwork, 'partial_messages', inputm, ...
-                                  'l', l, 'c', c, 'Chi', Chi, ...
+            [inputm, propag] = gbnn_correct('cnetwork', cnetwork, 'partial_messages', inputm, ...
                                   'iterations', iterations, ...
-                                  'k', k, 'guiding_mask', gmask, 'gamma_memory', gamma_memory, 'threshold', threshold, 'propagation_rule', propagation_rule, 'filtering_rule', filtering_rule, 'tampering_type', tampering_type, ...
-                                  'residual_memory', residual_memory, 'concurrent_cliques', cc, 'GWTA_first_iteration', GWTA_first_iteration, 'GWTA_last_iteration', GWTA_last_iteration, ...
+                                  'k', k, 'guiding_mask', gmask, 'gamma_memory', gamma_memory, 'threshold', threshold, 'propagation_rule', propagation_rule, 'filtering_rule', filtering_rule, ...
+                                  'residual_memory', residual_memory, 'concurrent_cliques', cc, 'filtering_rule_first_iteration', filtering_rule_first_iteration, 'filtering_rule_last_iteration', filtering_rule_last_iteration, ...
+                                  'enable_dropconnect', enable_dropconnect, 'dropconnect_p', dropconnect_p, ...
+                                  'concurrent_disequilibrium', concurrent_disequilibrium, ...
+                                  'enable_overlays', enable_overlays, 'overlays_max', overlays_max, 'overlays_interpolation', overlays_interpolation, ...
                                   'silent', silent);
 
         end
@@ -398,46 +415,122 @@ for t=1:tests % TODO: replace by parfor (regression from past versions to allow 
         %err = err + sum(min(sum((init ~= inputm), 1), 1)); % this is a LOT faster than isequal() !
         err = err + nnz(sum((init ~= inputm), 1)); % even faster!
         derr = derr + sum(sum(init ~= inputm)); % error distance = euclidian distance to the correct message = mean number of bits that are wrong per message / number of bits per message = esperance that a bit is wrongly flipped
+        similarity_measure = similarity_measure + sum(sum(inputm .* init, 1) ./ max(sum(inputm, 1), sum(init, 1))); % 1.0 if both messages are equal and of same length, the score will lower towards 0 if either some characters in the corrected message are wrong, or either if the corrected message contains more characters than the initial.
+        matching_measure = matching_measure + sum(sum(inputm .* init, 1) ./ sum(init, 1)); % 1.0 if the corrected message contains at least the initial message (but the corrected message can contain more characters).
+        %error_rate_concunb = nnz(any(reshape(sum((init ~= inputm), 1), 2, []), 1)) * 2;
     else
         %err = err + ~isequal(init,inputm);
         err = err + any(init ~= inputm); % remove the useless sum(min()) when we only have one message to compute the error from, this cuts the time by almost half
         derr = derr + sum(init ~= inputm);
+        similarity_measure = similarity_measure + (sum(inputm .* init, 1) ./ max(sum(inputm, 1), sum(init, 1)));
+        matching_measure = matching_measure + (sum(inputm .* init, 1) ./ sum(init, 1));
+    end
+    if nargout > 3
+        indstart = 1+(t-1)*tampered_messages_per_test;
+        indend = t*tampered_messages_per_test;
+        error_per_message(:, indstart:indend) = any(init ~= inputm);
+        testset(:, indstart:indend) = init;
     end
     if ~silent; aux.printtime(toc()); end;
+    %if nnz(sum((init ~= inputm), 1)) > 0; keyboard; end;
 
 end
 
-% Compute error rate
+% Normalize error rate and measures
 error_rate = err / (tests * tampered_messages_per_test); % NOTE: if you use concurrent_cliques > 1, error_rate is not a good measure, because you artificially increase the probability of having a wrong message by concurrent_cliques times (since you're not testing one but concurrent_cliques messages at the same time), and there's no way to correct this biased estimator since we can't know which clique caused which bit flip (eg: concurrent_cliques = 3 and there are 3 wrong bits: are they caused by the three messages, or by only 1 and the other two are in fact corrects?). You should rather try error_distance in this case.
+error_distance = derr / (tests * concurrent_cliques * c * tampered_messages_per_test); % Euclidian distance: compute the esperance that a bit is wrongly flipped (has an incorrect value)
+similarity_measure = similarity_measure / (tests * tampered_messages_per_test); % similar to matching measure but it also take in account the difference in the number of activated fanals between the two messages (so if there are a lot of activated fanals besides the original ones, this will lower the score)
+matching_measure = matching_measure / (tests * tampered_messages_per_test); % if all nodes from original message are at least in the final decoded message (even if there are more), then this will be 1.0
+% Unbias concurrent error rate
+concurrent_unbiased_error_rate = 1 - (1 - error_rate).^(1/concurrent_cliques); % unbias approximately the error rate of multiple concurrent cliques by averaging, because statistically we exponentiate the error rate by the number of messages: error_rate for testing 2 cliques instead of just 1 clique = 1-((1-error_rate)^concurrent_cliques) == 1-binocdf(0, concurrent_cliques, error_rate). Here we try to unbias that by finding the square root and thus to get error_rate per clique, and not per multiple concurrent_cliques messages as it is if biased. NOTE: remember that this is an approximation of the unbiased error rate, because we can't know which clique in a message of concurrent cliques caused the error, which would be the only way to get the exact error rate (so that we could know if, with for example concurrent_cliques = 2, if the final recovered mixed message is wrong because of 1 of the messages, or of both. Here we have no way to tell, so we suppose that in general, only one of the messages will fail but not both, which may be clearly wrong if density is high).
+%error_rate_concunb = error_rate_concunb / (tampered_messages_per_test); % unbias error rate of one clique for the concurrent cliques case. This is the other way around: here we take the case with only one message, but we repeat the experiment twice in a Bernouilli fashion, so that we get 2x1 message per error. This should give us a really unbiased error rate for 2 cliques (or more, you choose here).
+%concurrent_unbiased_theoretical_error_rate = 1-(1-theoretical_error_rate)^concurrent_cliques; WRONG, this just "doubles" the risk of spurious fanal for each concurrent clique, but it does not account for all possible combinations, you have to use a cumulative binomial distribution to count that!
+
+
 % Compute density
-real_density = full(  (nnz(cnetwork) - nnz(diag(cnetwork))) / (Chi*(Chi-1) * l^2)  );
+real_density = full(  (nnz(cnetwork.primary.net) - nnz(diag(cnetwork.primary.net))) / (Chi*(Chi-1) * l^2)  );
+%real_density = 0;
+%if ~strcmpi(propagation_rule, 'overlays')
+%    real_density = full(  (nnz(cnetwork.primary.net) - nnz(diag(cnetwork.primary.net))) / (Chi*(Chi-1) * l^2)  );
+%else
+%    alltags = unique(nonzeros(cnetwork.primary.net));
+%    for tg = 1:numel(alltags)
+%        real_density = real_density + full(  (nnz(cnetwork.primary.net == alltags(tg)) - nnz(diag(cnetwork.primary.net == alltags(tg)))) / (Chi*(Chi-1) * l^2)  );
+%    end
+%    real_density = real_density / numel(alltags);
+%end
+
+
 % Compute theoretical error rate
 theoretical_error_rate = -1;
-if ~enable_guiding % different error rate when guided mask is enabled (and it's lower than blind decoding)
-    %theoretical_error_rate = 1 - (1 - real_density^(c-erasures))^(erasures*(l-1)+l*(Chi-c)); % = spurious_cliques_proba. spurious cliques = nonvalid cliques that we did not memorize and which rests inopportunely on the edges of valid cliques, which we learned and want to remember. In other words: what is the probability of emergence of wrong cliques that we did not learn but which emerges from combinations of cliques we learned? This is influenced heavily by the density (higher density = more errors). Also, error rate is only per one iteration, if you use more iterations to converge the real error may be considerably lower. % NOTE: this is the correct error rate from the 2014 Behrooz paper but works only if concurrent_cliques = 1.
-    theoretical_error_rate = 1 - binocdf(c-erasures-1, concurrent_cliques*(c-erasures), real_density)^(erasures*(l-1)+l*(Chi-c)); % generalization of the error rate given in the 2014 Behrooz paper, this works with any value of concurrent_cliques
+
+% Error rate for tagged network
+if enable_overlays && overlays_max ~= 1
+    maxtag = max(max(cnetwork.primary.net));
+
+    % Compute the theoretical lost error rate (the number of tagged cliques whose all edges were overwritten by another tag, hence losing the fanal for this clique, and hence losing this clique)
+    % NOTE: this error depends solely on the structure of the network, ie: on the learning step. The decoding step doesn't have any influence on this error.
+    compute_lost_error = 0;
+    if compute_lost_error
+        init_lost_total = 0;
+        for mi=1:maxtag
+            thriftymessagestest = thriftymessagestest';
+            fanals_idxs = find(thriftymessagestest(:,mi));
+            thriftymessagestest = thriftymessagestest';
+            init_edges = cnetwork.primary.net(fanals_idxs, fanals_idxs);
+            init_lost = any(~any(ismember(init_edges, mi), 1));
+            init_lost_total = init_lost_total + init_lost;
+        end
+        lost_error = (init_lost_total/maxtag);
+    end
+    
+    cliquesize = (c.*(c-1)/2);
+    netsize = (Chi*(Chi-1) * l.^2) / 2;
+
+    % VERY close! Compute the theoretical lost rate, which is close to the error rate (this is the main kind of error for the tagged network)
+    % NOTE: we assume that all messages are independently overwriting the edges, which is not the case, thus this is an approximation
+    count_learnt_msg = maxtag;
+    p_eo = 1-(1/netsize); % proba that a new edge overwrites any other edge EXCEPT one of the node we don't want to overwrite
+    p_allmsg = p_eo^(cliquesize*(count_learnt_msg-1)); % proba that the edge does not get overwritten by any learnt message
+    theoretical_error_rate = (1 - p_allmsg)^c; % proba that the edge GETS overwritten by any learnt message, and we multiply c times because for the node to be lost, we need to lose c edges, not just one
+
+% Standard theoretical error rate computation
 else
-    %theoretical_error_rate = 1 - (1 - real_density^(c-erasures))^(erasures*(l-1)); % correct error rate from the 2014 Behrooz paper but works only if concurrent_cliques = 1.
-    theoretical_error_rate = 1 - binocdf(c-erasures-1, concurrent_cliques*(c-erasures), real_density)^(erasures*(l-1)); % still the same generalization, but in guided mode so we count less many potentially spurious fanals (since we can exclude all clusters that the mask is excluding)
-end
-if concurrent_cliques > 1
-    %theoretical_error_rate = 1-(1-theoretical_error_rate)^concurrent_cliques; WRONG, this just "doubles" the risk of spurious fanal for each concurrent clique, but it does not account for all possible combinations, you have to use a cumulative binomial distribution to count that!
-    error_rate = 1 - (1 - error_rate)^(1/concurrent_cliques); % unbias approximation the real error rate by averaging, because statistically we exponentiate the error rate by the number of messages: error_rate^concurrent_cliques. Here we try to unbias that by finding the square root and thus to get error_rate per message, and not per concurrent_cliques messages as it is if biased. NOTE: remember that this is an approximation of the unbiased error rate, because we can't know which message caused the error, which would be the only way to get the exact error rate (so that we could know if, with for example concurrent_cliques = 2, if the final recovered mixed message is wrong because of 1 of the messages, or of both. Here we have no way to tell, so we suppose that in general, only one of the messages will fail but not both).
+    if concurrent_cliques == 1 % standard theoretical error rate when there's only one clique
+        if ~enable_guiding
+            theoretical_error_rate = 1 - (1 - real_density^(c-erasures))^(erasures*(l-1)+l*(Chi-c)); % = spurious_cliques_proba. spurious cliques = nonvalid cliques that we did not memorize and which rests inopportunely on the edges of valid cliques, which we learned and want to remember. In other words: what is the probability of emergence of wrong cliques that we did not learn but which emerges from combinations of cliques we learned? This is influenced heavily by the density (higher density = more errors). Also, error rate is only per one iteration, if you use more iterations to converge the real error may be considerably lower. % NOTE: this is the correct error rate from the 2014 Behrooz paper but works only if concurrent_cliques = 1.
+        else
+            theoretical_error_rate = 1 - (1 - real_density^(c-erasures))^(erasures*(l-1)); % correct error rate from the 2014 Behrooz paper but works only if concurrent_cliques = 1.
+        end
+    else % generalized theoretical error rate when there's many concurrent cliques (but also works if there's only one)
+        if ~enable_guiding % different error rate when guided mask is enabled (and it's lower than blind decoding)
+            theoretical_error_rate = 1 - ( binocdf(c-erasures-1, concurrent_cliques*(c-erasures), real_density)^(concurrent_cliques*erasures*(l-1)+l*max(0,(Chi-concurrent_cliques*c))) * binocdf(c-erasures-1, (concurrent_cliques-1)*(c-erasures), real_density)^((l-1)*concurrent_cliques*(c-erasures)) ); % generalization of the error rate given in the 2014 Behrooz paper, this works with any value of concurrent_cliques. There are two terms because in addition to what we compute in the standard theoretical error rate from 2014 paper, we have to also account for the fact that we can now have spurious fanals inside known clusters (because we have concurrent cliques, thus a spurious fanal may appear in a cluster with a known fanal but is linked to a fanal of the other clique, thus we can't use the fact that there's no link between fanals in the same cluster: before with one clique this prevented spurious fanals to appear in known clusters, but now it doesn't.
+            %theoretical_error_rate = 1 - hygecdf(c-erasures-1, graph_size, graph_size*real_density, concurrent_cliques*(c-erasures))^(concurrent_cliques*erasures*(l-1)+l*max(0,(Chi-concurrent_cliques*c))); % Alternative generalization of the theoretical error rate for concurrent_cliques > 1 but using hypergeometric distribution instead of binomiale.
+        else
+            theoretical_error_rate = 1 - ( binocdf(c-erasures-1, concurrent_cliques*(c-erasures), real_density)^(concurrent_cliques*erasures*(l-1)) * binocdf(c-erasures-1, (concurrent_cliques-1)*(c-erasures), real_density)^((l-1)*concurrent_cliques*(c-erasures)) ); % still the same generalization, but in guided mode so we count less many potentially spurious fanals (since we can exclude all clusters that the mask is excluding)
+            %theoretical_error_rate = 1 - hygecdf(c-erasures-1, graph_size, graph_size*real_density, concurrent_cliques*(c-erasures))^(concurrent_cliques*erasures*(l-1)); % Alternative generalization of the theoretical error rate for concurrent_cliques > 1 but using hypergeometric distribution instead of binomiale.
+        end
+    end
 end
 
 %theoretical_error_correction_proba = 1 - theoretical_error_rate
 
-% Compute euclidiant error distance
-error_distance = derr / (tests * concurrent_cliques * c * tampered_messages_per_test); % Euclidian distance: compute the esperance that a bit is wrongly flipped (has an incorrect value)
 
+% Filling stats to return from function
+test_stats = struct();
+test_stats.real_density = real_density; % real density of the network
+test_stats.error_rate = error_rate; % real error rate
+test_stats.error_rate_precision = 1/tampered_messages_per_test; % precision of the error rate (this means that the value given may at most be + or - the precision value, because we cannot compute values in-between: the precision is the minimally small step of error value we can compute).
+test_stats.theoretical_error_rate = theoretical_error_rate; % theoretical error rate
+test_stats.error_distance = error_distance; % error distance (mean number of wrong bits per message)
+test_stats.similarity_measure = similarity_measure; % similarity measure (mean number of correct bits per message over the length, thus if either some fanals aren't decoded or if the decoded message is longer, this measure will lower towards 0)
+test_stats.matching_measure = matching_measure; % matching measure (mean number of correct bits included in the final decoded messages)
+test_stats.concurrent_unbiased_error_rate = concurrent_unbiased_error_rate; % unbiased real error rate (correct to get the mean error rate per clique instead of per multiple concurrent cliques, which cannot be compared with other curves)
+%test_stats.one_to_concurrent_unbiased_error_rate = error_rate_concunb;
 
 % Finally, show the error rate and some stats
 if ~silent
-    real_density
-    error_rate
-    theoretical_error_rate
-    %theoretical_error_rate_concurrent
-    error_distance
+    test_stats
     total_tampered_messages_tested = tests * tampered_messages_per_test
     aux.printcputime(cputime - totalperf, 'Total elapsed cpu time for test is %g seconds.\n'); aux.flushout();
     %c_optimal_approx = log(Chi*l/P0)/(2*(1-alpha)) % you have to define alpha = rate of errors per message you want to be able to correct ; P0 = probability or error = theoretical_error_rate you want

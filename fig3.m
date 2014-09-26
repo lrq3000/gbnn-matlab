@@ -29,13 +29,13 @@ tests = 1;
 enable_guiding = [false, true]; % here too, we will try with and without the guiding mask
 gamma_memory = 1;
 threshold = 0;
-propagation_rule = 'sum'; % TODO: not implemented yet, please always set 0 here
+propagation_rule = 'sum';
 filtering_rule = {'GWsTA'}; % this is a cell array (vector of strings) because we will try several different values of c (order of cliques)
 tampering_type = 'erase';
 
 residual_memory = 0;
-GWTA_first_iteration = false;
-GWTA_last_iteration = false;
+filtering_rule_first_iteration = false;
+filtering_rule_last_iteration = false;
 
 silent = false; % If you don't want to see the progress output
 
@@ -49,10 +49,10 @@ thriftymessages = logical(sparse([]));
 for m=1:numel(M) % and for each value of m, we will do a run
     % Launch the run
     if m == 1
-        [cnetwork, thriftymessages, density] = gbnn_learn('m', M(1, 1)*Mcoeff, 'miterator', miterator(1,m), 'l', l, 'c', c, 'Chi', Chi, 'silent', silent);
+        [cnetwork, thriftymessages, density] = gbnn_learn('m', round(M(1, 1)*Mcoeff), 'miterator', miterator(1,m), 'l', l, 'c', c, 'Chi', Chi, 'silent', silent);
     else % Optimization trick: instead of relearning the whole network, we will reuse the previous network and just add more messages, this allows to decrease the learning time exponentially, rendering it constant (at each learning, the network will learn the same amount of messages: eg: iteration 1 will learn 1E5 messages, iteration 2 will learn 1E5 messages and reuse 1E5, which will totalize as 2E5, etc...)
         [cnetwork, s2, density] = gbnn_learn('cnetwork', cnetwork, ...
-                                                    'm', (M(1, m)-M(1,m-1))*Mcoeff, 'miterator', miterator(1,m), 'l', l, 'c', c, 'Chi', Chi, ...
+                                                    'm', round((M(1, m)-M(1,m-1))*Mcoeff), 'miterator', miterator(1,m), 'l', l, 'c', c, 'Chi', Chi, ...
                                                     'silent', silent);
         thriftymessages = [thriftymessages ; s2]; % append new messages
     end
@@ -62,10 +62,9 @@ for m=1:numel(M) % and for each value of m, we will do a run
         for g=1:numel(enable_guiding)
             fr = filtering_rule(1,f); fr = fr{1}; % need to prepare beforehand because of MatLab, can't do it in one command...
             [error_rate, theoretical_error_rate] = gbnn_test('cnetwork', cnetwork, 'thriftymessagestest', thriftymessages, ...
-                                                                                  'l', l, 'c', c, 'Chi', Chi, ...
                                                                                   'erasures', erasures, 'iterations', iterations, 'tampered_messages_per_test', tampered_messages_per_test, 'tests', tests, ...
                                                                                   'enable_guiding', enable_guiding(1,g), 'gamma_memory', gamma_memory, 'threshold', threshold, 'propagation_rule', propagation_rule, 'filtering_rule', fr, 'tampering_type', tampering_type, ...
-                                                                                  'residual_memory', residual_memory, 'GWTA_first_iteration', GWTA_first_iteration, 'GWTA_last_iteration', GWTA_last_iteration, ...
+                                                                                  'residual_memory', residual_memory, 'filtering_rule_first_iteration', filtering_rule_first_iteration, 'filtering_rule_last_iteration', filtering_rule_last_iteration, ...
                                                                                   'silent', silent);
 
             % Store the results
