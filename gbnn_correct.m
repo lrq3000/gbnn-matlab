@@ -98,7 +98,7 @@ n = Chi * l; % total number of nodes ( = length of a message = total number of c
 
 % Smart messages management: if user provide a non thrifty messages matrix, we convert it on-the-fly (a lot easier for users to manage in their applications since they can use the same messages to learn and to test the network)
 if ~islogical(partial_messages) && any(partial_messages(:) > 1)
-    if ~silent; printf('Notice: provided messages is not thrifty. Converting automatically to thrifty code.\n'); end;
+    if ~silent; fprintf('Notice: provided messages is not thrifty. Converting automatically to thrifty code.\n'); end;
     partial_messages = gbnn_messages2thrifty(partial_messages, l);
 end
 
@@ -211,7 +211,7 @@ for diter=1:diterations
     end
     % Printing info on concurrent disequilibrium trick
     if concurrent_cliques_bak > 1 && concurrent_disequilibrium
-        if ~silent; printf('--> Finding clique %i by disequilibrium type %i\n', diter, concurrent_disequilibrium); aux.flushout(); end;
+        if ~silent; fprintf('--> Finding clique %i by disequilibrium type %i\n', diter, concurrent_disequilibrium); aux.flushout(); end;
     end
 
     for iter=1:iterations % To let the network converge towards a stable state...
@@ -227,7 +227,7 @@ for diter=1:diterations
 
         %if concurrent_disequilibrium == 1 && ...
         %(strcmpi(filtering_rule, 'GWSTA-ML') || ...
-          %(filtering_rule_first_iteration && strcmpi(filtering_rule_first_iteration, 'gwsta-ml') && iter == 1) || (filtering_rule_last_iteration && strcmpi(filtering_rule_last_iteration, 'gwsta-ml') && iter == iterations) )
+          %(ischar(filtering_rule_first_iteration) && strcmpi(ischar(filtering_rule_first_iteration), 'gwsta-ml') && iter == 1) || (ischar(filtering_rule_last_iteration) && strcmpi(ischar(filtering_rule_last_iteration), 'gwsta-ml') && iter == iterations) )
             %partial_messages = double(partial_messages);
             %partial_messages(diseq_idxs) = concurrent_cliques_bak*c;
         %end
@@ -381,15 +381,15 @@ for diter=1:diterations
         out = logical(sparse(size(partial_messages,1), size(partial_messages,2))); % empty binary sparse matrix, it will later store the next network state after winner-takes-all is applied
         % Do nothing, useful for auxiliary network since it's just a reverberation
         if strcmpi(filtering_rule, 'none') || ...
-        (filtering_rule_first_iteration && strcmpi(filtering_rule_first_iteration, 'none') && iter == 1) || (filtering_rule_last_iteration && strcmpi(filtering_rule_last_iteration, 'none') && iter == iterations)
+        (ischar(filtering_rule_first_iteration) && strcmpi(ischar(filtering_rule_first_iteration), 'none') && iter == 1) || (ischar(filtering_rule_last_iteration) && strcmpi(ischar(filtering_rule_last_iteration), 'none') && iter == iterations)
             out = propag;
         % Just make sure the values are binary
         elseif strcmpi(filtering_rule, 'binary') || ...
-        (filtering_rule_first_iteration && strcmpi(filtering_rule_first_iteration, 'binary') && iter == 1) || (filtering_rule_last_iteration && strcmpi(filtering_rule_last_iteration, 'binary') && iter == iterations)
+        (ischar(filtering_rule_first_iteration) && strcmpi(ischar(filtering_rule_first_iteration), 'binary') && iter == 1) || (ischar(filtering_rule_last_iteration) && strcmpi(ischar(filtering_rule_last_iteration), 'binary') && iter == iterations)
             out = logical(propag);
         % Winner-take-all : per cluster, keep only the maximum score node active (if multiple nodes share the max score, we keep them all activated). Thus the WTA is based on score value, contrarywise to k-WTA which is based on the number of active node k.
         elseif strcmpi(filtering_rule, 'wta') || ...
-        (filtering_rule_first_iteration && strcmpi(filtering_rule_first_iteration, 'wta') && iter == 1) || (filtering_rule_last_iteration && strcmpi(filtering_rule_last_iteration, 'wta') && iter == iterations)
+        (ischar(filtering_rule_first_iteration) && strcmpi(ischar(filtering_rule_first_iteration), 'wta') && iter == 1) || (ischar(filtering_rule_last_iteration) && strcmpi(ischar(filtering_rule_last_iteration), 'wta') && iter == iterations)
             % The idea is that we will break the clusters and stack them along as a single long cluster spanning several messages, so that we can do a WTA in one pass (with a single max), and then we will unstack them back to their correct places in the messages
             propag = reshape(propag, l, mpartial * Chi); % reshape so that we can do the WTA by a simple column-wise WTA (and it's efficient in MatLab since matrices - and even more with sparse matrices - are stored as column vectors, thus it efficiently use the memory cache since this is the most limiting factor above CPU power). See also: Locality of reference.
             winner_value = max(propag); % what is the maximum output value (considering all the nodes in this character)
@@ -402,7 +402,7 @@ for diter=1:diterations
             out = reshape(out, n, mpartial);
         % k-Winner-take-all : keep the best first k nodes having the maximum score, over the whole message. This is kind of a cheat because we must know the original length of the messages, the variable k is a way to tell the algorithm some information we have to help convergence
         elseif strcmpi(filtering_rule, 'kwta') || ...
-        (filtering_rule_first_iteration && strcmpi(filtering_rule_first_iteration, 'kwta') && iter == 1) || (filtering_rule_last_iteration && strcmpi(filtering_rule_last_iteration, 'kwta') && iter == iterations)
+        (ischar(filtering_rule_first_iteration) && strcmpi(ischar(filtering_rule_first_iteration), 'kwta') && iter == 1) || (ischar(filtering_rule_last_iteration) && strcmpi(ischar(filtering_rule_last_iteration), 'kwta') && iter == iterations)
             propag = reshape(propag, l, mpartial * Chi); % reshape so that we can do the WTA by a simple column-wise WTA (and it's efficient in MatLab since matrices - and even more with sparse matrices - are stored as column vectors, thus it efficiently use the memory cache since this is the most limiting factor above CPU power). See also: Locality of reference.
             [~, idxs] = sort(propag, 'descend');
             idxs = bsxfun( @plus, idxs, 0:l:((mpartial * n)-1) );
@@ -412,7 +412,7 @@ for diter=1:diterations
             out = reshape(out, n, mpartial);
         % One Global Winner-take-all: only keep one value, but at the last iteration keep them all
         elseif (strcmpi(filtering_rule, 'ogwta') && iter < iterations) || ...
-        (filtering_rule_first_iteration && strcmpi(filtering_rule_first_iteration, 'ogwta') && iter == 1) || (filtering_rule_last_iteration && strcmpi(filtering_rule_last_iteration, 'ogwta') && iter == iterations)
+        (ischar(filtering_rule_first_iteration) && strcmpi(ischar(filtering_rule_first_iteration), 'ogwta') && iter == 1) || (ischar(filtering_rule_last_iteration) && strcmpi(ischar(filtering_rule_last_iteration), 'ogwta') && iter == iterations)
             [~, winner_idxs] = max(propag); % get indices of the max score for each message
             winner_idxs = bsxfun(@plus, winner_idxs,  0:n:n*(mpartial-1)); % indices returned by max are per-column, here we add the column size to offset the indices, so that we get true MatLab indices
             winner_idxs = winner_idxs(propag(winner_idxs) > 0); % No false winner trick: we check the values returned by the k best indices in propag, and keep only indices which are linked to a non null value.
@@ -424,7 +424,7 @@ for diter=1:diterations
             end
         % Global Winner-take-all: keep only nodes which have maximum score over the whole message. Same as WTA but instead of doing inhibition per-cluster, it's per the whole message/network.
         elseif strcmpi(filtering_rule, 'gwta') || (strcmpi(filtering_rule, 'ogwta') && iter == iterations) || ...
-        (filtering_rule_first_iteration && strcmpi(filtering_rule_first_iteration, 'gwta') && iter == 1) || (filtering_rule_last_iteration && strcmpi(filtering_rule_last_iteration, 'gwta') && iter == iterations)
+        (ischar(filtering_rule_first_iteration) && strcmpi(ischar(filtering_rule_first_iteration), 'gwta') && iter == 1) || (ischar(filtering_rule_last_iteration) && strcmpi(ischar(filtering_rule_last_iteration), 'gwta') && iter == iterations)
             winner_vals = max(propag); % get global max scores for each message
             if ~aux.isOctave()
                 out = logical(bsxfun(@eq, winner_vals, propag));
@@ -434,7 +434,7 @@ for diter=1:diterations
             out = and(propag, out); % No false winner trick
         % Global k-Winners-take-all: keep the best k first nodes having the maximum score over the whole message (same as k-WTA but at the message level instead of per-cluster).
         elseif strcmpi(filtering_rule, 'GkWTA') || ...
-        (filtering_rule_first_iteration && strcmpi(filtering_rule_first_iteration, 'gkwta') && iter == 1) || (filtering_rule_last_iteration && strcmpi(filtering_rule_last_iteration, 'gkwta') && iter == iterations)
+        (ischar(filtering_rule_first_iteration) && strcmpi(ischar(filtering_rule_first_iteration), 'gkwta') && iter == 1) || (ischar(filtering_rule_last_iteration) && strcmpi(ischar(filtering_rule_last_iteration), 'gkwta') && iter == iterations)
             % Instead of removing indices of scores that are below the k-max scores, we will rather find the indices of these k-max scores and recreate a logical sparse matrix from scratch, this is a lot faster and memory efficient
             [~, idxs] = sort(propag, 'descend'); % Sort scores with best scores first
             idxs = idxs(1:k,:); % extract the k best scores indices (for propag)
@@ -447,7 +447,7 @@ for diter=1:diterations
         % Both are implemented the same way, the only difference is that for global we process winners per message, and with local we process them per cluster
         % Intuitively, GWsTA is better than GWTA because in case of equal score between fanals, this means there is an ambiguity, and while GWTA will randomly cut off some fanals without any clue, GWsTA will say "well, okay, I don't know which one to choose, I will keep them all and decide at a later iteration, hoping that the next propagation will make things clearer".
         elseif strcmpi(filtering_rule, 'WsTA') || strcmpi(filtering_rule, 'GWsTA') || ...
-        (filtering_rule_first_iteration && strcmpi(filtering_rule_first_iteration, 'gwsta') && iter == 1) || (filtering_rule_last_iteration && strcmpi(filtering_rule_last_iteration, 'gwsta') && iter == iterations)
+        (ischar(filtering_rule_first_iteration) && strcmpi(ischar(filtering_rule_first_iteration), 'gwsta') && iter == 1) || (ischar(filtering_rule_last_iteration) && strcmpi(ischar(filtering_rule_last_iteration), 'gwsta') && iter == iterations)
             % Local WinnerS-take-all: Reshape to get only one cluster per column (instead of one message per column)
             if strcmpi(filtering_rule, 'WsTA')
                 propag = reshape(propag, l, mpartial * Chi);
@@ -469,7 +469,7 @@ for diter=1:diterations
         % Global Loser-Kicked-Out (deactivate all nodes with min score in the message)
         % Both are implemented the same way, the only difference is that for global we process losers per message, and with local we process them per cluster
         elseif strcmpi(filtering_rule, 'LKO') || strcmpi(filtering_rule, 'GLKO') || ...
-        (filtering_rule_first_iteration && strcmpi(filtering_rule_first_iteration, 'glko') && iter == 1) || (filtering_rule_last_iteration && strcmpi(filtering_rule_last_iteration, 'glko') && iter == iterations)
+        (ischar(filtering_rule_first_iteration) && strcmpi(ischar(filtering_rule_first_iteration), 'glko') && iter == 1) || (ischar(filtering_rule_last_iteration) && strcmpi(ischar(filtering_rule_last_iteration), 'glko') && iter == iterations)
             % Local Losers-Kicked-Out: Reshape to get only one cluster per column (instead of one message per column)
             if strcmpi(filtering_rule, 'LKO')
                 propag = reshape(propag, l, mpartial * Chi);
@@ -513,7 +513,7 @@ for diter=1:diterations
         % Both are implemented the same way, the only difference is that for global we process losers per message, and with local we process per cluster
         elseif strcmpi(filtering_rule, 'kLKO') || strcmpi(filtering_rule, 'GkLKO') || ...
                     strcmpi(filtering_rule, 'oLKO') || strcmpi(filtering_rule, 'oGLKO') || ...
-                    (filtering_rule_first_iteration && strcmpi(filtering_rule_first_iteration, 'gklko') && iter == 1) || (filtering_rule_last_iteration && strcmpi(filtering_rule_last_iteration, 'gklko') && iter == iterations)
+                    (ischar(filtering_rule_first_iteration) && strcmpi(ischar(filtering_rule_first_iteration), 'gklko') && iter == 1) || (ischar(filtering_rule_last_iteration) && strcmpi(ischar(filtering_rule_last_iteration), 'gklko') && iter == iterations)
             %[~, loser_idx] = min(propag(propag > 0)); % propag(propag > 0) is faster than nonzeros(propag)
             %propag(loser_idx) = 0;
 
@@ -603,7 +603,7 @@ for diter=1:diterations
         % Biologically, we could say that this is kind of a threshold: the system knows that we are looking for cliques of length c, thus we know what is the minimum score (c-erasures).
         % NOTE: when concurrent_cliques == 1, GWsTA-ML is equivalent to GWsTA.
         elseif strcmpi(filtering_rule, 'GWsTA-ML') || ...
-        (filtering_rule_first_iteration && strcmpi(filtering_rule_first_iteration, 'gwsta-ml') && iter == 1) || (filtering_rule_last_iteration && strcmpi(filtering_rule_last_iteration, 'gwsta-ml') && iter == iterations)
+        (ischar(filtering_rule_first_iteration) && strcmpi(ischar(filtering_rule_first_iteration), 'gwsta-ml') && iter == 1) || (ischar(filtering_rule_last_iteration) && strcmpi(ischar(filtering_rule_last_iteration), 'gwsta-ml') && iter == iterations)
             % Try to heuristically find the number of erasures
             erasures = c - (mode(sum(partial_messages)) / concurrent_cliques); % simple standard case
             if concurrent_disequilibrium && exist('concurrent_cliques_bak', 'var')
@@ -631,7 +631,7 @@ for diter=1:diterations
         % NOTE: on performances: one k-clique is easy enough to find and quite quick, but it's a lot harder to find multiple k-cliques, because the algorithm might get stuck in the subtree leading to only the k-clique we already found, the other k-cliques being on different subtrees altogether. To avoid this, there is a re-sort after each k-clique is just found (see just_found variable), which allows to explore altogether different subtrees as a first guess. However, this brings another harder (and hardest) case: when the different k-cliques overlap, you have to explore in the middle of the tree, and this is the hardest case since you have fanals from the already found k-clique overlapping with the next k-clique to find, thus we can't just explore an altogether different subtree, but rather the middle of the tree which is a mix between the new k-clique and the already found one.
         % TODO: try to use a genetic algorithm? Or a cuckoo search?
         elseif strcmpi(filtering_rule, 'ML') || strcmpi(filtering_rule, 'DFS') || strcmpi(filtering_rule, 'BFS') || strcmpi(filtering_rule, 'MLD') || ...
-        (filtering_rule_first_iteration && strcmpi(filtering_rule_first_iteration, 'ml') && iter == 1) || (filtering_rule_last_iteration && strcmpi(filtering_rule_last_iteration, 'ml') && iter == iterations)
+        (ischar(filtering_rule_first_iteration) && strcmpi(ischar(filtering_rule_first_iteration), 'ml') && iter == 1) || (ischar(filtering_rule_last_iteration) && strcmpi(ischar(filtering_rule_last_iteration), 'ml') && iter == iterations)
             erasures = c - (mode(sum(partial_messages)) / concurrent_cliques); % try to heuristically find the number of erasures
             propag(propag < (c-erasures)) = 0; % Filter out all useless nodes (ie: if they have a score below the length of a message, then these nodes can't possibly be part of a clique of length c, which is what we are looking for). This is almost like GWsTA but not exactly: GWsTA may remove correct fanals because they have a score lower than the c highest, even if the correct fanals have a score >= (c-erasures). This is confirmed by the matching_measure (compare with GWsTA-ML which is exactly the same procedure as this one here).
             out = logical(sparse(size(propag,1), size(propag,2))); % Init the output messages. By default if we can't find a k-clique, we will set the message to all 0's
@@ -657,7 +657,7 @@ for diter=1:diterations
             resign_count = 0;
             % Loop for each tampered message to test
             for i=1:mpartial
-                if ~silent; printf('ML message %i/%i\n', i, mpartial); aux.flushout(); end;
+                if ~silent; fprintf('ML message %i/%i\n', i, mpartial); aux.flushout(); end;
                 msg = logical(propag(:,i)); % Extract the message
                 found_flag = false; % Flag is true if we have found a k-clique (or if concurrent_cliques > 1, until we find at least concurrent_cliques k-cliques)
                 resign_flag = false; % Flag is true if we have expanded all nodes (open is empty) and we still haven't found any k-clique
@@ -665,7 +665,7 @@ for diter=1:diterations
                 % Check that the message has at least enough nodes to form a k-clique of order c, because else that means we can't even possibly find a clique of order c for this message. We just skip it
                 if nnz(msg) < c % The message does not have enough nodes to form a clique
                     out(:,i) = logical(msg); % If there's not enough nodes to form a k-clique of order c, then we keep this message as-is and skip it for the next iteration (if there's only one iteration, this message will obviously be wrong anyway, but with multiple iterations it may converge)
-                    if ~silent; printf('ML not enough k-cliques found, resign!\n'); aux.flushout(); end;
+                    if ~silent; fprintf('ML not enough k-cliques found, resign!\n'); aux.flushout(); end;
                     resign_count = resign_count + 1;
                 else % Else the message has enough nodes to form a clique
                     % Init some vars
@@ -726,7 +726,7 @@ for diter=1:diterations
                         counter2 = counter2 + 1;
                         % if this is too slow to converge, we randomize things up
                         if counter > countermax
-                            if ~silent; printf('Reshuffling stack...\n', i, mpartial); aux.flushout(); end;
+                            if ~silent; fprintf('Reshuffling stack...\n', i, mpartial); aux.flushout(); end;
                             open = open(:,randperm(size(open,2)));
                             activated_fanals = activated_fanals(:,randperm(size(activated_fanals,2)));
                             counter = 0;
@@ -734,7 +734,7 @@ for diter=1:diterations
                             %keyboard; % sum(open) to check the evolution of the stack (this will give the score of each node)
                         end
                         if counter2 > counterlimit
-                            if ~silent; printf('ML dropping message %i: too many iterations...\n', i); aux.flushout(); end;
+                            if ~silent; fprintf('ML dropping message %i: too many iterations...\n', i); aux.flushout(); end;
                             dropped_count = dropped_count + 1;
                             break;
                         end
@@ -755,7 +755,7 @@ for diter=1:diterations
                         end
                         % Nothing remaining to explore? Then stop, there's no clique
                         if isempty(open)
-                            if ~silent; printf('ML not enough k-cliques found, resign!\n'); aux.flushout(); end;
+                            if ~silent; fprintf('ML not enough k-cliques found, resign!\n'); aux.flushout(); end;
                             resign_count = resign_count + 1;
                             resign_flag = true;
                             break; % KO stopping criterion: we couldn't find enough (=concurrent_cliques) cliques with c fanals, we just stop here.
@@ -838,7 +838,7 @@ for diter=1:diterations
                                             kcliques = [kcliques, cur_node]; % add the current sub message into the list of found cliques
                                             if mode_asc; dead_ends = [dead_ends, cur_node]; end; % avoid re-exploring this same solution twice
                                             just_found = true;
-                                            if ~silent; printf('Clique %i found!\n', size(kcliques,2)); aux.flushout(); end;
+                                            if ~silent; fprintf('Clique %i found!\n', size(kcliques,2)); aux.flushout(); end;
                                         end
                                         % If we have reached the number of cliques to find (= concurrent_cliques), then we can construct the out message and stop here
                                         if size(kcliques, 2) == concurrent_cliques % we can't know if the concurrent_cliques have to overlap or not, so as long as we find 2 different cliques, we take it as a result (we are guaranteed to find different cliques everytime because we add all found kcliques in the dead_ends just above)
@@ -859,8 +859,8 @@ for diter=1:diterations
             end
 
             if ~silent
-                printf('ML total number of dropped messages: %i/%i\n', dropped_count, mpartial);
-                printf('ML total number of resigned messages: %i/%i\n', resign_count, mpartial);
+                fprintf('ML total number of dropped messages: %i/%i\n', dropped_count, mpartial);
+                fprintf('ML total number of resigned messages: %i/%i\n', resign_count, mpartial);
                 aux.flushout();
             end
 
@@ -997,7 +997,8 @@ for diter=1:diterations
             elseif ttmode == 1 % better
                 % excitation + GWSTA
                 propag2 = double(out);
-                propag2(find(out)) = (propag+mes_echo)(find(out)); % propag+logical(mes_echo) ?
+                propag_echo = propag+mes_echo;
+                propag2(find(out)) = propag_echo(find(out)); % propag+logical(mes_echo) ?
 
                 % GWsTA
                 max_scores = sort(propag2,'descend');
@@ -1015,7 +1016,8 @@ for diter=1:diterations
             elseif ttmode == 3 % better
                 % inhibition + GWSTA)
                 propag2 = double(out);
-                propag2(find(out)) = (propag - ~mes_echo)(find(out));
+                propag_echo = propag - ~mes_echo;
+                propag2(find(out)) = propag_echo(find(out));
                 propag2(propag2 < 0) = 0;
 
                 % GWsTA

@@ -131,7 +131,7 @@ D = D ./ statstries;
 E = E ./ statstries;
 ED = ED ./ statstries;
 EC = EC ./ statstries;
-printf('END of all tests!\n'); aux.flushout();
+fprintf('END of all tests!\n'); aux.flushout();
 
 
 % == Plotting
@@ -153,7 +153,7 @@ if save_results
     % Prepare filepath, filename and mkdir
     [currentpath, currentscriptname] = fileparts(mfilename('fullpath'));
     outfile = sprintf('%s/results/%s.mat', currentpath, currentscriptname);
-    printf('Saving results into results/%s\n', currentscriptname);
+    fprintf('Saving results into results/%s\n', currentscriptname);
     if ~isequal(exist('results', 'dir'),7)
         mkdir('results');
     end

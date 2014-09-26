@@ -27,6 +27,7 @@ function funs = importFunctions
     funs.interleaven=@interleaven;
     funs.add_2nd_xaxis=@add_2nd_xaxis;
     funs.savex=@savex;
+    funs.binocdf=@binocdf;
 end
 
 
@@ -506,8 +507,8 @@ function add_2nd_xaxis(X, X2, X2_legend, num2str_format, text_rotation)
     if ~exist('num2str_format', 'var'); num2str_format = '%g'; end;
     if ~exist('text_rotation', 'var'); text_rotation = 0; end;
 
-    %density_labels = @cellfun(@(x) num2str(x, '%1.1e'), num2cell(D(:,1)), 'UniformOutput', false); % convert to a cell array (necessary to be passed to text()) + convert to a better numerical format %.0E
-    messages_labels = @cellfun(@(x) num2str(x, num2str_format), num2cell(X2), 'UniformOutput', false); % convert to a cell array (necessary to be passed to text()) + convert to a better numerical format %.0E
+    %density_labels = cellfun(@(x) num2str(x, '%1.1e'), num2cell(D(:,1)), 'UniformOutput', false); % convert to a cell array (necessary to be passed to text()) + convert to a better numerical format %.0E
+    messages_labels = cellfun(@(x) num2str(x, num2str_format), num2cell(X2), 'UniformOutput', false); % convert to a cell array (necessary to be passed to text()) + convert to a better numerical format %.0E
     xoffset_fix = (max(xlim)/100); % offset to the left because on the plot there's a glitch (as of Octave 3.8.1) which offsets a bit to the right...
     yoffset_fix = ((max(ylim)-min(ylim))/20); % same for vertically, there is a small offset
     text(X-xoffset_fix, ones(numel(X2), 1)*max(ylim)+yoffset_fix, messages_labels, 'Rotation', text_rotation, 'VerticalAlignment', 'top', 'HorizontalAlignment', 'left'); % draw the secondary axis as a simple text
@@ -664,3 +665,76 @@ function savex(varargin)
         error('Unknown function usage.')
     end
 end %endfunction
+
+
+
+% == Computation func ==
+
+function cdf = binocdf (x, n, p)
+%% Copyright (C) 2012 Rik Wehbring
+%% Copyright (C) 1995-2013 Kurt Hornik
+%%
+%% This file is part of Octave.
+%%
+%% Octave is free software; you can redistribute it and/or modify it
+%% under the terms of the GNU General Public License as published by
+%% the Free Software Foundation; either version 3 of the License, or (at
+%% your option) any later version.
+%%
+%% Octave is distributed in the hope that it will be useful, but
+%% WITHOUT ANY WARRANTY; without even the implied warranty of
+%% MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+%% General Public License for more details.
+%%
+%% You should have received a copy of the GNU General Public License
+%% along with Octave; see the file COPYING.  If not, see
+%% <http://www.gnu.org/licenses/>.
+
+%% -*- texinfo -*-
+%% @deftypefn {Function File} {} binocdf (@var{x}, @var{n}, @var{p})
+%% For each element of @var{x}, compute the cumulative distribution function
+%% (CDF) at @var{x} of the binomial distribution with parameters @var{n} and
+%% @var{p}, where @var{n} is the number of trials and @var{p} is the
+%% probability of success.
+%% @end deftypefn
+
+%% Author: KH <Kurt.Hornik@wu-wien.ac.at>
+%% Description: CDF of the binomial distribution
+
+  if (nargin ~= 3)
+    print_usage ();
+  end
+
+  if (~isscalar (n) || ~isscalar (p))
+    [retval, x, n, p] = common_size (x, n, p);
+    if (retval > 0)
+      error ('binocdf: X, N, and P must be of common size or scalars');
+    end
+  end
+
+  if (~isreal (x) || ~isreal (n) || ~isreal (p))
+    error ('binocdf: X, N, and P must not be complex');
+  end
+
+  if (isa (x, 'single') || isa (n, 'single') || isa (p, 'single'));
+    cdf = zeros (size (x), 'single');
+  else
+    cdf = zeros (size (x));
+  end
+
+  k = isnan (x) | ~(n >= 0) | (n ~= fix (n)) | ~(p >= 0) | ~(p <= 1);
+  cdf(k) = NaN;
+
+  k = (x >= n) & (n >= 0) & (n == fix (n) & (p >= 0) & (p <= 1));
+  cdf(k) = 1;
+
+  k = (x >= 0) & (x < n) & (n == fix (n)) & (p >= 0) & (p <= 1);
+  tmp = floor (x(k));
+  if (isscalar (n) && isscalar (p))
+    cdf(k) = betainc (1 - p, n - tmp, tmp + 1);
+  else
+    cdf(k) = betainc (1 - p(k), n(k) - tmp, tmp + 1);
+  end
+
+end % endfunction
+

@@ -54,6 +54,7 @@ function [error_rate, theoretical_error_rate, test_stats, error_per_message, tes
 
 % == Importing some useful functions
 aux = gbnn_aux; % works with both MatLab and Octave
+if ~aux.isOctave(); binocdf = aux.binocdf; end; % provide binocdf function to MatLab users without the Statistics Toolbox (which is freely available in Octave btw)
 
 % == Arguments processing
 % List of possible arguments and their default values
@@ -473,7 +474,9 @@ if enable_overlays && overlays_max ~= 1
     if compute_lost_error
         init_lost_total = 0;
         for mi=1:maxtag
-            fanals_idxs = find(thriftymessagestest'(:,mi));
+            thriftymessagestest = thriftymessagestest';
+            fanals_idxs = find(thriftymessagestest(:,mi));
+            thriftymessagestest = thriftymessagestest';
             init_edges = cnetwork.primary.net(fanals_idxs, fanals_idxs);
             init_lost = any(~any(ismember(init_edges, mi), 1));
             init_lost_total = init_lost_total + init_lost;

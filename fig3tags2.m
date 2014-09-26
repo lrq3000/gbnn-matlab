@@ -117,7 +117,7 @@ end
 % Normalizing errors rates by calculating the mean error for all tries
 D = D ./ statstries;
 E = E ./ statstries;
-printf('END of all tests!\n'); aux.flushout();
+fprintf('END of all tests!\n'); aux.flushout();
 
 % Print densities values and error rates
 fprintf('Densities:\n'); disp(D);
@@ -142,7 +142,7 @@ if save_results
     % Prepare filepath, filename and mkdir
     [currentpath, currentscriptname] = fileparts(mfilename('fullpath'));
     outfile = sprintf('%s/results/%s.mat', currentpath, currentscriptname);
-    printf('Saving results into results/%s\n', currentscriptname);
+    fprintf('Saving results into results/%s\n', currentscriptname);
     if ~isequal(exist('results', 'dir'),7)
         mkdir('results');
     end
