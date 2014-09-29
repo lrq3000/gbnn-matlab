@@ -1,4 +1,5 @@
-% Overlays network: Behrooz vs overlays benchmark. Please use Octave >= 3.8.1 for reasonable performances!
+% Overlays network: Behrooz vs overlays benchmark. Compute theoretical efficiency.
+% Please use Octave >= 3.8.1 for reasonable performances!
 
 % Clear things up
 clear all;
@@ -41,10 +42,11 @@ filtering_rule_last_iteration = false;
 % Overlays
 enable_overlays = true;
 overlays_max = [1 0];
+%overlays_max = [1 5 20 100 1000 0];
 overlays_interpolation = {'uniform'};
 
 % Plot tweaking
-statstries = 20; % retry n times with different networks to average (and thus smooth) the results
+statstries = 1; % retry n times with different networks to average (and thus smooth) the results
 smooth_factor = 2; % interpolate more points to get smoother curves. Set to 1 to avoid smoothing (and thus plot only the point of the real samples).
 smooth_method = 'cubic'; % use PCHIP or cubic to avoid interpolating into negative values as spline does
 plot_curves_params = { 'markersize', 10, ...
@@ -70,47 +72,21 @@ TE = zeros(numel(M), numel(overlays_max)); % theoretical error rate depends on: 
 
 for t=1:statstries
     tperf = cputime(); % to show the total time elapsed later
-    cnetwork = logical(sparse([]));
-    thriftymessages = logical(sparse([]));
     for m=1:numel(M) % and for each value of m, we will do a run
-        % Launch the run
-        if m == 1
-            [cnetwork, thriftymessages, density] = gbnn_learn('m', round(M(1, 1)*Mcoeff), 'miterator', miterator(1,m), 'l', l, 'c', c, 'Chi', Chi, ...
-                                                                                                        'enable_overlays', enable_overlays, ...
-                                                                                                        'silent', silent);
-        else % Optimization trick: instead of relearning the whole network, we will reuse the previous network and just add more messages, this allows to decrease the learning time exponentially, rendering it constant (at each learning, the network will learn the same amount of messages: eg: iteration 1 will learn 1E5 messages, iteration 2 will learn 1E5 messages and reuse 1E5, which will totalize as 2E5, etc...)
-            [cnetwork, s2, density] = gbnn_learn('cnetwork', cnetwork, ...
-                                                        'm', round((M(1, m)-M(1,m-1))*Mcoeff), 'miterator', miterator(1,m), 'l', l, 'c', c, 'Chi', Chi, ...
-                                                        'enable_overlays', enable_overlays, ...
-                                                        'silent', silent);
-            thriftymessages = [thriftymessages ; s2]; % append new messages
-        end
 
         counter = 1;
         for om=1:numel(overlays_max)
-            for oi=1:numel(overlays_interpolation)
-                [error_rate, theoretical_error_rate] = gbnn_test('cnetwork', cnetwork, 'thriftymessagestest', thriftymessages, ...
-                                                                                      'erasures', erasures, 'iterations', iterations, 'tampered_messages_per_test', tampered_messages_per_test, 'tests', tests, ...
-                                                                                      'enable_guiding', enable_guiding, 'gamma_memory', gamma_memory, 'threshold', threshold, 'propagation_rule', propagation_rule, 'filtering_rule', filtering_rule, 'tampering_type', tampering_type, ...
-                                                                                      'residual_memory', residual_memory, 'filtering_rule_first_iteration', filtering_rule_first_iteration, 'filtering_rule_last_iteration', filtering_rule_last_iteration, ...
-                                                                                      'enable_overlays', enable_overlays, 'overlays_max', overlays_max(om), 'overlays_interpolation', overlays_interpolation{oi}, ...
-                                                                                      'silent', silent);
-              
-                cnetwork_stats = gbnn_theoretical_stats('Chi', Chi, 'c', c, 'l', l, 'M', M(m)*Mcoeff, 'erasures', erasures, 'overlays_max', overlays_max(om));
+            cnetwork_stats = gbnn_theoretical_stats('Chi', Chi, 'c', c, 'l', l, 'M', M(m)*Mcoeff, 'erasures', erasures, 'overlays_max', overlays_max(om));
 
-                % Store the results
-                %colidx = counter+(size(D,2)/numel(enable_overlays))*(o-1);
-                D(m,counter) = D(m,counter) + density;
-                E(m,counter) = E(m,counter) + error_rate;
-                EFF(m,counter) = EFF(m,counter) + cnetwork_stats.efficiency;
-                TE(m, om) = theoretical_error_rate;
+            % Store the results
+            D(m,counter) = D(m,counter) + cnetwork_stats.theoretical_density;
+            E(m,counter) = E(m,counter) + cnetwork_stats.theoretical_error_rate;
+            EFF(m,counter) = EFF(m,counter) + cnetwork_stats.efficiency;
+            TE(m, om) = cnetwork_stats.theoretical_error_rate;
 
-                clear cnetwork_stats;
+            clear cnetwork_stats;
 
-                if ~silent; fprintf('-----------------------------\n\n'); end;
-
-                counter = counter + 1;
-            end
+            counter = counter + 1;
         end
     end
     aux.printcputime(cputime() - tperf, 'Total cpu time elapsed to do all runs: %G seconds.\n'); aux.flushout(); % print total time elapsed
@@ -159,15 +135,14 @@ end
 % Plot error rate with respect to the density (or number of messages stored) and a few other parameters
 figure; hold on;
 xlabel(sprintf('(Bottom) Density  -- (Top) Number of stored messages (M) x%.1E', Mcoeff));
-ylabel('Ratio efficiency / real error rate');
+ylabel('Ratio efficiency / theoretical error rate');
 counter = 1; % useful to keep track inside the matrix E. This is guaranteed to be OK since we use the same order of for loops (so be careful, if you move the forloops here in plotting you must also move them the same way in the tests above!)
 for om=numel(overlays_max):-1:1
-    for oi=1:numel(overlays_interpolation)
-        colorcounter = om;
-        if numel(overlays_interpolation) > 1; colorcounter = oi; end;
-        coloridx = mod(colorcounter-1, numel(colorvec))+1; % change color if overlay or not
-        
-        % -- Set title
+    colorcounter = om;
+    if numel(overlays_interpolation) > 1; colorcounter = oi; end;
+    coloridx = mod(colorcounter-1, numel(colorvec))+1; % change color if overlay or not
+
+    % -- Set title
         plot_title = sprintf('%s', filtering_rule);
         if enable_guiding
             plot_title = strcat(plot_title, sprintf(' - Guided'));
@@ -222,7 +197,6 @@ for om=numel(overlays_max):-1:1
 
 
         counter = counter + 1;
-    end
 end
 
 
@@ -264,7 +238,7 @@ legend('boxoff');
 % Add secondary axis on the top of the figure to show the number of messages
 aux.add_2nd_xaxis(D(:,1), M, sprintf('x%.1E', Mcoeff), '%g', 0);
 xlim([0 round(max(D(:,1)))]); % adjust x axis zoom
-ylim([0 1]);
+ylim([0 10]);
 % Adjust axis drawing style
 set( gca(), plot_axis_params{:} );
 % Adjust text style
