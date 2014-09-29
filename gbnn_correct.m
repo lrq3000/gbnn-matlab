@@ -238,7 +238,7 @@ for diter=1:diterations
         % Propagate on the primary network
         % -- Vectorized version - fastest and low memory overhead
         % Sum-of-Sum: we simply compute per node the sum of all incoming activated edges
-        if strcmpi(propagation_rule, 'sum') || (enable_overlays && (strcmpi(propagation_rule, 'overlays_old_filter') || strcmpi(propagation_rule, 'overlays_old_filter2')))
+        if strcmpi(propagation_rule, 'sum') || (enable_overlays && (strcmpi(propagation_rule, 'overlays_old_filter') || strcmpi(propagation_rule, 'overlays_old_filter2'))) || strcmpi(propagation_rule, 'sum_log')
             % We use the standard way to compute the propagation in an adjacency matrix: by matrix multiplication
             % Sum-of-Sum / Matrix multiplication is the same as computing the in-degree(a) for each node a, since each connected and activated link to a is equivalent to +1, thus this is equivalent to the total number of connected and activated link to a.
             % This operation may seem daunting but in fact it's quite simple and just does what it sounds like: for each message (row in the transposed partial_messages matrix = in fanal), we check if any of its activated fanal is connect to any of the network's fanal (1 out fanal = 1 column of the net's matrix). The result is the sum or count of the number of in connections for each of the network's fanals.
@@ -249,6 +249,23 @@ for diter=1:diterations
                 % WRONG: net * partial_messages : this works only with non-bridge networks (eg: primary, auxiliary, but not with prim2auxnet !)
             else % MatLab cannot do matrix multiplication on logical matrices...
                 propag = (double(partial_messages') * double(logical(net)))';
+            end
+
+            % Sum-of-Sum with natural logarithm: the goal is to reduce great gaps in scores when the scores are big enough. To do this, we use the natural logarithm so as to reduce those gaps.
+            % Note: this doesn't give good performances, probably because it would better work in a vertical fashion (pyramidal network or auxiliary network).
+            % TODO: try with Hyperlog to get linear scale in the low scores and log for high scores? http://onlinelibrary.wiley.com/doi/10.1002/cyto.a.20592/full
+            if strcmpi(propagation_rule, 'sum_log')
+                propag(propag > 0) = propag(propag > 0) + 1;
+                propag = round(log(propag));
+            end
+        % Normalized sum over edges: Just like sum of sum, but here we divide the score propagated by each fanal by the number of edges it has, meaning that highly overlapping fanals (shared amongst many cliques) will propagate less than less shared fanals. This is a sort of confidence measure: if the fanal knows it is connected only to a few cliques, it will let us know by propagating more than the others.
+        % NOTE: not to be confused with normalized sum-of-sum which normalizes depending on the number of recipient fanals, not over all existing edges for the emitting fanal!
+        % NOTE: this enhances performances with iterations > 1.
+        elseif strcmpi(propagation_rule, 'sum_edges_normalized') || strcmpi(propagation_rule, 'sum_enorm')
+            if aux.isOctave()
+                propag = ( partial_messages' * (logical(net) * c ./ repmat(sum(logical(net), 2), 1, size(net, 2))) )';
+            else
+                propag = ( double(partial_messages') * (double(logical(net)) * c ./ repmat(sum(logical(net), 2), 1, size(net, 2))) )';
             end
         % Overlays global propagation: compute the mode-of-products and then the sum-of-equalities with the mode. The goal is to activate all fanals in the network which are in the input message, then extract all the edges that will be activated, then look at their tags id and keep the major one (by using a mode). Then we filter all the other edges except the ones having this tag. End of global overlays propagation.
         % Note the heavy usage of the generalized matrix multiplication.
