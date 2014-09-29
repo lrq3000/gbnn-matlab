@@ -171,6 +171,15 @@ if concurrent_cliques > 1 && concurrent_disequilibrium
     concurrent_cliques = 1;
 end
 
+% Prepare the edges normalized network
+if strcmpi(propagation_rule, 'sum_edges_normalized') || strcmpi(propagation_rule, 'sum_enorm')
+    if aux.isOctave()
+        net_enorm = (logical(net) * c ./ repmat(sum(logical(net), 2), 1, size(net, 2)));
+    else
+        net_enorm = (double(logical(net)) * c ./ repmat(sum(logical(net), 2), 1, size(net, 2)));
+    end
+end
+
 % #### Correction phase
 for diter=1:diterations
     % Disequilibrium trick pre-processing: we try to disequilibrate the message and thus decode only one clique at a time (the goal is that one clique will get the upper hand by either superboosting one fanal score and thus one clique overall score, or by erasing one fanal so that one clique gets a lower score).
@@ -260,12 +269,12 @@ for diter=1:diterations
             end
         % Normalized sum over edges: Just like sum of sum, but here we divide the score propagated by each fanal by the number of edges it has, meaning that highly overlapping fanals (shared amongst many cliques) will propagate less than less shared fanals. This is a sort of confidence measure: if the fanal knows it is connected only to a few cliques, it will let us know by propagating more than the others.
         % NOTE: not to be confused with normalized sum-of-sum which normalizes depending on the number of recipient fanals, not over all existing edges for the emitting fanal!
-        % NOTE: this enhances performances with iterations > 1.
+        % NOTE2: this enhances performances with iterations > 1.
         elseif strcmpi(propagation_rule, 'sum_edges_normalized') || strcmpi(propagation_rule, 'sum_enorm')
             if aux.isOctave()
-                propag = ( partial_messages' * (logical(net) * c ./ repmat(sum(logical(net), 2), 1, size(net, 2))) )';
+                propag = ( partial_messages' * net_enorm )';
             else
-                propag = ( double(partial_messages') * (double(logical(net)) * c ./ repmat(sum(logical(net), 2), 1, size(net, 2))) )';
+                propag = ( double(partial_messages') * net_enorm )';
             end
         % Overlays global propagation: compute the mode-of-products and then the sum-of-equalities with the mode. The goal is to activate all fanals in the network which are in the input message, then extract all the edges that will be activated, then look at their tags id and keep the major one (by using a mode). Then we filter all the other edges except the ones having this tag. End of global overlays propagation.
         % Note the heavy usage of the generalized matrix multiplication.

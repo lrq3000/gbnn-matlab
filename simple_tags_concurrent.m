@@ -8,24 +8,24 @@ close all;
 aux = gbnn_aux; % works with both MatLab and Octave
 
 % Primary network params
-m = 0.3;
-c = 8;
+m = 0.9;
+c = 32;
 l = 16;
 Chi = 32;
-erasures = 3;
+erasures = c*0.5;
 
 tampered_messages_per_test = 100;
 tests = 1;
 
 iterations = 2;
 gamma_memory = 1;
-propagation_rule = 'sum';
+propagation_rule = 'sum_enorm';
 filtering_rule = 'GWSTA';
 filtering_rule_first_iteration = false;
 enable_guiding = false;
 
 % Concurrency params
-concurrent_cliques = 3;
+concurrent_cliques = 2;
 no_concurrent_overlap = false;
 
 % Overlays / Tags
