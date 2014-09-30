@@ -4,6 +4,12 @@
 clear all;
 close all;
 
+% Addpath of the whole library (this allows for modularization: we can place the core library into a separate folder)
+if ~exist('gbnn_aux.m','file')
+    %restoredefaultpath;
+    addpath(genpath(strcat(cd(fileparts(mfilename('fullpath'))),'/../gbnn-core/')));
+end
+
 % Importing auxiliary functions
 % source('gbnn_aux.m'); % does not work with MatLab, only Octave...
 aux = gbnn_aux; % works with both MatLab and Octave
@@ -15,8 +21,8 @@ markerstylevec = '+o*.xsd^v><ph';
 linestylevec = {'-' ; '--' ; ':' ; '-.'};
 
 % Vars config, tweak the stuff here
-M = [0.1:0.2:1.5 1.8 2:1:11 15 40]; % this is a vector because we will try several values of m (number of messages, which influences the density)
-Mcoeff = 1E3;
+M = [1:2:15 16 18 20]; % this is a vector because we will try several values of m (number of messages, which influences the density)
+Mcoeff = 1E2;
 miterator = zeros(1,numel(M)); %M/2;
 c = 8;
 l = 16;
@@ -26,28 +32,23 @@ iterations = 4; % must be > 1 for disequilibrium to take effect. Note: useless f
 tampered_messages_per_test = 30;
 tests = 1;
 
-enable_guiding = true;
+enable_guiding = false;
 gamma_memory = 1;
 threshold = 0;
 propagation_rule = 'sum';
-filtering_rule = {'ML', 'GWsTA', 'GWsTA', 'GWsTA', 'GWsTA', 'GWsTA'}; % this is a cell array (vector of strings) because we will try several different values of c (order of cliques)
+filtering_rule = {'ML', 'GWsTA', 'GWsTA', 'GWsTA', 'GWsTA'}; % this is a cell array (vector of strings) because we will try several different values of c (order of cliques)
 tampering_type = 'erase';
 
 residual_memory = 0;
 concurrent_cliques = 2;
 no_concurrent_overlap = false;
 concurrent_successive = false;
-concurrent_disequilibrium = [false, true, 3, false, true, false];
+concurrent_disequilibrium = [false, true, 3, 2, false];
 filtering_rule_first_iteration = false;
 filtering_rule_last_iteration = false;
 
-% Overlays
-enable_overlays = true;
-overlays_max = [1 0 0 0 1 1];
-overlays_interpolation = 'uniform';
-
 % Plot tweaking
-statstries = 10; % retry n times with different networks to average (and thus smooth) the results
+statstries = 5; % retry n times with different networks to average (and thus smooth) the results
 smooth_factor = 2; % interpolate more points to get smoother curves. Set to 1 to avoid smoothing (and thus plot only the point of the real samples).
 smooth_method = 'cubic'; % use PCHIP or cubic to avoid interpolating into negative values as spline does
 plot_curves_params = { 'markersize', 10, ...
@@ -81,33 +82,31 @@ for t=1:statstries
     for m=1:numel(M) % and for each value of m, we will do a run
         % Launch the run
         if m == 1
-            [cnetwork, thriftymessages, density] = gbnn_learn('m', round(M(1, 1)*Mcoeff), 'miterator', miterator(1,m), 'l', l, 'c', c, 'Chi', Chi, ...
-                                                                                                        'enable_overlays', enable_overlays, ...
-                                                                                                        'silent', silent);
+            [cnetwork, thriftymessages, density] = gbnn_learn('m', round(M(1, 1)*Mcoeff), 'miterator', miterator(1,m), 'l', l, 'c', c, 'Chi', Chi, 'silent', silent);
         else % Optimization trick: instead of relearning the whole network, we will reuse the previous network and just add more messages, this allows to decrease the learning time exponentially, rendering it constant (at each learning, the network will learn the same amount of messages: eg: iteration 1 will learn 1E5 messages, iteration 2 will learn 1E5 messages and reuse 1E5, which will totalize as 2E5, etc...)
             [cnetwork, s2, density] = gbnn_learn('cnetwork', cnetwork, ...
                                                         'm', round((M(1, m)-M(1,m-1))*Mcoeff), 'miterator', miterator(1,m), 'l', l, 'c', c, 'Chi', Chi, ...
-                                                        'enable_overlays', enable_overlays, ...
                                                         'silent', silent);
             thriftymessages = [thriftymessages ; s2]; % append new messages
         end
 
         counter = 1;
         for f=1:numel(filtering_rule)
-            if strcmpi(filtering_rule{f}, 'ML') % for ML it's useless to do multiple iterations
+            fr = filtering_rule{f}; % need to prepare beforehand because of MatLab, can't do it in one command...
+
+            if strcmpi(fr, 'ML') % for ML it's useless to do multiple iterations
                 iterations_bak = iterations;
                 iterations = 1;
             end
 
             [error_rate, theoretical_error_rate, test_stats] = gbnn_test('cnetwork', cnetwork, 'thriftymessagestest', thriftymessages, ...
                                                                                   'erasures', erasures, 'iterations', iterations, 'tampered_messages_per_test', tampered_messages_per_test, 'tests', tests, ...
-                                                                                  'enable_guiding', enable_guiding, 'gamma_memory', gamma_memory, 'threshold', threshold, 'propagation_rule', propagation_rule, 'filtering_rule', filtering_rule{f}, 'tampering_type', tampering_type, ...
+                                                                                  'enable_guiding', enable_guiding, 'gamma_memory', gamma_memory, 'threshold', threshold, 'propagation_rule', propagation_rule, 'filtering_rule', fr, 'tampering_type', tampering_type, ...
                                                                                   'residual_memory', residual_memory, 'concurrent_cliques', concurrent_cliques, 'no_concurrent_overlap', no_concurrent_overlap, 'concurrent_successive', concurrent_successive, 'filtering_rule_first_iteration', filtering_rule_first_iteration, 'filtering_rule_last_iteration', filtering_rule_last_iteration, ...
                                                                                   'concurrent_disequilibrium', concurrent_disequilibrium(f), ...
-                                                                                  'enable_overlays', enable_overlays, 'overlays_max', overlays_max(f), 'overlays_interpolation', overlays_interpolation, ...
                                                                                   'silent', silent);
 
-            if strcmpi(filtering_rule{f}, 'ML') % restore the number of iterations for other filtering rules after ML
+            if strcmpi(fr, 'ML') % restore the number of iterations for other filtering rules after ML
                 iterations = iterations_bak;
             end
 
@@ -169,8 +168,8 @@ end
 
 % -- Plot error rate with respect to the density (or number of messages stored) and a few other parameters
 figure; hold on;
-xlabel(sprintf('(Bottom) Density -- (Top) Number of stored messages (M) x%.1E', Mcoeff));
-ylabel(sprintf('Retrieval Error Rate for concurrent cliques=%i', concurrent_cliques));
+xlabel(sprintf('(Bottom) Density  -- (Top) Number of stored messages (M) x%.1E', Mcoeff));
+ylabel('Retrieval Error Rate');
 counter = 1; % useful to keep track inside the matrix E. This is guaranteed to be OK since we use the same order of for loops (so be careful, if you move the forloops here in plotting you must also move them the same way in the tests above!)
 for f=1:numel(filtering_rule) % for each different filtering rule and whether there is guiding or not, we willl print a different curve, with an automatically selected color and shape
     coloridx = mod(f-1, numel(colorvec))+1; % change color per filtering rule
@@ -184,20 +183,15 @@ for f=1:numel(filtering_rule) % for each different filtering rule and whether th
     fr = filtering_rule(1,f); fr = fr{1};
     plot_title = sprintf('%s', fr);
     if enable_guiding
-        plot_title = strcat(plot_title, sprintf(' (guided)'));
+        plot_title = strcat(plot_title, sprintf(' - Guided'));
     else
-        plot_title = strcat(plot_title, sprintf(' (blind)'));
+        plot_title = strcat(plot_title, sprintf(' - Blind'));
     end
     if concurrent_disequilibrium(f)
-        plot_title = strcat(plot_title, sprintf(' + Diseq'));
+        plot_title = strcat(plot_title, sprintf(' - Diseq'));
         if concurrent_disequilibrium(f) > 1
             plot_title = strcat(plot_title, sprintf(' type %i', concurrent_disequilibrium(f)));
         end
-    end
-    if overlays_max(f) == 0
-        plot_title = strcat(plot_title, sprintf(' + M tags'));
-    elseif overlays_max(f) > 1
-        plot_title = strcat(plot_title, sprintf(' + %i tags', overlays_max(f)));
     end
     set(cur_plot, 'DisplayName', plot_title); % add the legend per plot, this is the best method, which also works with scatterplots and polar plots, see http://hattb.wordpress.com/2010/02/10/appending-legends-and-plots-in-matlab/
 
@@ -217,21 +211,20 @@ if plot_theo
     set(cur_plot, plot_curves_params{:}); % additional plot style
 
     plot_title = '';
-    plot_title = strcat(plot_title, 'Theo.');
     if enable_guiding
-        plot_title = strcat(plot_title, sprintf(' (guided)'));
+        plot_title = strcat(plot_title, sprintf('Guided'));
     else
-        plot_title = strcat(plot_title, sprintf(' (blind)'));
+        plot_title = strcat(plot_title, sprintf('Blind'));
     end
+    plot_title = strcat(plot_title, ' (Theo.)');
     set(cur_plot, 'DisplayName', plot_title); % add the legend per plot, this is the best method, which also works with scatterplots and polar plots, see http://hattb.wordpress.com/2010/02/10/appending-legends-and-plots-in-matlab/
 end
 
 % Refresh plot with legends
-legend(get(gca,'children'),get(get(gca,'children'),'DisplayName'), 'location', 'southeast'); % IMPORTANT: force refreshing to show the legend, else it won't show!
-legend('boxoff');
+legend(get(gca,'children'),get(get(gca,'children'),'DisplayName'), 'location', 'northwest'); % IMPORTANT: force refreshing to show the legend, else it won't show!
 % Add secondary axis on the top of the figure to show the number of messages
 aux.add_2nd_xaxis(D(:,1), M, sprintf('x%.1E', Mcoeff), '%g', 0);
-xlim([0 round(max(D(:,1)))]); % adjust x axis zoom
+xlim([0 max(D(:,1))]); % adjust x axis zoom
 % Adjust axis drawing style
 set( gca(), plot_axis_params{:} );
 % Adjust text style
@@ -240,8 +233,8 @@ set([gca; findall(gca, 'Type','text')], plot_text_params{:});
 
 % -- Plot concurrent unbiased error rate with respect to the density (or number of messages stored) and a few other parameters
 figure; hold on;
-xlabel(sprintf('(Bottom) Density -- (Top) Number of stored messages (M) x%.1E', Mcoeff));
-ylabel(sprintf('Retrieval Error Rate (concurrent unbiased) for concurrent cliques=%i', concurrent_cliques));
+xlabel(sprintf('(Bottom) Density  -- (Top) Number of stored messages (M) x%.1E', Mcoeff));
+ylabel('Retrieval Error Rate (concurrent unbiased)');
 counter = 1; % useful to keep track inside the matrix E. This is guaranteed to be OK since we use the same order of for loops (so be careful, if you move the forloops here in plotting you must also move them the same way in the tests above!)
 for f=1:numel(filtering_rule) % for each different filtering rule and whether there is guiding or not, we willl print a different curve, with an automatically selected color and shape
     coloridx = mod(f-1, numel(colorvec))+1; % change color per filtering rule
@@ -256,20 +249,15 @@ for f=1:numel(filtering_rule) % for each different filtering rule and whether th
     fr = filtering_rule(1,f); fr = fr{1};
     plot_title = sprintf('%s', fr);
     if enable_guiding
-        plot_title = strcat(plot_title, sprintf(' (guided)'));
+        plot_title = strcat(plot_title, sprintf(' - Guided'));
     else
-        plot_title = strcat(plot_title, sprintf(' (blind)'));
+        plot_title = strcat(plot_title, sprintf(' - Blind'));
     end
     if concurrent_disequilibrium(f)
-        plot_title = strcat(plot_title, sprintf(' + Diseq'));
+        plot_title = strcat(plot_title, sprintf(' - Diseq'));
         if concurrent_disequilibrium(f) > 1
             plot_title = strcat(plot_title, sprintf(' type %i', concurrent_disequilibrium(f)));
         end
-    end
-    if overlays_max(f) == 0
-        plot_title = strcat(plot_title, sprintf(' + M tags'));
-    elseif overlays_max(f) > 1
-        plot_title = strcat(plot_title, sprintf(' + %i tags', overlays_max(f)));
     end
     set(cur_plot, 'DisplayName', plot_title); % add the legend per plot, this is the best method, which also works with scatterplots and polar plots, see http://hattb.wordpress.com/2010/02/10/appending-legends-and-plots-in-matlab/
 
@@ -289,21 +277,20 @@ if plot_theo
     set(cur_plot, plot_curves_params{:}); % additional plot style
 
     plot_title = '';
-    plot_title = strcat(plot_title, 'Theo.');
     if enable_guiding
-        plot_title = strcat(plot_title, sprintf(' (guided)'));
+        plot_title = strcat(plot_title, sprintf('Guided'));
     else
-        plot_title = strcat(plot_title, sprintf(' (blind)'));
+        plot_title = strcat(plot_title, sprintf('Blind'));
     end
+    plot_title = strcat(plot_title, ' (Theo.)');
     set(cur_plot, 'DisplayName', plot_title); % add the legend per plot, this is the best method, which also works with scatterplots and polar plots, see http://hattb.wordpress.com/2010/02/10/appending-legends-and-plots-in-matlab/
 end
 
 % Refresh plot with legends
-legend(get(gca,'children'),get(get(gca,'children'),'DisplayName'), 'location', 'southeast'); % IMPORTANT: force refreshing to show the legend, else it won't show!
-legend('boxoff');
+legend(get(gca,'children'),get(get(gca,'children'),'DisplayName'), 'location', 'northwest'); % IMPORTANT: force refreshing to show the legend, else it won't show!
 % Add secondary axis on the top of the figure to show the number of messages
 aux.add_2nd_xaxis(D(:,1), M, sprintf('x%.1E', Mcoeff), '%g', 0);
-xlim([0 round(max(D(:,1)))]); % adjust x axis zoom
+xlim([0 max(D(:,1))]); % adjust x axis zoom
 % Adjust axis drawing style
 set( gca(), plot_axis_params{:} );
 % Adjust text style
@@ -311,11 +298,11 @@ set([gca; findall(gca, 'Type','text')], plot_text_params{:});
 
 
 
-% -- Plot matching_measure and other stats evolution for diseq + tags
+% -- Plot matching_measure and other stats evolution for the disequilibrium trick
 figure; hold on;
-xlabel(sprintf('(Bottom) Density -- (Top) Number of stored messages (M) x%.1E', Mcoeff));
+xlabel(sprintf('(Bottom) Density  -- (Top) Number of stored messages (M) x%.1E', Mcoeff));
 ylim([0 1]);
-f = 1; % set here the filtering rule that use disequilibrium + tags
+f = 2; % set here the filtering rule that use disequilibrium
 counter = 1; % useful to keep track inside the matrix E. This is guaranteed to be OK since we use the same order of for loops (so be careful, if you move the forloops here in plotting you must also move them the same way in the tests above!)
 
 fr = filtering_rule(1,f); fr = fr{1};

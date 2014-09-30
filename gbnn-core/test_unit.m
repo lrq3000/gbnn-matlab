@@ -192,7 +192,7 @@ end
 fprintf('====================================\n');
 fprintf('Total number of tests passed: %i/%i\n', oktests, numel(test_cases));
 if oktests == numel(test_cases)
-    fprintf('No error thus far, then alright! All test cases passed!\n');
+    fprintf('No error so far, then alright! All test cases passed!\n');
 else
     fprintf('Some assert were not fulfilled. Please check the assert condition or the code (either one is wrong). You can set silent = false to better pinpoint where the problem is.\n');
 end

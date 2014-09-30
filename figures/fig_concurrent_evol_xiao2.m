@@ -1,9 +1,14 @@
 % This example main file draws useful plots to analyze the evolution of the network and its error rates with different number of concurrent messages
-% To print a figure: print(1, 'test.eps', '-color');
 
 % Clear things up
 clear all;
 close all;
+
+% Addpath of the whole library (this allows for modularization: we can place the core library into a separate folder)
+if ~exist('gbnn_aux.m','file')
+    %restoredefaultpath;
+    addpath(genpath(strcat(cd(fileparts(mfilename('fullpath'))),'/../gbnn-core/')));
+end
 
 % Importing auxiliary functions
 % source('gbnn_aux.m'); % does not work with MatLab, only Octave...
@@ -11,7 +16,7 @@ aux = gbnn_aux; % works with both MatLab and Octave
 
 % Preparing stuff to automate the plots
 % This will allow us to automatically select a different color and shape for each curve
-colorvec = 'rbkgbmc';
+colorvec = 'rkgbkmc';
 markerstylevec = '+o*.xsd^v><ph';
 linestylevec = {'-' ; '--' ; ':' ; '-.'};
 
@@ -27,7 +32,7 @@ iterations = 1; % for convergence
 tampered_messages_per_test = 100;
 tests = 1;
 
-enable_guiding = [false, true]; % here too, we will try with and without the guiding mask
+enable_guiding = [false]; % here too, we will try with and without the guiding mask
 gamma_memory = 1;
 threshold = 0;
 propagation_rule = 'sum'; % TODO: not implemented yet, please always set 0 here
@@ -65,7 +70,7 @@ plot_text_params = { 'FontSize', 12, ... % in points
                                        };
 
 unbias_one_to_concurrent_error_rate = true; % unbias error rate of 1 message to take into account that with concurrency, we decode multiple messages and not just one? (this will be automatically unbiased to the max concurrent cliquse max(concurrent_cliques))
-plot_theo = false; % plot theoretical error rates?
+plot_theo = true; % plot theoretical error rates?
 silent = false; % If you don't want to see the progress output
 save_results = true; % save results to a file?
 
@@ -169,11 +174,10 @@ xlabel(sprintf('(Bottom) Density  -- (Top) Number of stored messages (M) x%.1E',
 ylabel('Retrieval Error Rate');
 counter = 1; % useful to keep track inside the matrix E. This is guaranteed to be OK since we use the same order of for loops (so be careful, if you move the forloops here in plotting you must also move them the same way in the tests above!)
 for f=1:numel(filtering_rule) % for each different filtering rule and whether there is guiding or not, we willl print a different curve, with an automatically selected color and shape
+    coloridx = mod(f-1, numel(colorvec))+1; % change color per filtering rule
     counterstyle = 1; % use another counter for styles, so that each curve will get the exact same style for each set of parameters
     for cc=1:numel(concurrent_cliques)
         for g=1:numel(enable_guiding)
-            coloridx = mod(g-1, numel(colorvec))+1; % change color per filtering rule
-
             lstyleidx = mod(counterstyle-1, numel(linestylevec))+1; % change line style ...
             mstyleidx = mod(counterstyle-1, numel(markerstylevec))+1; % and change marker style per plot
 

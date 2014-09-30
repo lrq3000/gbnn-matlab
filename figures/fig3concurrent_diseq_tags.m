@@ -4,6 +4,12 @@
 clear all;
 close all;
 
+% Addpath of the whole library (this allows for modularization: we can place the core library into a separate folder)
+if ~exist('gbnn_aux.m','file')
+    %restoredefaultpath;
+    addpath(genpath(strcat(cd(fileparts(mfilename('fullpath'))),'/../gbnn-core/')));
+end
+
 % Importing auxiliary functions
 % source('gbnn_aux.m'); % does not work with MatLab, only Octave...
 aux = gbnn_aux; % works with both MatLab and Octave
@@ -18,7 +24,7 @@ linestylevec = {'-' ; '--' ; ':' ; '-.'};
 M = [0.1:0.2:1.5 1.8 2:1:11 15 40]; % this is a vector because we will try several values of m (number of messages, which influences the density)
 Mcoeff = 1E3;
 miterator = zeros(1,numel(M)); %M/2;
-c = 8;
+c = 30;
 l = 16;
 Chi = 32;
 erasures = 2;
@@ -29,7 +35,7 @@ tests = 1;
 enable_guiding = false;
 gamma_memory = 1;
 threshold = 0;
-propagation_rule = 'sum';
+propagation_rule = 'sum_enorm';
 filtering_rule = {'GWsTA', 'GWsTA', 'GWsTA', 'GWsTA', 'GWsTA'}; % this is a cell array (vector of strings) because we will try several different values of c (order of cliques)
 tampering_type = 'erase';
 
@@ -48,7 +54,7 @@ overlays_interpolation = 'uniform';
 
 % Plot tweaking
 statstries = 10; % retry n times with different networks to average (and thus smooth) the results
-smooth_factor = 2; % interpolate more points to get smoother curves. Set to 1 to avoid smoothing (and thus plot only the point of the real samples).
+smooth_factor = 1; % interpolate more points to get smoother curves. Set to 1 to avoid smoothing (and thus plot only the point of the real samples).
 smooth_method = 'cubic'; % use PCHIP or cubic to avoid interpolating into negative values as spline does
 plot_curves_params = { 'markersize', 10, ...
                                             'linewidth', 1 ...
@@ -141,14 +147,25 @@ fprintf('END of all tests!\n'); aux.flushout();
 % -- First interpolate data points to get smoother curves
 % Note: if smooth_factor == 1 then these commands won't change the data points nor add more.
 nsamples = numel(M);
-M_interp = interp1(1:nsamples, M, linspace(1, nsamples, nsamples*smooth_factor), smooth_method);
-D_interp = interp1(1:nsamples, D(:,1), linspace(1, nsamples, nsamples*smooth_factor), smooth_method);
-E_interp = interp1(D(:,1), E, D_interp, smooth_method);
-TE_interp = interp1(D(:,1), TE, D_interp, smooth_method);
-ED_interp = interp1(D(:,1), ED, D_interp, smooth_method);
-SM_interp = interp1(D(:,1), SM, D_interp, smooth_method);
-MM_interp = interp1(D(:,1), MM, D_interp, smooth_method);
-EC_interp = interp1(D(:,1), EC, D_interp, smooth_method);
+if smooth_factor > 1
+    M_interp = interp1(1:nsamples, M, linspace(1, nsamples, nsamples*smooth_factor), smooth_method);
+    D_interp = interp1(1:nsamples, D(:,1), linspace(1, nsamples, nsamples*smooth_factor), smooth_method);
+    E_interp = interp1(D(:,1), E, D_interp, smooth_method);
+    TE_interp = interp1(D(:,1), TE, D_interp, smooth_method);
+    ED_interp = interp1(D(:,1), ED, D_interp, smooth_method);
+    SM_interp = interp1(D(:,1), SM, D_interp, smooth_method);
+    MM_interp = interp1(D(:,1), MM, D_interp, smooth_method);
+    EC_interp = interp1(D(:,1), EC, D_interp, smooth_method);
+else
+    M_interp = M;
+    D_interp = D;
+    E_interp = E;
+    TE_interp = TE;
+    ED_interp = ED;
+    SM_interp = SM;
+    MM_interp = MM;
+    EC_interp = EC;
+end
 
 % -- Save results to a file
 if save_results

@@ -262,7 +262,7 @@ for diter=1:diterations
 
             % Sum-of-Sum with natural logarithm: the goal is to reduce great gaps in scores when the scores are big enough. To do this, we use the natural logarithm so as to reduce those gaps.
             % Note: this doesn't give good performances, probably because it would better work in a vertical fashion (pyramidal network or auxiliary network).
-            % TODO: try with Hyperlog to get linear scale in the low scores and log for high scores? http://onlinelibrary.wiley.com/doi/10.1002/cyto.a.20592/full
+            % TODO: try with splitscale.m or Hyperlog to get linear scale in the low scores and log for high scores? http://onlinelibrary.wiley.com/doi/10.1002/cyto.a.20592/full
             if strcmpi(propagation_rule, 'sum_log')
                 propag(propag > 0) = propag(propag > 0) + 1;
                 propag = round(log(propag));

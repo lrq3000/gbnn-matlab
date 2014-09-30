@@ -1,8 +1,14 @@
-% Overlays network: Berhooz network vs overlays benchmark. Please use Octave >= 3.8.1 for reasonable performances!
+% Overlays network: Willshaw vs overlays benchmark. Please use Octave >= 3.8.1 for reasonable performances!
 
 % Clear things up
 clear all;
 close all;
+
+% Addpath of the whole library (this allows for modularization: we can place the core library into a separate folder)
+if ~exist('gbnn_aux.m','file')
+    %restoredefaultpath;
+    addpath(genpath(strcat(cd(fileparts(mfilename('fullpath'))),'/../gbnn-core/')));
+end
 
 % Importing auxiliary functions
 % source('gbnn_aux.m'); % does not work with MatLab, only Octave...
@@ -15,14 +21,14 @@ markerstylevec = '+o*.xsd^v><ph';
 linestylevec = {'-' ; '--' ; ':' ; '-.'};
 
 % Vars config, tweak the stuff here
-M = 0.05:1:5.05; % this is a vector because we will try several values of m (number of messages, which influences the density)
+M = 0.005:1:5.1; % this is a vector because we will try several values of m (number of messages, which influences the density)
 %M = [0.005 5.1]; % to test both limits to check that the range is OK, the first point must be near 0 and the second point must be near 1, at least for one of the curves
 Mcoeff = 10E2;
 miterator = zeros(1,numel(M)); %M/2;
-c = 6;
-l = 12;
-Chi = 16;
-erasures = 2; %floor(c*0.5);
+c = 8;
+l = 1;
+Chi = 256;
+erasures = floor(c*0.25);
 iterations = 1; % for convergence
 tampered_messages_per_test = 30;
 tests = 1;
@@ -45,7 +51,7 @@ overlays_max = [1 5 0];
 overlays_interpolation = {'mod'};
 
 % Plot tweaking
-statstries = 5; % retry n times with different networks to average (and thus smooth) the results
+statstries = 2; % retry n times with different networks to average (and thus smooth) the results
 smooth_factor = 2; % interpolate more points to get smoother curves. Set to 1 to avoid smoothing (and thus plot only the point of the real samples).
 smooth_method = 'cubic'; % use PCHIP or cubic to avoid interpolating into negative values as spline does
 plot_curves_params = { 'markersize', 10, ...
@@ -59,7 +65,7 @@ plot_text_params = { 'FontSize', 12, ... % in points
                                        'FontName', 'Helvetica' ...
                                        };
 
-plot_theo = true; % plot theoretical error rates?
+plot_theo = false; % plot theoretical error rates?
 silent = false; % If you don't want to see the progress output
 save_results = true; % save results to a file?
 

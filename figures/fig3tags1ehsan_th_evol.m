@@ -1,8 +1,14 @@
-% Overlays network: Willshaw vs overlays benchmark. Please use Octave >= 3.8.1 for reasonable performances!
+% Overlays network: Behrooz vs overlays theoretical benchmark to compare the theoretical error rate with the lost rate. Please use Octave >= 3.8.1 for reasonable performances!
 
 % Clear things up
 clear all;
 close all;
+
+% Addpath of the whole library (this allows for modularization: we can place the core library into a separate folder)
+if ~exist('gbnn_aux.m','file')
+    %restoredefaultpath;
+    addpath(genpath(strcat(cd(fileparts(mfilename('fullpath'))),'/../gbnn-core/')));
+end
 
 % Importing auxiliary functions
 % source('gbnn_aux.m'); % does not work with MatLab, only Octave...
@@ -15,20 +21,20 @@ markerstylevec = '+o*.xsd^v><ph';
 linestylevec = {'-' ; '--' ; ':' ; '-.'};
 
 % Vars config, tweak the stuff here
-M = 0.5:1:20.5; % this is a vector because we will try several values of m (number of messages, which influences the density)
+M = [0.5:0.25:4 5:1:6]; % this is a vector because we will try several values of m (number of messages, which influences the density)
 %M = [0.005 5.1]; % to test both limits to check that the range is OK, the first point must be near 0 and the second point must be near 1, at least for one of the curves
-Mcoeff = 1E2;
+Mcoeff = 1E3;
 miterator = zeros(1,numel(M)); %M/2;
 c = 8;
-l = 1;
-Chi = 256;
+l = 16;
+Chi = 16;
 erasures = floor(c/2); %floor(c*0.25);
-iterations = 4; % for convergence
-tampered_messages_per_test = 50;
+iterations = 2; % for convergence
+tampered_messages_per_test = 30;
 tests = 1;
 
 enable_guiding = false;
-gamma_memory = 1;
+gamma_memory = 0;
 threshold = 0;
 filtering_rule = 'GWsTA';
 propagation_rule = 'sum';
@@ -40,11 +46,11 @@ filtering_rule_last_iteration = false;
 
 % Overlays
 enable_overlays = true;
-overlays_max = [1 5 20 100 1000 0];
+overlays_max = [1000 0];
 overlays_interpolation = {'uniform'};
 
 % Plot tweaking
-statstries = 5; % retry n times with different networks to average (and thus smooth) the results
+statstries = 10; % retry n times with different networks to average (and thus smooth) the results
 smooth_factor = 2; % interpolate more points to get smoother curves. Set to 1 to avoid smoothing (and thus plot only the point of the real samples).
 smooth_method = 'cubic'; % use PCHIP or cubic to avoid interpolating into negative values as spline does
 plot_curves_params = { 'markersize', 10, ...
@@ -58,7 +64,7 @@ plot_text_params = { 'FontSize', 12, ... % in points
                                        'FontName', 'Helvetica' ...
                                        };
 
-plot_theo = false; % plot theoretical error rates?
+plot_theo = true; % plot theoretical error rates?
 silent = false; % If you don't want to see the progress output
 save_results = true; % save results to a file?
 
@@ -66,6 +72,7 @@ save_results = true; % save results to a file?
 D = zeros(numel(M), numel(overlays_max)*numel(overlays_interpolation));
 E = zeros(numel(M), numel(overlays_max)*numel(overlays_interpolation));
 TE = zeros(numel(M), numel(overlays_max)); % theoretical error rate depends on: Chi, l, c, erasures, enable_guiding and of course the density (theoretical or real) and thus on any parameter that changes the network (thus as the number of messages m to learn)
+LostEv = zeros(numel(M), numel(overlays_max)*numel(overlays_interpolation));
 
 for t=1:statstries
     tperf = cputime(); % to show the total time elapsed later
@@ -88,7 +95,7 @@ for t=1:statstries
         counter = 1;
         for om=1:numel(overlays_max)
             for oi=1:numel(overlays_interpolation)
-                [error_rate, theoretical_error_rate] = gbnn_test('cnetwork', cnetwork, 'thriftymessagestest', thriftymessages, ...
+                [error_rate, theoretical_error_rate, test_stats] = gbnn_test('cnetwork', cnetwork, 'thriftymessagestest', thriftymessages, ...
                                                                                       'erasures', erasures, 'iterations', iterations, 'tampered_messages_per_test', tampered_messages_per_test, 'tests', tests, ...
                                                                                       'enable_guiding', enable_guiding, 'gamma_memory', gamma_memory, 'threshold', threshold, 'propagation_rule', propagation_rule, 'filtering_rule', filtering_rule, 'tampering_type', tampering_type, ...
                                                                                       'residual_memory', residual_memory, 'filtering_rule_first_iteration', filtering_rule_first_iteration, 'filtering_rule_last_iteration', filtering_rule_last_iteration, ...
@@ -100,6 +107,40 @@ for t=1:statstries
                 D(m,counter) = D(m,counter) + density;
                 E(m,counter) = E(m,counter) + error_rate;
                 TE(m, om) = theoretical_error_rate;
+
+                % Compute the fanal tag overwriting error
+                fprintf('=> Computing the fanal tag overwriting error.\n'); aux.flushout(); % print total time elapsed
+                net = cnetwork.primary.net;
+                % First reassign tags uniformly if we have set a finite number of tags
+                if overlays_max(om) > 0
+                    maxa = max(nonzeros(net));
+                    if maxa > overlays_max(om)
+                        random_map = randi(overlays_max(om), maxa, 1);
+                        net(net > 0) = random_map(nonzeros(net)); % faster!
+                    end
+                end
+
+                % Compute the fanal tag overwriting rate, note that this depends solely on the structure of the network, ie: the learning step
+                max_tag = M(m)*Mcoeff;
+                init_lost_total = 0;
+                for mi=1:max_tag
+                    % Find if one of the fanals in the original clique lost its original tag on all of its edges (effectively losing this fanal for this clique)
+                    fanals_idxs = find(thriftymessages'(:,mi));
+                    init_edges = net(fanals_idxs, fanals_idxs);
+                    init_lost = any(~any(ismember(init_edges, mi), 1));
+                    % Find edges outside the clique but linked to the clique that got assigned to the same tag. If one such edge exists, then when we will decode we will inevitably also keep wrong fanals outside the clique.
+                    init_conflict = 0;
+                    if overlays_max(om) > 0
+                        other_fanals_idxs = find(~thriftymessages'(:,mi));
+                        other_edges = net(other_fanals_idxs, fanals_idxs); % other_edges = net(:, other_fanals_idxs);
+                        init_conflict = any(any(ismember(other_edges, mi), 1));
+                    end
+                    % Compute the error
+                    init_lost_total = init_lost_total + (init_lost || init_conflict);
+                end
+                % Compute the ratio
+                LostEv(m, counter) = LostEv(m, counter) + (init_lost_total/max_tag);
+
                 if ~silent; fprintf('-----------------------------\n\n'); end;
 
                 counter = counter + 1;
@@ -111,6 +152,7 @@ end
 % Normalizing errors rates by calculating the mean error for all tries
 D = D ./ statstries;
 E = E ./ statstries;
+LostEv = LostEv ./ statstries;
 fprintf('END of all tests!\n'); aux.flushout();
 
 % Print densities values and error rates
@@ -128,6 +170,7 @@ M_interp = interp1(1:nsamples, M, linspace(1, nsamples, nsamples*smooth_factor),
 D_interp = interp1(1:nsamples, D(:,1), linspace(1, nsamples, nsamples*smooth_factor), smooth_method);
 E_interp = interp1(D(:,1), E, D_interp, smooth_method);
 TE_interp = interp1(D(:,1), TE, D_interp, smooth_method);
+LostEv_interp = interp1(D(:,1), LostEv, D_interp, smooth_method);
 
 % -- Save results to a file
 if save_results
@@ -180,6 +223,12 @@ for om=numel(overlays_max):-1:1
         end
         set(cur_plot, 'DisplayName', plot_title); % add the legend per plot, this is the best method, which also works with scatterplots and polar plots, see http://hattb.wordpress.com/2010/02/10/appending-legends-and-plots-in-matlab/
 
+        cc2 = 8;
+        coloridx = mod(cc2-1, numel(colorvec))+1; lstyleidx = mod(counter-1, numel(linestylevec))+1; mstyleidx = mod(counter-1, numel(markerstylevec))+1; lstyle = linestylevec(lstyleidx, 1); lstyle = lstyle{1}; % for MatLab, can't do that in one command...
+        cur_plot = plot(D_interp, LostEv_interp(:,end+1-counter), sprintf('%s%s%s', lstyle, markerstylevec(mstyleidx), colorvec(coloridx)));
+        set(cur_plot, plot_curves_params{:}); % additional plot style
+        set(cur_plot, 'DisplayName', strcat(plot_title, ' - lost evolution')); % add the legend per plot, this is the best method, which also works with scatterplots and polar plots, see http://hattb.wordpress.com/2010/02/10/appending-legends-and-plots-in-matlab/
+
         counter = counter + 1;
     end
 end
@@ -218,7 +267,8 @@ if plot_theo
 end
 
 % Refresh plot with legends
-legend(get(gca,'children'),get(get(gca,'children'),'DisplayName')); % IMPORTANT: force refreshing to show the legend, else it won't show!
+legend(get(gca,'children'),get(get(gca,'children'),'DisplayName'), 'location', 'northwest'); % IMPORTANT: force refreshing to show the legend, else it won't show!
+legend('boxoff');
 % Add secondary axis on the top of the figure to show the number of messages
 aux.add_2nd_xaxis(D(:,1), M, sprintf('x%.1E', Mcoeff), '%g', 0);
 xlim([0 max(D(:,1))]); % adjust x axis zoom
@@ -226,5 +276,7 @@ xlim([0 max(D(:,1))]); % adjust x axis zoom
 set( gca(), plot_axis_params{:} );
 % Adjust text style
 set([gca; findall(gca, 'Type','text')], plot_text_params{:});
+
+
 
 % The end!

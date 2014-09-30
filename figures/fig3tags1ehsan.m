@@ -1,8 +1,14 @@
-% Overlays network: overlays number reduction algorithms benchmark. Please use Octave >= 3.8.1 for reasonable performances!
+% Overlays network: Behrooz vs overlays benchmark. Please use Octave >= 3.8.1 for reasonable performances!
 
 % Clear things up
 clear all;
 close all;
+
+% Addpath of the whole library (this allows for modularization: we can place the core library into a separate folder)
+if ~exist('gbnn_aux.m','file')
+    %restoredefaultpath;
+    addpath(genpath(strcat(cd(fileparts(mfilename('fullpath'))),'/../gbnn-core/')));
+end
 
 % Importing auxiliary functions
 % source('gbnn_aux.m'); % does not work with MatLab, only Octave...
@@ -15,23 +21,23 @@ markerstylevec = '+o*.xsd^v><ph';
 linestylevec = {'-' ; '--' ; ':' ; '-.'};
 
 % Vars config, tweak the stuff here
-M = 0.005:1:5.1; % this is a vector because we will try several values of m (number of messages, which influences the density)
+M = 0.5:1:20.5; % this is a vector because we will try several values of m (number of messages, which influences the density)
 %M = [0.005 5.1]; % to test both limits to check that the range is OK, the first point must be near 0 and the second point must be near 1, at least for one of the curves
-Mcoeff = 10E2;
+Mcoeff = 1E3;
 miterator = zeros(1,numel(M)); %M/2;
 c = 8;
-l = 16;
+l = 64;
 Chi = 16;
-erasures = 4; %floor(c*0.5);
-iterations = 2; % for convergence
+erasures = floor(c/2); %floor(c*0.25);
+iterations = 4; % for convergence
 tampered_messages_per_test = 30;
 tests = 1;
 
 enable_guiding = false;
-gamma_memory = 0;
+gamma_memory = 1;
 threshold = 0;
 filtering_rule = 'GWsTA';
-propagation_rule = 'overlays';
+propagation_rule = 'sum';
 tampering_type = 'erase';
 
 residual_memory = 0;
@@ -40,8 +46,8 @@ filtering_rule_last_iteration = false;
 
 % Overlays
 enable_overlays = true;
-overlays_max = [2 20 0];
-overlays_interpolation = {'mod', 'norm', 'uniform'};
+overlays_max = [1 5 20 100 1000 0];
+overlays_interpolation = {'uniform'};
 
 % Plot tweaking
 statstries = 5; % retry n times with different networks to average (and thus smooth) the results
@@ -75,31 +81,25 @@ for t=1:statstries
         % Launch the run
         if m == 1
             [cnetwork, thriftymessages, density] = gbnn_learn('m', round(M(1, 1)*Mcoeff), 'miterator', miterator(1,m), 'l', l, 'c', c, 'Chi', Chi, ...
-                                                                                                        'enable_overlays', enable_overlays, 'overlays_max', overlays_max, 'overlays_interpolation', overlays_interpolation, ...
+                                                                                                        'enable_overlays', enable_overlays, ...
                                                                                                         'silent', silent);
         else % Optimization trick: instead of relearning the whole network, we will reuse the previous network and just add more messages, this allows to decrease the learning time exponentially, rendering it constant (at each learning, the network will learn the same amount of messages: eg: iteration 1 will learn 1E5 messages, iteration 2 will learn 1E5 messages and reuse 1E5, which will totalize as 2E5, etc...)
             [cnetwork, s2, density] = gbnn_learn('cnetwork', cnetwork, ...
                                                         'm', round((M(1, m)-M(1,m-1))*Mcoeff), 'miterator', miterator(1,m), 'l', l, 'c', c, 'Chi', Chi, ...
-                                                        'enable_overlays', enable_overlays, 'overlays_max', overlays_max, 'overlays_interpolation', overlays_interpolation, ...
+                                                        'enable_overlays', enable_overlays, ...
                                                         'silent', silent);
             thriftymessages = [thriftymessages ; s2]; % append new messages
         end
 
         counter = 1;
         for om=1:numel(overlays_max)
-            cnetwork.primary.args.overlays_max = overlays_max(om);
             for oi=1:numel(overlays_interpolation)
-                cnetwork.primary.args.overlays_interpolation = overlays_interpolation(oi);
-
-                prop_rule = 'sum';
-                if (enable_overlays && overlays_max(om) ~= 1); prop_rule = propagation_rule; end;
-                if (overlays_max(om) == 1); temp = cnetwork; cnetwork.primary.net = logical(cnetwork.primary.net); end;
                 [error_rate, theoretical_error_rate] = gbnn_test('cnetwork', cnetwork, 'thriftymessagestest', thriftymessages, ...
                                                                                       'erasures', erasures, 'iterations', iterations, 'tampered_messages_per_test', tampered_messages_per_test, 'tests', tests, ...
-                                                                                      'enable_guiding', enable_guiding, 'gamma_memory', gamma_memory, 'threshold', threshold, 'propagation_rule', prop_rule, 'filtering_rule', filtering_rule, 'tampering_type', tampering_type, ...
+                                                                                      'enable_guiding', enable_guiding, 'gamma_memory', gamma_memory, 'threshold', threshold, 'propagation_rule', propagation_rule, 'filtering_rule', filtering_rule, 'tampering_type', tampering_type, ...
                                                                                       'residual_memory', residual_memory, 'filtering_rule_first_iteration', filtering_rule_first_iteration, 'filtering_rule_last_iteration', filtering_rule_last_iteration, ...
+                                                                                      'enable_overlays', enable_overlays, 'overlays_max', overlays_max(om), 'overlays_interpolation', overlays_interpolation{oi}, ...
                                                                                       'silent', silent);
-                if (overlays_max(om) == 1); cnetwork = temp; end;
 
                 % Store the results
                 %colidx = counter+(size(D,2)/numel(enable_overlays))*(o-1);
@@ -167,7 +167,7 @@ for om=numel(overlays_max):-1:1
         mstyleidx = mod(counter-1, numel(markerstylevec))+1; % and change marker style per plot
 
         lstyle = linestylevec(lstyleidx, 1); lstyle = lstyle{1}; % for MatLab, can't do that in one command...
-        cur_plot = plot(D_interp, E_interp(:,numel(overlays_max)*numel(overlays_interpolation)+1-counter), sprintf('%s%s%s', lstyle, markerstylevec(mstyleidx), colorvec(coloridx))); % plot one line
+        cur_plot = plot(D_interp, E_interp(:,end+1-counter), sprintf('%s%s%s', lstyle, markerstylevec(mstyleidx), colorvec(coloridx))); % plot one line
         set(cur_plot, plot_curves_params{:}); % additional plot style
 
         plot_title = sprintf('%s', filtering_rule);
@@ -224,7 +224,8 @@ if plot_theo
 end
 
 % Refresh plot with legends
-legend(get(gca,'children'),get(get(gca,'children'),'DisplayName')); % IMPORTANT: force refreshing to show the legend, else it won't show!
+legend(get(gca,'children'),get(get(gca,'children'),'DisplayName'), 'location', 'northwest'); % IMPORTANT: force refreshing to show the legend, else it won't show!
+legend('boxoff');
 % Add secondary axis on the top of the figure to show the number of messages
 aux.add_2nd_xaxis(D(:,1), M, sprintf('x%.1E', Mcoeff), '%g', 0);
 xlim([0 max(D(:,1))]); % adjust x axis zoom

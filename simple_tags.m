@@ -1,16 +1,22 @@
-% Example of the simplest call script for the gbnn network with overlays/tags disambiguation trick
+% Simple usage of the tagged network (an extension of the cliques network using coloured edges, so that we can disambiguate in case of spurious fanals)
 
 % Clear things up
 clear all; % don't forget to clear all; before, else some variables or sourcecode change may not be refreshed and the code you will run is the one from the cache, not the latest edition you did!
 close all;
 
+% Addpath of the whole library (this allows for modularization: we can place the core library into a separate folder)
+if ~exist('gbnn_aux.m','file')
+    %restoredefaultpath;
+    addpath(genpath(strcat(cd(fileparts(mfilename('fullpath'))),'/gbnn-core/')));
+end
+
 % Importing auxiliary functions
 aux = gbnn_aux; % works with both MatLab and Octave
 
 % Primary network params
-m = 0.7; %1E4;
+m = 0.2; %1E4;
 miterator = 0;
-c = 8; % 8;
+c = 8; % 8; % with tags, higher c is, the lower the error rate will be
 l = 16; % 32;
 Chi = 32; % 64;
 erasures = floor(c/2);
@@ -28,7 +34,7 @@ overlays_max = 0; % 0 for maximum number of tags (as many tags as messages/cliqu
 overlays_interpolation = 'uniform'; % interpolation method to reduce the number of tags when overlays_max > 1: uniform, mod or norm
 
 % Concurrency params
-concurrent_cliques = 1;
+concurrent_cliques = 2;
 no_concurrent_overlap = false;
 
 % Verbose?

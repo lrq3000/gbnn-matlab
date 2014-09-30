@@ -1,8 +1,15 @@
-% Example of the simplest call script for the gbnn network
+% Simple usage of the disequilibrium trick for the concurrent cliques problem
+% Works great! But works best in combination with tagged network (see simple_tags_diseq_concurrent).
 
 % Clear things up
 clear all; % don't forget to clear all; before, else some variables or sourcecode change may not be refreshed and the code you will run is the one from the cache, not the latest edition you did!
 close all;
+
+% Addpath of the whole library (this allows for modularization: we can place the core library into a separate folder)
+if ~exist('gbnn_aux.m','file')
+    %restoredefaultpath;
+    addpath(genpath(strcat(cd(fileparts(mfilename('fullpath'))),'/gbnn-core/')));
+end
 
 % Importing auxiliary functions
 aux = gbnn_aux; % works with both MatLab and Octave

@@ -4,6 +4,12 @@
 clear all;
 close all;
 
+% Addpath of the whole library (this allows for modularization: we can place the core library into a separate folder)
+if ~exist('gbnn_aux.m','file')
+    %restoredefaultpath;
+    addpath(genpath(strcat(cd(fileparts(mfilename('fullpath'))),'/../gbnn-core/')));
+end
+
 % Importing auxiliary functions
 % source('gbnn_aux.m'); % does not work with MatLab, only Octave...
 aux = gbnn_aux; % works with both MatLab and Octave
@@ -15,8 +21,8 @@ markerstylevec = '+o*.xsd^v><ph';
 linestylevec = {'-' ; '--' ; ':' ; '-.'};
 
 % Vars config, tweak the stuff here
-M = [1:2:15 16 18 20]; % this is a vector because we will try several values of m (number of messages, which influences the density)
-Mcoeff = 1E2;
+M = [0.1:0.2:1.5 1.8 2:1:11 15 40]; % this is a vector because we will try several values of m (number of messages, which influences the density)
+Mcoeff = 1E3;
 miterator = zeros(1,numel(M)); %M/2;
 c = 8;
 l = 16;
@@ -26,24 +32,24 @@ iterations = 4; % must be > 1 for disequilibrium to take effect. Note: useless f
 tampered_messages_per_test = 30;
 tests = 1;
 
-enable_guiding = false;
-gamma_memory = 0;
+enable_guiding = true;
+gamma_memory = 1;
 threshold = 0;
 propagation_rule = 'sum';
-filtering_rule = {'GWsTA', 'GWsTA', 'GWsTA', 'GWsTA', 'GWsTA'}; % this is a cell array (vector of strings) because we will try several different values of c (order of cliques)
+filtering_rule = {'ML', 'GWsTA', 'GWsTA', 'GWsTA', 'GWsTA', 'GWsTA'}; % this is a cell array (vector of strings) because we will try several different values of c (order of cliques)
 tampering_type = 'erase';
 
 residual_memory = 0;
 concurrent_cliques = 2;
 no_concurrent_overlap = false;
 concurrent_successive = false;
-concurrent_disequilibrium = [false, false, false, false, false];
+concurrent_disequilibrium = [false, true, 3, false, true, false];
 filtering_rule_first_iteration = false;
 filtering_rule_last_iteration = false;
 
 % Overlays
 enable_overlays = true;
-overlays_max = [0 1000 100 20 1];
+overlays_max = [1 0 0 0 1 1];
 overlays_interpolation = 'uniform';
 
 % Plot tweaking
@@ -231,7 +237,7 @@ legend(get(gca,'children'),get(get(gca,'children'),'DisplayName'), 'location', '
 legend('boxoff');
 % Add secondary axis on the top of the figure to show the number of messages
 aux.add_2nd_xaxis(D(:,1), M, sprintf('x%.1E', Mcoeff), '%g', 0);
-xlim([0 max(D(:,1))]); % adjust x axis zoom
+xlim([0 round(max(D(:,1)))]); % adjust x axis zoom
 % Adjust axis drawing style
 set( gca(), plot_axis_params{:} );
 % Adjust text style
@@ -303,7 +309,7 @@ legend(get(gca,'children'),get(get(gca,'children'),'DisplayName'), 'location', '
 legend('boxoff');
 % Add secondary axis on the top of the figure to show the number of messages
 aux.add_2nd_xaxis(D(:,1), M, sprintf('x%.1E', Mcoeff), '%g', 0);
-xlim([0 max(D(:,1))]); % adjust x axis zoom
+xlim([0 round(max(D(:,1)))]); % adjust x axis zoom
 % Adjust axis drawing style
 set( gca(), plot_axis_params{:} );
 % Adjust text style
