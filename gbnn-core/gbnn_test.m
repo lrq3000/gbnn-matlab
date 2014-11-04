@@ -268,7 +268,7 @@ for t=1:tests % TODO: replace by parfor (regression from past versions to allow 
         idxs = aux.shake(idxs); % per-column shuffle indices! This is how we randomly pick characters.
         idxs = idxs(1:erasures, :); % select the number of erasures we want
         idxs = bsxfun(@plus, idxs, 0:n:n*(tampered_messages_per_test*concurrent_cliques-1) ); % offset indices to take account of the column (since sort resets indices count per column)
-        idxs(idxs == 0) = []; % remove non valid indices (if variable_length, some characters may have less than the number of characters we want to erase) TODO: ensure that a variable_length message keeps at least 2 nodes
+        idxs(idxs == 0) = []; % remove non valid indices (if variable_length, some characters may have less than the number of characters we want to erase) TODO: ensure that a variable_length message keeps at least 2 characters, else there's no way to recover the clique!
         inputm(idxs(1:erasures, :)) = 0; % erase those characters
     % -- Random noise (bit-flipping of randomly selected characters)
     elseif strcmpi(tampering_type, 'noise')
