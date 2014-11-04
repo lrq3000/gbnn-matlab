@@ -1,3 +1,4 @@
+% OLD OVERLAYS METHOD: do not use (performances are a lot worse than the new method)
 % Overlays network: Willshaw vs overlays benchmark. Please use Octave >= 3.8.1 for reasonable performances!
 
 % Clear things up
@@ -37,7 +38,7 @@ enable_guiding = false;
 gamma_memory = 0;
 threshold = 0;
 filtering_rule = 'GWsTA';
-propagation_rule = 'overlays';
+propagation_rule = 'overlays_old';
 tampering_type = 'erase';
 
 residual_memory = 0;
@@ -82,12 +83,12 @@ for t=1:statstries
         % Launch the run
         if m == 1
             [cnetwork, thriftymessages, density] = gbnn_learn('m', round(M(1, 1)*Mcoeff), 'miterator', miterator(1,m), 'l', l, 'c', c, 'Chi', Chi, ...
-                                                                                                        'enable_overlays', enable_overlays, 'overlays_max', overlays_max, 'overlays_interpolation', overlays_interpolation, ...
+                                                                                                        'enable_overlays', enable_overlays, ...
                                                                                                         'silent', silent);
         else % Optimization trick: instead of relearning the whole network, we will reuse the previous network and just add more messages, this allows to decrease the learning time exponentially, rendering it constant (at each learning, the network will learn the same amount of messages: eg: iteration 1 will learn 1E5 messages, iteration 2 will learn 1E5 messages and reuse 1E5, which will totalize as 2E5, etc...)
             [cnetwork, s2, density] = gbnn_learn('cnetwork', cnetwork, ...
                                                         'm', round((M(1, m)-M(1,m-1))*Mcoeff), 'miterator', miterator(1,m), 'l', l, 'c', c, 'Chi', Chi, ...
-                                                        'enable_overlays', enable_overlays, 'overlays_max', overlays_max, 'overlays_interpolation', overlays_interpolation, ...
+                                                        'enable_overlays', enable_overlays, ...
                                                         'silent', silent);
             thriftymessages = [thriftymessages ; s2]; % append new messages
         end
@@ -100,13 +101,12 @@ for t=1:statstries
 
                 prop_rule = 'sum';
                 if (enable_overlays && overlays_max(om) ~= 1); prop_rule = propagation_rule; end;
-                if (overlays_max(om) == 1); temp = cnetwork; cnetwork.primary.net = logical(cnetwork.primary.net); end;
                 [error_rate, theoretical_error_rate] = gbnn_test('cnetwork', cnetwork, 'thriftymessagestest', thriftymessages, ...
                                                                                       'erasures', erasures, 'iterations', iterations, 'tampered_messages_per_test', tampered_messages_per_test, 'tests', tests, ...
                                                                                       'enable_guiding', enable_guiding, 'gamma_memory', gamma_memory, 'threshold', threshold, 'propagation_rule', prop_rule, 'filtering_rule', filtering_rule, 'tampering_type', tampering_type, ...
                                                                                       'residual_memory', residual_memory, 'filtering_rule_first_iteration', filtering_rule_first_iteration, 'filtering_rule_last_iteration', filtering_rule_last_iteration, ...
+                                                                                      'enable_overlays', enable_overlays, 'overlays_max', overlays_max(om), 'overlays_interpolation', overlays_interpolation{oi}, ...
                                                                                       'silent', silent);
-                if (overlays_max(om) == 1); cnetwork = temp; end;
 
                 % Store the results
                 %colidx = counter+(size(D,2)/numel(enable_overlays))*(o-1);

@@ -120,7 +120,7 @@ if ~exist('tampering_type', 'var') || ~ischar(tampering_type)
     if iscell(tampering_type); error('tampering_type is a cell, it should be a string! Maybe you did a typo?'); end;
     tampering_type = 'erase';
 end
-if enable_overlays && (islogical(cnetwork.primary.net) || max(max(cnetwork.primary.net)) == 1)
+if enable_overlays && (islogical(cnetwork.primary.net) || max(max(cnetwork.primary.net)) == 1) && any(nonzeros(sum(cnetwork.primary.net)) ~= cnetwork.primary.args.c) % overlays enabled but there's no tag, and we learned at least more than just one clique/message
     error('cannot use overlays because overlays were not learned. Please first use gbnn_learn() with argument enable_overlays = true');
 end
 

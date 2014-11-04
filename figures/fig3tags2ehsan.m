@@ -1,4 +1,3 @@
-% OLD OVERLAYS METHOD: do not use (performances are a lot worse than the new method)
 % Overlays network: overlays number reduction algorithms benchmark. Please use Octave >= 3.8.1 for reasonable performances!
 
 % Clear things up
@@ -38,7 +37,7 @@ enable_guiding = false;
 gamma_memory = 0;
 threshold = 0;
 filtering_rule = 'GWsTA';
-propagation_rule = 'overlays_old';
+propagation_rule = 'sum';
 tampering_type = 'erase';
 
 residual_memory = 0;
@@ -47,7 +46,7 @@ filtering_rule_last_iteration = false;
 
 % Overlays
 enable_overlays = true;
-overlays_max = [2 20 0];
+overlays_max = [2 20 100 1000 0];
 overlays_interpolation = {'mod', 'norm', 'uniform'};
 
 % Plot tweaking
@@ -94,15 +93,11 @@ for t=1:statstries
 
         counter = 1;
         for om=1:numel(overlays_max)
-            cnetwork.primary.args.overlays_max = overlays_max(om);
             for oi=1:numel(overlays_interpolation)
-                cnetwork.primary.args.overlays_interpolation = overlays_interpolation(oi);
 
-                prop_rule = 'sum';
-                if (enable_overlays && overlays_max(om) ~= 1); prop_rule = propagation_rule; end;
                 [error_rate, theoretical_error_rate] = gbnn_test('cnetwork', cnetwork, 'thriftymessagestest', thriftymessages, ...
                                                                                       'erasures', erasures, 'iterations', iterations, 'tampered_messages_per_test', tampered_messages_per_test, 'tests', tests, ...
-                                                                                      'enable_guiding', enable_guiding, 'gamma_memory', gamma_memory, 'threshold', threshold, 'propagation_rule', prop_rule, 'filtering_rule', filtering_rule, 'tampering_type', tampering_type, ...
+                                                                                      'enable_guiding', enable_guiding, 'gamma_memory', gamma_memory, 'threshold', threshold, 'propagation_rule', propagation_rule, 'filtering_rule', filtering_rule, 'tampering_type', tampering_type, ...
                                                                                       'residual_memory', residual_memory, 'filtering_rule_first_iteration', filtering_rule_first_iteration, 'filtering_rule_last_iteration', filtering_rule_last_iteration, ...
                                                                                       'enable_overlays', enable_overlays, 'overlays_max', overlays_max(om), 'overlays_interpolation', overlays_interpolation{oi}, ...
                                                                                       'silent', silent);

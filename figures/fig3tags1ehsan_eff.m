@@ -21,15 +21,18 @@ markerstylevec = '+o*.xsd^v><ph';
 linestylevec = {'-' ; ':' ; '--' ; '-.'};
 
 % Vars config, tweak the stuff here
-M = [0.01:0.05:0.09 0.1:0.1:0.4 0.5:0.25:4 5:1:6]; % this is a vector because we will try several values of m (number of messages, which influences the density)
+%M = [0.1 0.5:0.1:1 1.25:0.25:2 2.5 3:2:7 11 16 25 40]; % this is a vector because we will try several values of m (number of messages, which influences the density)
+M = [0.02180727066532258 0.1044843119959677 0.1237871723790323 0.1427750126008064 0.161345451108871 0.1795221144153226 0.1974703881048387 0.240691154233871 0.2810846144153226 0.3199896043346774 0.3560909148185484 0.4231035786290323 0.4834850680443548 0.6676616053427419 0.7855027721774194 0.9107941658266129 0.9701518397177419 0.9960149949596774 0.9998346144153226];
+%M = [0.01 0.1:0.1:0.9 0.95];
 %M = [0.005 5.1]; % to test both limits to check that the range is OK, the first point must be near 0 and the second point must be near 1, at least for one of the curves
-Mcoeff = 1E3;
+%Mcoeff = 1E3;
+Mcoeff = 1;
 miterator = zeros(1,numel(M)); %M/2;
 c = 8;
 l = 16;
-Chi = 16;
+Chi = 32;
 erasures = floor(c/2); %floor(c*0.25);
-iterations = 4; % for convergence
+iterations = 1; % for convergence
 tampered_messages_per_test = 30;
 tests = 1;
 
@@ -50,7 +53,7 @@ overlays_max = [1 0];
 overlays_interpolation = {'uniform'};
 
 % Plot tweaking
-statstries = 20; % retry n times with different networks to average (and thus smooth) the results
+statstries = 5; % retry n times with different networks to average (and thus smooth) the results
 smooth_factor = 2; % interpolate more points to get smoother curves. Set to 1 to avoid smoothing (and thus plot only the point of the real samples).
 smooth_method = 'cubic'; % use PCHIP or cubic to avoid interpolating into negative values as spline does
 plot_curves_params = { 'markersize', 10, ...
@@ -81,12 +84,25 @@ for t=1:statstries
     for m=1:numel(M) % and for each value of m, we will do a run
         % Launch the run
         if m == 1
-            [cnetwork, thriftymessages, density] = gbnn_learn('m', round(M(1, 1)*Mcoeff), 'miterator', miterator(1,m), 'l', l, 'c', c, 'Chi', Chi, ...
+            if M(1) * Mcoeff < 1
+                nbmes = M(1);
+            else
+                nbmes = round(M(1)*Mcoeff);
+            end
+            [cnetwork, thriftymessages, density] = gbnn_learn('m', nbmes, 'miterator', miterator(1,m), 'l', l, 'c', c, 'Chi', Chi, ...
                                                                                                         'enable_overlays', enable_overlays, ...
                                                                                                         'silent', silent);
         else % Optimization trick: instead of relearning the whole network, we will reuse the previous network and just add more messages, this allows to decrease the learning time exponentially, rendering it constant (at each learning, the network will learn the same amount of messages: eg: iteration 1 will learn 1E5 messages, iteration 2 will learn 1E5 messages and reuse 1E5, which will totalize as 2E5, etc...)
+            if M(1) * Mcoeff < 1 % if density is specified, we have to convert to the number of messages and then compute the number of messages we have to learn to add up over previously learned messages. This is the only accurate way of computing the number of messages to learn with online learning, else if we do density-density_prev, the number of messages won't be correct (eg: number of messages at density 0.2 and the number of messages to learn between 0.6 and 0.8 is vastly different, in the latter case we have a lot more messages to learn than just the number to reach 0.2 density).
+                cnetwork_stats = gbnn_theoretical_stats('Chi', Chi, 'c', c, 'l', l, 'd', M(m));
+                cnetwork_stats_prev = gbnn_theoretical_stats('Chi', Chi, 'c', c, 'l', l, 'd', M(m-1));
+                nbmes = round(cnetwork_stats.M - cnetwork_stats_prev.M);
+                clear cnetwork_stats;
+            else
+                nbmes = round((M(m)-M(m-1))*Mcoeff);
+            end
             [cnetwork, s2, density] = gbnn_learn('cnetwork', cnetwork, ...
-                                                        'm', round((M(1, m)-M(1,m-1))*Mcoeff), 'miterator', miterator(1,m), 'l', l, 'c', c, 'Chi', Chi, ...
+                                                        'm', nbmes, 'miterator', miterator(1,m), 'l', l, 'c', c, 'Chi', Chi, ...
                                                         'enable_overlays', enable_overlays, ...
                                                         'silent', silent);
             thriftymessages = [thriftymessages ; s2]; % append new messages
@@ -101,8 +117,12 @@ for t=1:statstries
                                                                                       'residual_memory', residual_memory, 'filtering_rule_first_iteration', filtering_rule_first_iteration, 'filtering_rule_last_iteration', filtering_rule_last_iteration, ...
                                                                                       'enable_overlays', enable_overlays, 'overlays_max', overlays_max(om), 'overlays_interpolation', overlays_interpolation{oi}, ...
                                                                                       'silent', silent);
-              
-                cnetwork_stats = gbnn_theoretical_stats('Chi', Chi, 'c', c, 'l', l, 'M', M(m)*Mcoeff, 'erasures', erasures, 'overlays_max', overlays_max(om));
+
+                if M(1) * Mcoeff < 1
+                    cnetwork_stats = gbnn_theoretical_stats('Chi', Chi, 'c', c, 'l', l, 'd', M(m), 'erasures', erasures, 'overlays_max', overlays_max(om));
+                else
+                    cnetwork_stats = gbnn_theoretical_stats('Chi', Chi, 'c', c, 'l', l, 'M', M(m)*Mcoeff, 'erasures', erasures, 'overlays_max', overlays_max(om));
+                end
 
                 % Store the results
                 %colidx = counter+(size(D,2)/numel(enable_overlays))*(o-1);
@@ -139,11 +159,19 @@ aux.flushout();
 % -- First interpolate data points to get smoother curves
 % Note: if smooth_factor == 1 then these commands won't change the data points nor add more.
 nsamples = numel(M);
-M_interp = interp1(1:nsamples, M, linspace(1, nsamples, nsamples*smooth_factor), smooth_method);
-D_interp = interp1(1:nsamples, D(:,1), linspace(1, nsamples, nsamples*smooth_factor), smooth_method);
-E_interp = interp1(D(:,1), E, D_interp, smooth_method);
-EFF_interp = interp1(D(:,1), EFF, D_interp, smooth_method);
-TE_interp = interp1(D(:,1), TE, D_interp, smooth_method);
+if smooth_factor > 1
+    M_interp = interp1(1:nsamples, M, linspace(1, nsamples, nsamples*smooth_factor), smooth_method);
+    D_interp = interp1(1:nsamples, D(:,1), linspace(1, nsamples, nsamples*smooth_factor), smooth_method);
+    E_interp = interp1(D(:,1), E, D_interp, smooth_method);
+    EFF_interp = interp1(D(:,1), EFF, D_interp, smooth_method);
+    TE_interp = interp1(D(:,1), TE, D_interp, smooth_method);
+else
+    M_interp = M;
+    D_interp = D;
+    E_interp = E;
+    EFF_interp = EFF;
+    TE_interp = TE;
+end
 
 % -- Save results to a file
 if save_results
@@ -162,7 +190,7 @@ if save_results
     aux.savex(outfile, blacklist_vars{:}); % save ALL the workspace into a file except for a few variables which are just too big
 end
 
-% Plot error rate with respect to the density (or number of messages stored) and a few other parameters
+% -- Plot ratio efficiency/error rate with respect to the density (or number of messages stored) and a few other parameters
 figure; hold on;
 xlabel(sprintf('(Bottom) Density  -- (Top) Number of stored messages (M) x%.1E', Mcoeff));
 ylabel('Ratio efficiency / real error rate');
@@ -222,7 +250,7 @@ for om=numel(overlays_max):-1:1
         lstyle = linestylevec(3, 1); lstyle = lstyle{1}; % for MatLab, can't do that in one command...
         cur_plot = plot(D_interp, E_interp(:,end+1-counter), sprintf('%s%s%s', lstyle, markerstylevec(mstyleidx), colorvec(coloridx))); % plot one line
         set(cur_plot, plot_curves_params{:}); % additional plot style
-        plot_title2 = strcat(plot_title, ' - theo error rate');
+        plot_title2 = strcat(plot_title, ' - error rate');
 
         set(cur_plot, 'DisplayName', plot_title2); % add the legend per plot, this is the best method, which also works with scatterplots and polar plots, see http://hattb.wordpress.com/2010/02/10/appending-legends-and-plots-in-matlab/
 
@@ -270,6 +298,102 @@ legend('boxoff');
 % Add secondary axis on the top of the figure to show the number of messages
 aux.add_2nd_xaxis(D(:,1), M, sprintf('x%.1E', Mcoeff), '%g', 0);
 xlim([0 round(max(D(:,1)))]); % adjust x axis zoom
+ylim([0 1]);
+% Adjust axis drawing style
+set( gca(), plot_axis_params{:} );
+% Adjust text style
+set([gca; findall(gca, 'Type','text')], plot_text_params{:});
+
+
+
+% -- Plot efficiency with respect to error rate
+figure; hold on;
+xlabel('Error rate');
+ylabel('Efficiency');
+counter = 1; % useful to keep track inside the matrix E. This is guaranteed to be OK since we use the same order of for loops (so be careful, if you move the forloops here in plotting you must also move them the same way in the tests above!)
+for om=numel(overlays_max):-1:1
+    for oi=1:numel(overlays_interpolation)
+        colorcounter = om;
+        if numel(overlays_interpolation) > 1; colorcounter = oi; end;
+        coloridx = mod(colorcounter-1, numel(colorvec))+1; % change color if overlay or not
+        
+        % -- Set title
+        plot_title = sprintf('%s', filtering_rule);
+        if enable_guiding
+            plot_title = strcat(plot_title, sprintf(' - Guided'));
+        else
+            plot_title = strcat(plot_title, sprintf(' - Blind'));
+        end
+        if overlays_max(om) == 1
+            plot_title = strcat(plot_title, sprintf(' - One/No tags'));
+        elseif overlays_max(om) == 0
+            plot_title = strcat(plot_title, sprintf(' - M tags'));
+        else
+            plot_title = strcat(plot_title, sprintf(' - %i tags', overlays_max(om)));
+        end
+
+        % -- Efficiency 1
+        lstyleidx = mod(counter-1, numel(linestylevec))+1; % change line style ...
+        mstyleidx = mod(counter-1, numel(markerstylevec))+1; % and change marker style per plot
+
+        lstyle = linestylevec(1, 1); lstyle = lstyle{1}; % for MatLab, can't do that in one command...
+
+        cur_plot = plot(E_interp(:,end+1-counter), EFF_interp(:,end+1-counter), sprintf('%s%s%s', lstyle, markerstylevec(mstyleidx), colorvec(coloridx))); % plot one line
+        set(cur_plot, plot_curves_params{:}); % additional plot style
+
+        set(cur_plot, 'DisplayName', plot_title); % add the legend per plot, this is the best method, which also works with scatterplots and polar plots, see http://hattb.wordpress.com/2010/02/10/appending-legends-and-plots-in-matlab/
+
+        % -- Theoretical efficiency
+        lstyle = linestylevec(3, 1); lstyle = lstyle{1}; % for MatLab, can't do that in one command...
+        cur_plot = plot(TE_interp(:,end+1-counter), EFF_interp(:,end+1-counter), sprintf('%s%s%s', lstyle, markerstylevec(mstyleidx), colorvec(coloridx))); % plot one line
+        set(cur_plot, plot_curves_params{:}); % additional plot style
+        plot_title2 = strcat(plot_title, ' - theo');
+
+        set(cur_plot, 'DisplayName', plot_title2); % add the legend per plot, this is the best method, which also works with scatterplots and polar plots, see http://hattb.wordpress.com/2010/02/10/appending-legends-and-plots-in-matlab/
+
+
+        counter = counter + 1;
+    end
+end
+
+
+% Plot theoretical error rates
+if plot_theo
+    %coloridx = mod(counter, numel(colorvec))+1;
+    colornm = 'k';
+    counter = 1;
+    for om=numel(overlays_max):-1:1
+        lstyleidx = mod(counter-1, numel(linestylevec))+1;
+        mstyleidx = mod(counter-1, numel(markerstylevec))+1;
+
+        lstyle = linestylevec(lstyleidx, 1); lstyle = lstyle{1}; % for MatLab, can't do that in one command...
+        cur_plot = plot(D_interp, TE_interp(:,om), sprintf('%s%s%s', lstyle, markerstylevec(mstyleidx), colornm)); % plot one line
+        set(cur_plot, plot_curves_params{:}); % additional plot style
+
+        plot_title = 'Theo. ';
+        if enable_guiding
+            plot_title = strcat(plot_title, sprintf(' - Guided'));
+        else
+            plot_title = strcat(plot_title, sprintf(' - Blind'));
+        end
+        if overlays_max(om) == 1
+                plot_title = strcat(plot_title, sprintf(' - One/No tags'));
+        elseif overlays_max(om) == 0
+            plot_title = strcat(plot_title, sprintf(' - M tags'));
+        else
+            plot_title = strcat(plot_title, sprintf(' - %i tags', overlays_max(om)));
+        end
+        set(cur_plot, 'DisplayName', plot_title); % add the legend per plot, this is the best method, which also works with scatterplots and polar plots, see http://hattb.wordpress.com/2010/02/10/appending-legends-and-plots-in-matlab/
+
+        counter = counter + 1;
+    end
+end
+
+% Refresh plot with legends
+legend(get(gca,'children'),get(get(gca,'children'),'DisplayName'), 'location', 'northwest'); % IMPORTANT: force refreshing to show the legend, else it won't show!
+legend('boxoff');
+% Setup axis
+xlim([0 round(max(max(E)))]); % adjust x axis zoom
 ylim([0 1]);
 % Adjust axis drawing style
 set( gca(), plot_axis_params{:} );

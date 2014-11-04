@@ -81,7 +81,7 @@ if ~ischar(filtering_rule)
     if iscell(filtering_rule); error('filtering_rule is a cell, it should be a string! Maybe you did a typo?'); end;
     filtering_rule = 'wta';
 end
-if enable_overlays && (islogical(cnetwork.primary.net) || max(max(cnetwork.primary.net)) == 1)
+if enable_overlays && (islogical(cnetwork.primary.net) || max(max(cnetwork.primary.net)) == 1) && any(nonzeros(sum(cnetwork.primary.net)) ~= cnetwork.primary.args.c) % overlays enabled but there's no tag, and we learned at least more than just one clique/message
     error('cannot use overlays because overlays were not learned. Please first use gbnn_learn() with argument enable_overlays = true');
 end
 if Chi > c && (strcmpi(filtering_rule, 'wta') || strcmpi(filtering_rule, 'kwta')) && isempty(guiding_mask)
