@@ -88,7 +88,7 @@ if numel(c) == 1
     entropy_per_message = (log2(nchoosek(Chi, c)) + (c * log2(l))); % entropy_per_message = binary resource per message = shannon information contained in each message
     entropy = M * entropy_per_message; % total entropy for all messages
     efficiency = entropy / (graph_size * log2(overlays_max+1)); % efficiency = eta = B/Q = entropy/graph_size = ratio between amount of information storable in the network over the resource/material necessary to use to store this amount of information.
-    Mmax = graph_size / entropy_per_message; % Efficiency-1 = optimal number of messages to store in the network to get the best efficiency.
+    Mmax = (graph_size * log2(overlays_max+1)) / entropy_per_message; % Efficiency-1 = optimal number of messages to store in the network to get the best efficiency.
     false_positive_rate = d ^ clique_size; % error rate of second type (false positive)
     if erasures >= 0 || error_rate > 0
         if error_rate > 0
