@@ -221,13 +221,14 @@ for M = 1:mloop
         if ~enable_overlays % Standard case: a simple matrix multiplication to create an adjacency matrix
             cnetwork.primary.net = or(cnetwork.primary.net, gbnn_construct_network(thriftymessages)); % use a or() to iteratively append new edges over the old ones
         else % Overlays/Tags case
-            prev_max_overlay = max(cnetwork.primary.net(:)); % Assign a unique overlay id to each message, same as above...
+            % Assign a unique overlay id to each message, same as above...
+            prev_max_overlay = max(cnetwork.primary.net(:)); % Here we continue to learn onto an already learned network. Thus here we fetch the latest tag learned, and we will create new tags after to maintain the tag uniqueness per clique.
 
             % -- Vectorized version, slower but more mathematically justified
             %overlays_range = (1+prev_max_overlay:m+prev_max_overlay)'; % Offset because of the miterator
             %outop = @max;
             %if size(thriftymessages, 1) == 1; outop = @(x) max(x, [], 1); end;
-            %cnetwork.primary.net = max(cnetwork.primary.net, gbnn_construct_network(bsxfun(@times, double(thriftymessages), overlays_range), double(thriftymessages), outop, @times)); % same as above...
+            %cnetwork.primary.net = max(cnetwork.primary.net, gbnn_construct_network(bsxfun(@times, double(thriftymessages), overlays_range), double(thriftymessages), outop, @times)); % same as above... but we also concatenate with the previously learned network, and for each edge, we take the max (latest) between the two.
 
             % -- Loop semi-vectorized indexing version, a lot faster if you have JIT (based on Ehsan's method for learning) - the result is equivalent to the vectorized version
             for mi = 1:m % loop for each message

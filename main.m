@@ -94,6 +94,20 @@
 % This error happens on Octave when you do a bsxfun with a binary operator (eg: bsxfun(@and, ...) on two sparse matrices with different datatypes (eg: one is logical and the other one is not). In this case, just convert both matrices with logical().
 % On Matlab a similar error may happen if you do a matrix multiplication between two logical matrices: in this case, just convert both of your matrices to double or uint.
 %
+% - When I try to save a plot figure with print into an EPS, it crashes with an error of GhostScript and in the saved images, the axes are displayed but no curve!
+% This is an issue with GhostScript with a weird management of fonts. To fix that, before your commands to plot, prepend the following command:
+% set (0, 'defaultaxesfontname', 'Helvetica'); % fix GhostScript error about handling unknown fonts
+%
+% - When I try to save a plot figure, curves are truncated and points are missing!
+% This issue should happen only under Windows and on computers with an Intel GPU or AMD, because they do not provide a proper, up-to-date OpenGL implementation for their integrated GPUs.
+% In this case, the quickfix is to switch the plot renderer to gnuplot instead of fltk with the following command: graphics_toolkit('gnuplot');
+% An alternative would be to try to install the updated MESA drivers, but this may not work.
+% For more infos on this issue (actively investigated as of Nov 2014), see: http://savannah.gnu.org/bugs/?42534 and http://wiki.octave.org/FAQ#Missing_lines_when_printing_under_Windows_with_OpenGL_toolkit_and_Intel_integrated_GPU
+%
+% - When I try to save a plot in EPS, the final file is in greyscale, no colors!
+% Try to use the following command: print(1, 'test.eps', '-color');
+% To control the size and resolution of the printed image: print(1, 'test.eps', '-color', '-S400,300', '-rNUM 300');
+%
 % ## ToDo ##
 % - Implement sparse_cliques (Chi) in gbnn_mini
 % - variable_length complete implementation and tests (when c is a vector of two values)

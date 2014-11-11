@@ -896,7 +896,7 @@ for diter=1:diterations
         end
         % TODO: add GLsKO (kick all losers with kth minimum score) and oGLsKO (kick all losers with global minimum score)
 
-        
+
         % 4- Some post-processing
 
         % Disambiguation by overlays majority voting
