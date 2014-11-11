@@ -1,4 +1,4 @@
-% Example of the simplest call script for the gbnn network
+% Simple usage of the auxiliary support network (a parallel network where we create cliques to support the primary network's cliques that are failing to decode properly, without error).
 % Results so far: the excitatory auxiliary support network can reduce the error if the auxiliary network is big enough, but finally it's less efficient since you can lower down the error a lot more by allocating these auxiliary fanals into the primary network.
 % This is because the support network will support cliques which have been trained, but it has no means to discriminate and know which clique is the one to recover: it will always support the one it knows but not the other cliques which haven't been trained.
 % However, this excitatory support network may be useful if it has a supervised or multi-modal cue to guide it, so that the auxiliary network may know which clique it has to support.
@@ -7,6 +7,12 @@
 % Clear things up
 clear all; % don't forget to clear all; before, else some variables or sourcecode change may not be refreshed and the code you will run is the one from the cache, not the latest edition you did!
 close all;
+
+% Addpath of the whole library (this allows for modularization: we can place the core library into a separate folder)
+if ~exist('gbnn_aux.m','file')
+    %restoredefaultpath;
+    addpath(genpath(strcat(cd(fileparts(mfilename('fullpath'))),'/gbnn-core/')));
+end
 
 % Importing auxiliary functions
 aux = gbnn_aux; % works with both MatLab and Octave
@@ -23,8 +29,6 @@ tampered_messages_per_test = 100;
 filtering_rule = 'GWsTA';
 erasures = 2; %floor(c/2);
 enable_guiding = false;
-enable_dropconnect = false;
-dropconnect_p = 0;
 
 % Training params (auxiliary network)
 train = true;
@@ -38,6 +42,8 @@ train_on_full_cliques = 0; % false for concur cliques
 train_enable_dropconnect = false;
 train_dropconnect_p = 0.9;
 train_subsampling_p = []; % [] to disable, value between 0 and 1 to enable
+enable_dropconnect = false;
+dropconnect_p = 0;
 
 % Concurrency params
 concurrent_cliques = 2;
