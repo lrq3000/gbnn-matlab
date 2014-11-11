@@ -1,4 +1,6 @@
 % Overlays network: Behrooz vs overlays benchmark. Please use Octave >= 3.8.1 for reasonable performances!
+% To print a figure: print(1, 'test.eps', '-color');
+% On Windows, use IrfanView and GhostScript 32-bits to read .eps files without quality loss (all the others will show a deformed image).
 
 % Clear things up
 clear all;
@@ -14,15 +16,21 @@ end
 % source('gbnn_aux.m'); % does not work with MatLab, only Octave...
 aux = gbnn_aux; % works with both MatLab and Octave
 
+% Fix issues when trying to print into an eps.
+set (0, 'defaultaxesfontname', 'Helvetica'); % fix GhostScript error about handling unknown fonts
+graphics_toolkit('gnuplot'); % fix truncated curves in output file
+
 % Preparing stuff to automate the plots
 % This will allow us to automatically select a different color and shape for each curve
 colorvec = 'rgbmc';
 markerstylevec = '+o*.xsd^v><ph';
 linestylevec = {'-' ; ':' ; '--' ; '-.'};
+linestylestd = ':';
 
 % Vars config, tweak the stuff here
 %M = [0.1 0.5:0.1:1 1.25:0.25:2 2.5 3:2:7 11 16 25 40]; % this is a vector because we will try several values of m (number of messages, which influences the density)
 M = [0.02180727066532258 0.1044843119959677 0.1237871723790323 0.1427750126008064 0.161345451108871 0.1795221144153226 0.1974703881048387 0.240691154233871 0.2810846144153226 0.3199896043346774 0.3560909148185484 0.4231035786290323 0.4834850680443548 0.6676616053427419 0.7855027721774194 0.9107941658266129 0.9701518397177419 0.9960149949596774 0.9998346144153226];
+%M = [0.02180727066532258 0.1044843119959677 0.1237871723790323 0.1427750126008064 0.1974703881048387 0.240691154233871 0.2810846144153226 0.4231035786290323 0.4834850680443548]; % just to quickly try the std plotting
 %M = [0.01 0.1:0.1:0.9 0.95];
 %M = [0.005 5.1]; % to test both limits to check that the range is OK, the first point must be near 0 and the second point must be near 1, at least for one of the curves
 %Mcoeff = 1E3;
@@ -33,7 +41,7 @@ l = 16;
 Chi = 32;
 erasures = floor(c/2); %floor(c*0.25);
 iterations = 1; % for convergence
-tampered_messages_per_test = 30;
+tampered_messages_per_test = 200;
 tests = 1;
 
 enable_guiding = false;
@@ -54,10 +62,10 @@ overlays_interpolation = {'uniform'};
 
 % Plot tweaking
 statstries = 5; % retry n times with different networks to average (and thus smooth) the results
-smooth_factor = 2; % interpolate more points to get smoother curves. Set to 1 to avoid smoothing (and thus plot only the point of the real samples).
+smooth_factor = 3; % interpolate more points to get smoother curves. Set to 1 to avoid smoothing (and thus plot only the point of the real samples).
 smooth_method = 'cubic'; % use PCHIP or cubic to avoid interpolating into negative values as spline does
-plot_curves_params = { 'markersize', 10, ...
-                                            'linewidth', 1 ...
+plot_curves_params = { 'markersize', 7, ...
+                                            'linewidth', 3 ...
                                             };
 plot_axis_params = { 'linewidth', 1, ...
                                       'tickdir', 'out', ...
@@ -72,9 +80,9 @@ silent = false; % If you don't want to see the progress output
 save_results = true; % save results to a file?
 
 % == Launching the runs
-D = zeros(numel(M), numel(overlays_max)*numel(overlays_interpolation));
-E = zeros(numel(M), numel(overlays_max)*numel(overlays_interpolation));
-EFF = zeros(numel(M), numel(overlays_max)*numel(overlays_interpolation));
+D = zeros(numel(statstries), numel(M), numel(overlays_max)*numel(overlays_interpolation));
+E = zeros(numel(statstries), numel(M), numel(overlays_max)*numel(overlays_interpolation));
+EFF = zeros(numel(statstries), numel(M), numel(overlays_max)*numel(overlays_interpolation));
 TE = zeros(numel(M), numel(overlays_max)); % theoretical error rate depends on: Chi, l, c, erasures, enable_guiding and of course the density (theoretical or real) and thus on any parameter that changes the network (thus as the number of messages m to learn)
 
 for t=1:statstries
@@ -126,9 +134,9 @@ for t=1:statstries
 
                 % Store the results
                 %colidx = counter+(size(D,2)/numel(enable_overlays))*(o-1);
-                D(m,counter) = D(m,counter) + density;
-                E(m,counter) = E(m,counter) + error_rate;
-                EFF(m,counter) = EFF(m,counter) + cnetwork_stats.efficiency;
+                D(t, m,counter) = density;
+                E(t, m,counter) = error_rate;
+                EFF(t, m,counter) = cnetwork_stats.efficiency;
                 TE(m, om) = theoretical_error_rate;
 
                 clear cnetwork_stats;
@@ -141,18 +149,27 @@ for t=1:statstries
     end
     aux.printcputime(cputime() - tperf, 'Total cpu time elapsed to do all runs: %G seconds.\n'); aux.flushout(); % print total time elapsed
 end
-% Normalizing errors rates by calculating the mean error for all tries
-D = D ./ statstries;
-E = E ./ statstries;
-EFF = EFF ./ statstries;
 fprintf('END of all tests!\n'); aux.flushout();
 
+% Backup the full data (they will be saved to a file below)
+D_full = D;
+E_full = E;
+EFF_full = EFF;
+% Normalizing errors rates by calculating the mean error for all tries
+D = squeeze(mean(D_full));
+E = squeeze(mean(E_full));
+EFF = squeeze(mean(EFF_full));
+% Compute standard deviation
+D_std = squeeze(std(D_full));
+E_std = squeeze(std(E_full));
+EFF_std = squeeze(std(EFF_full));
+
 % Print densities values and error rates
-fprintf('Densities:\n'); disp(D);
-fprintf('Error rates:\n'); disp(E);
-fprintf('Efficiencies:\n'); disp(EFF);
-fprintf('Theoretical error rates:\n'); disp(TE);
-aux.flushout();
+%fprintf('Densities:\n'); disp(D);
+%fprintf('Error rates:\n'); disp(E);
+%fprintf('Efficiencies:\n'); disp(EFF);
+%fprintf('Theoretical error rates:\n'); disp(TE);
+%aux.flushout();
 
 % == Plotting
 
@@ -297,12 +314,14 @@ legend(get(gca,'children'),get(get(gca,'children'),'DisplayName'), 'location', '
 legend('boxoff');
 % Add secondary axis on the top of the figure to show the number of messages
 aux.add_2nd_xaxis(D(:,1), M, sprintf('x%.1E', Mcoeff), '%g', 0);
-xlim([0 round(max(D(:,1)))]); % adjust x axis zoom
+xlim([0 round(max(D(:,1))*10)/10]); % adjust x axis zoom
 ylim([0 1]);
 % Adjust axis drawing style
 set( gca(), plot_axis_params{:} );
 % Adjust text style
 set([gca; findall(gca, 'Type','text')], plot_text_params{:});
+% Add grid
+grid on;
 
 
 
@@ -311,7 +330,7 @@ figure; hold on;
 xlabel('Error rate');
 ylabel('Efficiency');
 counter = 1; % useful to keep track inside the matrix E. This is guaranteed to be OK since we use the same order of for loops (so be careful, if you move the forloops here in plotting you must also move them the same way in the tests above!)
-for om=numel(overlays_max):-1:1
+for om=1:numel(overlays_max)
     for oi=1:numel(overlays_interpolation)
         colorcounter = om;
         if numel(overlays_interpolation) > 1; colorcounter = oi; end;
@@ -320,17 +339,19 @@ for om=numel(overlays_max):-1:1
         % -- Set title
         plot_title = sprintf('%s', filtering_rule);
         if enable_guiding
-            plot_title = strcat(plot_title, sprintf(' - Guided'));
+            plot_title = strcat(plot_title, ' - Guided');
         else
-            plot_title = strcat(plot_title, sprintf(' - Blind'));
+            plot_title = strcat(plot_title, ' - Blind');
         end
         if overlays_max(om) == 1
-            plot_title = strcat(plot_title, sprintf(' - One/No tags'));
+            plot_title = strcat(plot_title, ' - One/No tags');
         elseif overlays_max(om) == 0
-            plot_title = strcat(plot_title, sprintf(' - M tags'));
+            plot_title = strcat(plot_title, ' - M tags');
         else
             plot_title = strcat(plot_title, sprintf(' - %i tags', overlays_max(om)));
         end
+        plot_title2 = plot_title; % back up plot title for the theo curve
+        plot_title = strcat(plot_title, sprintf(' - %i it', iterations));
 
         % -- Efficiency 1
         lstyleidx = mod(counter-1, numel(linestylevec))+1; % change line style ...
@@ -338,16 +359,29 @@ for om=numel(overlays_max):-1:1
 
         lstyle = linestylevec(1, 1); lstyle = lstyle{1}; % for MatLab, can't do that in one command...
 
-        cur_plot = plot(E_interp(:,end+1-counter), EFF_interp(:,end+1-counter), sprintf('%s%s%s', lstyle, markerstylevec(mstyleidx), colorvec(coloridx))); % plot one line
+        cur_plot = plot(E_interp(:,counter), EFF_interp(:,counter), sprintf('%s%s%s', lstyle, markerstylevec(mstyleidx), colorvec(coloridx))); % plot one line
         set(cur_plot, plot_curves_params{:}); % additional plot style
 
         set(cur_plot, 'DisplayName', plot_title); % add the legend per plot, this is the best method, which also works with scatterplots and polar plots, see http://hattb.wordpress.com/2010/02/10/appending-legends-and-plots-in-matlab/
+        
+        % -- Standard deviation for efficiency
+        try % plot std of error rate because eff has no deviation since it's computed theoretically (and is close enough to the real efficiency if the number of really learnt messages is close enough to the number of messages we intended to learn).
+            std_plot1 = plot(E(:,counter) + E_std(:,counter), EFF(:,counter), sprintf('%s%s', linestylestd, colorvec(coloridx)));
+            std_plot2 = plot(E(:,counter) - E_std(:,counter), EFF(:,counter), sprintf('%s%s', linestylestd, colorvec(coloridx)));
+            set(std_plot1, 'HandleVisibility', 'off');
+            set(std_plot2, 'HandleVisibility', 'off');
+            set(std_plot1, plot_curves_params{:}); % additional plot style
+            set(std_plot2, plot_curves_params{:}); % additional plot style
+        catch err
+            warning('Could not plot the standard deviation!');
+            warning(err);
+        end
 
         % -- Theoretical efficiency
         lstyle = linestylevec(3, 1); lstyle = lstyle{1}; % for MatLab, can't do that in one command...
-        cur_plot = plot(TE_interp(:,end+1-counter), EFF_interp(:,end+1-counter), sprintf('%s%s%s', lstyle, markerstylevec(mstyleidx), colorvec(coloridx))); % plot one line
+        cur_plot = plot(TE_interp(:,counter), EFF_interp(:,counter), sprintf('%s%s%s', lstyle, markerstylevec(mstyleidx), colorvec(coloridx))); % plot one line
         set(cur_plot, plot_curves_params{:}); % additional plot style
-        plot_title2 = strcat(plot_title, ' - theo');
+        plot_title2 = strcat(plot_title2, ' - theo');
 
         set(cur_plot, 'DisplayName', plot_title2); % add the legend per plot, this is the best method, which also works with scatterplots and polar plots, see http://hattb.wordpress.com/2010/02/10/appending-legends-and-plots-in-matlab/
 
@@ -362,12 +396,12 @@ if plot_theo
     %coloridx = mod(counter, numel(colorvec))+1;
     colornm = 'k';
     counter = 1;
-    for om=numel(overlays_max):-1:1
+    for om=1:numel(overlays_max)
         lstyleidx = mod(counter-1, numel(linestylevec))+1;
         mstyleidx = mod(counter-1, numel(markerstylevec))+1;
 
         lstyle = linestylevec(lstyleidx, 1); lstyle = lstyle{1}; % for MatLab, can't do that in one command...
-        cur_plot = plot(D_interp, TE_interp(:,om), sprintf('%s%s%s', lstyle, markerstylevec(mstyleidx), colornm)); % plot one line
+        cur_plot = plot(D_interp, TE_interp(:,counter), sprintf('%s%s%s', lstyle, markerstylevec(mstyleidx), colornm)); % plot one line
         set(cur_plot, plot_curves_params{:}); % additional plot style
 
         plot_title = 'Theo. ';
@@ -390,8 +424,9 @@ if plot_theo
 end
 
 % Refresh plot with legends
-legend(get(gca,'children'),get(get(gca,'children'),'DisplayName'), 'location', 'northwest'); % IMPORTANT: force refreshing to show the legend, else it won't show!
+legend(get(gca,'children'),get(get(gca,'children'),'DisplayName'), 'location', 'southeast'); % IMPORTANT: force refreshing to show the legend, else it won't show!
 legend('boxoff');
+legend('left'); % Bug workaround: as of Octave 3.8.1, gnuplot produce weird legend text, with a huge blank space because it horizontally align legend text to the right, and there's no way currently to change to left. Only solution is to move the text to the left and symbols to the right, this way there's no blank space anymore.
 % Setup axis
 xlim([0 round(max(max(E)))]); % adjust x axis zoom
 ylim([0 1]);
@@ -399,5 +434,7 @@ ylim([0 1]);
 set( gca(), plot_axis_params{:} );
 % Adjust text style
 set([gca; findall(gca, 'Type','text')], plot_text_params{:});
+% Add grid
+grid on;
 
 % The end!

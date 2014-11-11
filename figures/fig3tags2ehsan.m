@@ -14,6 +14,10 @@ end
 % source('gbnn_aux.m'); % does not work with MatLab, only Octave...
 aux = gbnn_aux; % works with both MatLab and Octave
 
+% Fix issues when trying to print into an eps.
+set (0, 'defaultaxesfontname', 'Helvetica'); % fix GhostScript error about handling unknown fonts
+graphics_toolkit('gnuplot'); % fix truncated curves in output file
+
 % Preparing stuff to automate the plots
 % This will allow us to automatically select a different color and shape for each curve
 colorvec = 'rgbmc';
@@ -21,16 +25,16 @@ markerstylevec = '+o*.xsd^v><ph';
 linestylevec = {'-' ; '--' ; ':' ; '-.'};
 
 % Vars config, tweak the stuff here
-M = 0.005:1:5.1; % this is a vector because we will try several values of m (number of messages, which influences the density)
+M = [0.5:1:10.5 12:2:20 25 40]; % this is a vector because we will try several values of m (number of messages, which influences the density)
 %M = [0.005 5.1]; % to test both limits to check that the range is OK, the first point must be near 0 and the second point must be near 1, at least for one of the curves
 Mcoeff = 10E2;
 miterator = zeros(1,numel(M)); %M/2;
 c = 8;
-l = 16;
+l = 64;
 Chi = 16;
 erasures = 4; %floor(c*0.5);
 iterations = 2; % for convergence
-tampered_messages_per_test = 30;
+tampered_messages_per_test = 200;
 tests = 1;
 
 enable_guiding = false;
@@ -46,15 +50,15 @@ filtering_rule_last_iteration = false;
 
 % Overlays
 enable_overlays = true;
-overlays_max = [2 20 100 1000 0];
+overlays_max = [100 0];
 overlays_interpolation = {'mod', 'norm', 'uniform'};
 
 % Plot tweaking
 statstries = 5; % retry n times with different networks to average (and thus smooth) the results
 smooth_factor = 2; % interpolate more points to get smoother curves. Set to 1 to avoid smoothing (and thus plot only the point of the real samples).
 smooth_method = 'cubic'; % use PCHIP or cubic to avoid interpolating into negative values as spline does
-plot_curves_params = { 'markersize', 10, ...
-                                            'linewidth', 1 ...
+plot_curves_params = { 'markersize', 7, ...
+                                            'linewidth', 3 ...
                                             };
 plot_axis_params = { 'linewidth', 1, ...
                                       'tickdir', 'out', ...
@@ -64,7 +68,7 @@ plot_text_params = { 'FontSize', 12, ... % in points
                                        'FontName', 'Helvetica' ...
                                        };
 
-plot_theo = true; % plot theoretical error rates?
+plot_theo = false; % plot theoretical error rates?
 silent = false; % If you don't want to see the progress output
 save_results = true; % save results to a file?
 
@@ -121,10 +125,10 @@ E = E ./ statstries;
 fprintf('END of all tests!\n'); aux.flushout();
 
 % Print densities values and error rates
-fprintf('Densities:\n'); disp(D);
-fprintf('Error rates:\n'); disp(E);
-fprintf('Theoretical error rates:\n'); disp(TE);
-aux.flushout();
+% fprintf('Densities:\n'); disp(D);
+% fprintf('Error rates:\n'); disp(E);
+% fprintf('Theoretical error rates:\n'); disp(TE);
+% aux.flushout();
 
 % == Plotting
 
@@ -158,17 +162,17 @@ figure; hold on;
 xlabel(sprintf('(Bottom) Density  -- (Top) Number of stored messages (M) x%.1E', Mcoeff));
 ylabel('Retrieval Error Rate');
 counter = 1; % useful to keep track inside the matrix E. This is guaranteed to be OK since we use the same order of for loops (so be careful, if you move the forloops here in plotting you must also move them the same way in the tests above!)
-for om=numel(overlays_max):-1:1
+for om=1:numel(overlays_max)
     for oi=1:numel(overlays_interpolation)
         colorcounter = om;
         if numel(overlays_interpolation) > 1; colorcounter = oi; end;
         coloridx = mod(colorcounter-1, numel(colorvec))+1; % change color if overlay or not
 
-        lstyleidx = mod(counter-1, numel(linestylevec))+1; % change line style ...
-        mstyleidx = mod(counter-1, numel(markerstylevec))+1; % and change marker style per plot
+        lstyleidx = mod(oi-1, numel(linestylevec))+1; % change line style ...
+        mstyleidx = mod(om-1, numel(markerstylevec))+1; % and change marker style per plot
 
         lstyle = linestylevec(lstyleidx, 1); lstyle = lstyle{1}; % for MatLab, can't do that in one command...
-        cur_plot = plot(D_interp, E_interp(:,numel(overlays_max)*numel(overlays_interpolation)+1-counter), sprintf('%s%s%s', lstyle, markerstylevec(mstyleidx), colorvec(coloridx))); % plot one line
+        cur_plot = plot(D_interp, E_interp(:,counter), sprintf('%s%s%s', lstyle, markerstylevec(mstyleidx), colorvec(coloridx))); % plot one line
         set(cur_plot, plot_curves_params{:}); % additional plot style
 
         plot_title = sprintf('%s', filtering_rule);
@@ -225,7 +229,9 @@ if plot_theo
 end
 
 % Refresh plot with legends
-legend(get(gca,'children'),get(get(gca,'children'),'DisplayName')); % IMPORTANT: force refreshing to show the legend, else it won't show!
+legend(get(gca,'children'),get(get(gca,'children'),'DisplayName'), 'location', 'northwest'); % IMPORTANT: force refreshing to show the legend, else it won't show!
+legend('boxoff');
+legend('left');
 % Add secondary axis on the top of the figure to show the number of messages
 aux.add_2nd_xaxis(D(:,1), M, sprintf('x%.1E', Mcoeff), '%g', 0);
 xlim([0 max(D(:,1))]); % adjust x axis zoom
@@ -233,5 +239,7 @@ xlim([0 max(D(:,1))]); % adjust x axis zoom
 set( gca(), plot_axis_params{:} );
 % Adjust text style
 set([gca; findall(gca, 'Type','text')], plot_text_params{:});
+% Add grid
+grid on;
 
 % The end!
