@@ -40,7 +40,7 @@ function [answer] = isOctave
     if (isempty(octaveVersionIsBuiltIn))
         octaveVersionIsBuiltIn = (exist('OCTAVE_VERSION', 'builtin') == 5); % exist returns 5 to indicate a built-in function.
     end
-    answer = octaveVersionIsBuiltIn; % isOctave cannot be persistent since this is the return variable
+    answer = octaveVersionIsBuiltIn; % isOctave cannot be persistent since this is the return variable, but another variable (octaveVersionIsBuiiltIn) can be persistent (it just must be a different variable than the returned variable).
 end
 
 function flushout
@@ -494,26 +494,38 @@ end
 
 % == Plotting auxiliary functions ==
 
-function add_2nd_xaxis(X, X2, X2_legend, num2str_format, text_rotation)
+function add_2nd_xaxis(X, X2, X2_legend, num2str_format, text_rotation, text_params)
 % Plot a second x axis at the top of the figure
+% Usage: add_2nd_xaxis(X, X2, X2_legend, num2str_format, text_rotation, text_params)
 % X = first X axis values
 % X2 = values of the second X axis (must be of same size as X)
-% X2_legend = an optional legend
+% X2_legend = an optional legend for the second X axis (will be placed at the top right)
 % num2str_format = format to print the X2 values
-% text_rotation = rotation of the X2 values
+% text_rotation = rotation of the X2 values (0 = horizontal, else specified in degrees from 0 to 360)
+% text_params = other text parameters for the X2 values (as a cell array)
 %
 
 
     if ~exist('num2str_format', 'var'); num2str_format = '%g'; end;
     if ~exist('text_rotation', 'var'); text_rotation = 0; end;
+    if ~exist('text_params', 'var'); text_params = {}; end;
 
     %density_labels = cellfun(@(x) num2str(x, '%1.1e'), num2cell(D(:,1)), 'UniformOutput', false); % convert to a cell array (necessary to be passed to text()) + convert to a better numerical format %.0E
     messages_labels = cellfun(@(x) num2str(x, num2str_format), num2cell(X2), 'UniformOutput', false); % convert to a cell array (necessary to be passed to text()) + convert to a better numerical format %.0E
     xoffset_fix = (max(xlim)/100); % offset to the left because on the plot there's a glitch (as of Octave 3.8.1) which offsets a bit to the right...
-    yoffset_fix = ((max(ylim)-min(ylim))/20); % same for vertically, there is a small offset
-    text(X-xoffset_fix, ones(numel(X2), 1)*max(ylim)+yoffset_fix, messages_labels, 'Rotation', text_rotation, 'VerticalAlignment', 'top', 'HorizontalAlignment', 'left'); % draw the secondary axis as a simple text
+    if (text_rotation == 0)
+        yoffset_fix = ((max(ylim)-min(ylim))/20); % same for vertically, there is a small offset
+    else
+        yoffset_fix = ((max(ylim)-min(ylim))/40); % same for vertically, there is a small offset
+    end
+    if (exist('OCTAVE_VERSION', 'builtin') == 5) && strcmpi(graphics_toolkit(), 'gnuplot') % for GNUPLOT on Octave, we have to tweak a bit differently
+        yoffset_fix = yoffset_fix * 1.5;
+    end
+    cur_text = text(X-xoffset_fix, ones(numel(X2), 1)*max(ylim)+yoffset_fix, messages_labels, 'Rotation', text_rotation, 'VerticalAlignment', 'top', 'HorizontalAlignment', 'left'); % draw the secondary axis as a simple text
+    if ~isempty(text_params); set(cur_text, text_params{:}); end;
     if exist('X2_legend', 'var')
-        text(max(X) * 1.02, max(ylim)+yoffset_fix, X2_legend, 'VerticalAlignment', 'top', 'HorizontalAlignment', 'left'); % add the coefficient for the messages numbers
+        legend_text = text(max(X) * 1.02, max(ylim)+yoffset_fix, X2_legend, 'VerticalAlignment', 'top', 'HorizontalAlignment', 'left'); % add the coefficient for the messages numbers
+        if ~isempty(text_params); set(legend_text, text_params{:}); end;
     end
 
 end % endfunction
@@ -675,6 +687,7 @@ function cdf = binocdf (x, n, p)
 %% Copyright (C) 1995-2013 Kurt Hornik
 %%
 %% This file is part of Octave.
+%% Copied into the project to provide compatibility for MatLab users without requiring the STATISTICS toolbox.
 %%
 %% Octave is free software; you can redistribute it and/or modify it
 %% under the terms of the GNU General Public License as published by
