@@ -28,7 +28,7 @@ function [error_rate, theoretical_error_rate, test_stats, error_per_message, tes
 %- threshold : activation threshold. Nodes having a score below this threshold will be deactivated (ie: the nodes won't produce a spike). Unlike the article, this here is just a scalar (a global threshold for all nodes), rather than a vector containing per-cluster thresholds.
 %- propagation_rule : also called "dynamic rule", defines the type of propagation algorithm to use (how nodes scores will be computed at next iteration). "sum"=Sum-of-Sum ; "normalized"=Normalized-Sum-of-Sum ; "max"=Sum-of-Max % TODO: only 0 SoS is implemented right now!
 %- filtering_rule : also called "activation rule", defines the type of filtering algorithm (how to select the nodes that should remain active), generally a Winner-take-all algorithm in one of the following (case insensitive): 'WTA'=Winner-take-all (keep per-cluster nodes with max activation score) ; 'kWTA'=k-Winners-take-all (keep exactly k best nodes per cluster) ; 'oGWTA'=One-Global-Winner-take-all (same as GWTA but only one node per message can stay activated, not all nodes having the max score) ; 'GWTA'=Global Winner-take-all (keep nodes that have the max score in the whole network) ; 'GkWTA'=Global k-Winner-take-all (keep nodes that have a score equal to one of k best scores) ; 'WsTA'=WinnerS-take-all (per cluster, select the kth best score, and accept all nodes with a score greater or equal to this score - similar to kWTA but all nodes with the kth score are accepted, not only a fixed number k of nodes) ; 'GWsTA'=Global WinnerS-take-all (same as WsTA but per the whole message) ; 'GLKO'=Global Loser-kicked-out (kick nodes that have the worst score globally) ; 'GkLKO'=Global k-Losers-kicked-out (kick all nodes that have a score equal to one of the k worst scores globally) ; 'LKO'=Losers-Kicked-Out (locally, kick k nodes with worst score per-cluster) ; 'kLKO'=k-Losers-kicked-out (kick k nodes with worst score per-cluster) ; 'CGkWTA'=Concurrent Global k-Winners-Take-All (kGWTA + trimming out all scores that are below the k-th max score) ; TODO : 10=Optimal-Global-Loser-Kicked-Out (GkLKO but with k = 1 to kick only one node per iteration)
-%- tampering_type : type of message tampering in the tests. "erase"=erasures (random activated bits are switched off) ; "noise"=noise (random bits are flipped, so a 0 becomes 1 and a 1 becomes 0).
+%- tampering_type : type of message tampering in the tests. 'erase'=erasures (random activated bits are switched off) ; 'noise'=noise (random bits are flipped, so a 0 becomes 1 and a 1 becomes 0) only on significant (non-zero) values ; 'noise_distinct'=noise only on significant (non-zero) values and ensure that the noised value is different from the initial one ; 'noise_wide'=noise on any character (both significant and non-significant).
 %
 % -- Custom extensions
 %- residual_memory : residual memory: previously activated nodes lingers a bit and participate in the next iteration.
@@ -261,7 +261,7 @@ for t=1:tests % TODO: replace by parfor (regression from past versions to allow 
 
     % 2- randomly tamper them (erasure or noisy bit-flipping of a few characters)
     % -- Random erasure of random active characters (which the network is more tolerant than noise, which is normal and described in modern error correction theory)
-    if strcmpi(tampering_type, 'erase')
+    if strcmpi(tampering_type, 'erase') || strcmpi(tampering_type, 'noise') || strcmpi(tampering_type, 'noise_distinct')
         % The idea is that we will randomly pick several characters to erase per message (by extracting all nonzeros indices, order per-column/message, and then shuffling them to finally select only a few indices per column to point to the characters we will erase)
         [~, idxs] = sort(inputm, 'descend'); % sort the messages to get the indices of the nonzeros values, but still organized per-column (which find() doesn't provide)
         idxs = idxs(1:c, :); % memory efficiency: trim out indices of the zero values (since we are sure that at most a message contains c characters)
@@ -270,8 +270,19 @@ for t=1:tests % TODO: replace by parfor (regression from past versions to allow 
         idxs = bsxfun(@plus, idxs, 0:n:n*(tampered_messages_per_test*concurrent_cliques-1) ); % offset indices to take account of the column (since sort resets indices count per column)
         idxs(idxs == 0) = []; % remove non valid indices (if variable_length, some characters may have less than the number of characters we want to erase) TODO: ensure that a variable_length message keeps at least 2 characters, else there's no way to recover the clique!
         inputm(idxs(1:erasures, :)) = 0; % erase those characters
-    % -- Random noise (bit-flipping of randomly selected characters)
-    elseif strcmpi(tampering_type, 'noise')
+        % -- Random noise only on significant (non-zero) characters
+        if strcmpi(tampering_type, 'noise')
+            base_idxs = floor((idxs-1)/l)*l;
+            noise_idxs = base_idxs + randi([1 l], size(base_idxs));
+            inputm(noise_idxs) = 1;
+        % -- Random noise only on significant (non-zero) characters, and ensure that the noised value is different from the original one (because normally a random noise can just set the same value as initial)
+        elseif strcmpi(tampering_type, 'noise_distinct')
+            base_idxs = floor((idxs-1)/l)*l;
+            noise_idxs = base_idxs + mod(mod(idxs - 1, l) + 1 + randi([1 (l-1)], size(base_idxs)) - 1, l) + 1;
+            inputm(noise_idxs) = 1;
+        end
+    % -- Random noise (bit-flipping of randomly selected characters) on any character (including non-significative ones such as 0: any character in the thrifty message can be bit-flipped).
+    elseif strcmpi(tampering_type, 'noise_wide')
         % The idea is simple: we generate random indices to be "noised" and we bit-flip them using modulo.
         %idxs = unidrnd(n, [erasures mconcat*tampered_messages_per_test]); % generate random indices to be tampered
         idxs = randi([1 n], erasures, mconcat*tampered_messages_per_test); % generate random indices to be tampered
