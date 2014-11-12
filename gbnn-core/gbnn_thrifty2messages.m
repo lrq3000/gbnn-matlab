@@ -15,7 +15,7 @@ function messages = gbnn_thrifty2messages(thriftymessages, l)
     characters = mod(find(messages)-1, l)+1;
     messages = double(any(messages));
     if nnz(messages) < numel(characters)
-        error('cannot convert concurrent thriftymessages (ie, with more than one fanal activated per cluster) into dense messages!');
+        error('cannot convert concurrent thriftymessages (ie, with more than one fanal activated per cluster) into dense messages! If your message is not concurrent, check the orientation (try to transpose).');
     end
     messages(messages>0) = characters;
     messages = reshape(messages, Chi, [])';
