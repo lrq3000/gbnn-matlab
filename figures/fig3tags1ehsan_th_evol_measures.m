@@ -51,7 +51,7 @@ overlays_max = [0];
 overlays_interpolation = {'uniform'};
 
 % Plot tweaking
-statstries = 2; % retry n times with different networks to average (and thus smooth) the results
+statstries = 5; % retry n times with different networks to average (and thus smooth) the results
 smooth_factor = 1; % interpolate more points to get smoother curves. Set to 1 to avoid smoothing (and thus plot only the point of the real samples).
 smooth_method = 'cubic'; % use PCHIP or cubic to avoid interpolating into negative values as spline does
 plot_curves_params = { 'markersize', 10, ...
@@ -119,10 +119,11 @@ for t=1:statstries
                     DPredictedError(m, counter) = DPredictedError(m, counter) + test_stats.dtotalstats.tags_error_predicted/(tampered_messages_per_test*tests);
                 end
                 if test_stats.dtotalstats.tags_error >0
-                    DWrong(m, counter) = DWrong(m, counter) + test_stats.dtotalstats.tags_major_wrong_no_lost/test_stats.dtotalstats.tags_error;
-                    DLost(m, counter) = DLost(m, counter) + test_stats.dtotalstats.tags_major_init_lost/test_stats.dtotalstats.tags_error;
-                    DPropag(m, counter) = DPropag(m, counter) + test_stats.dtotalstats.tags_major_propagfiltfail_only/test_stats.dtotalstats.tags_error;
-                    DGWTA(m, counter) = DGWTA(m, counter) + test_stats.dtotalstats.tags_major_gwta_filtered_wrong_only/test_stats.dtotalstats.tags_error;
+                    % to get a normalized value between 0 and 1, divide either by: /(tampered_messages_per_test*tests); to get the normalized ratio of error among all test messages, or divide by /test_stats.dtotalstats.tags_error; to get normalized ratio of error among errored messages (but not correct ones).
+                    DWrong(m, counter) = DWrong(m, counter) + test_stats.dtotalstats.tags_major_wrong_no_lost/(tampered_messages_per_test*tests); % /test_stats.dtotalstats.tags_error;
+                    DLost(m, counter) = DLost(m, counter) + test_stats.dtotalstats.tags_major_init_lost/(tampered_messages_per_test*tests);
+                    DPropag(m, counter) = DPropag(m, counter) + test_stats.dtotalstats.tags_major_propagfiltfail_only/(tampered_messages_per_test*tests);
+                    DGWTA(m, counter) = DGWTA(m, counter) + test_stats.dtotalstats.tags_major_gwta_filtered_wrong_only/(tampered_messages_per_test*tests);
                 end
 
                 % Compute the fanal tag overwriting error
@@ -180,10 +181,10 @@ LostEv = LostEv ./ statstries;
 fprintf('END of all tests!\n'); aux.flushout();
 
 % Print densities values and error rates
-fprintf('Densities:\n'); disp(D);
-fprintf('Error rates:\n'); disp(E);
-fprintf('Theoretical error rates:\n'); disp(TE);
-aux.flushout();
+%fprintf('Densities:\n'); disp(D);
+%fprintf('Error rates:\n'); disp(E);
+%fprintf('Theoretical error rates:\n'); disp(TE);
+%aux.flushout();
 
 % == Plotting
 
