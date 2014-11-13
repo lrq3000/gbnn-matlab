@@ -49,6 +49,7 @@ arguments_defaults = struct( ...
     'enable_overlays', false, ...
     'overlays_max', 0, ...
     'overlays_interpolation', 'uniform', ...
+    'overlays_guiding_mask', [], ...
     ...
     ... % Internal variables (automatically provided by gbnn_test(), you should not modify this on your own
     'cnetwork_choose', 'primary', ... % if multiple networks are available, specify which one to use for the propagation (useful for auxiliary support network)
@@ -140,15 +141,18 @@ if enable_overlays
             % Modulo reduction: use a sort of roulette to assign new overlay ids. Eg: for overlays_max == 3, the network [1 2 3 ; 4 5 6] will be reduced to [1 2 3 ; 1 2 3]
             if strcmpi(overlays_interpolation, 'mod')
                 net = spfun(@(x) mod(x-1, overlays_max)+1, net);
+                if ~isempty(overlays_guiding_mask); overlays_guiding_mask = spfun(@(x) mod(x-1, overlays_max)+1, overlays_guiding_mask); end; % update tags clue with the remapping
             % Renormalization reduction: renormalize all overlays into the reduced range, but preserve their order (old messages will still get the lowest numbers and most recent messages will have highest). Eg: for overlays_max == 3, the network [1 2 3 ; 4 5 6] will be reduced to [1 1 2 ; 2 3 3]
             elseif strcmpi(overlays_interpolation, 'norm')
                 mina = min(nonzeros(net));
                 net = ceil(spfun(@(x) ((x-(mina-1)) / (maxa-(mina-1))), net) * overlays_max); % note: we use ceil to make sure that we don't lose any fanal because of rounding (near 0 isn't 0 but is an activable fanal, thus we should not set it to 0)
+                if ~isempty(overlays_guiding_mask); overlays_guiding_mask = ceil(spfun(@(x) ((x-(mina-1)) / (maxa-(mina-1))), overlays_guiding_mask) * overlays_max); end; % update tags clue with the remapping
             % Random uniform reduction: reassign a random id to every message, in the range of overlays_max. Eg: for overlays_max == 3, the network [1 1 3 3 ; 5 5 7 7] _can_ be reduced to [2 2 1 1 ; 2 2 3 3] or to any other randomly picked set of reassignment. Note that all messages with the same id will be reassigned to the same id (eg: [1 1 1] can be reassigned to [3 3 3] but NOT to [1 2 3] because this breaks the message into parts instead of preserving it).
             elseif strcmpi(overlays_interpolation, 'uniform')
                 random_map = randi(overlays_max, maxa, 1);
                 % net = spfun(@(x) random_map(x), net); % SLOWER than direct indexing!
                 net(net > 0) = random_map(nonzeros(net)); % faster!
+                if ~isempty(overlays_guiding_mask); overlays_guiding_mask = random_map(overlays_guiding_mask)'; end; % update tags clue with the remapping
             end
         end
     end
@@ -984,10 +988,19 @@ for diter=1:diterations
 
                     % Filter edges having a tag different than the major tag, and then filter out fanals that gets disconnected from the clique (all their incoming edges were filtered because they were of a different tag than the major tag)
                     if concurrent_cliques == 1
-                        major_tag = aux.fastmode(nonzeros(decoded_edges)) ; % get the major tag (the one which globally appears the most often in this clique). NOTE: nonzeros somewhat slows down the processing BUT it's necessary to ensure that 0 is not chosen as the major tag (since it represents the absence of edge!) - this problem often happens when using a sparse network (Chi > c).
+                        if isempty(overlays_guiding_mask) % vote to get major tag, unless we have the guiding mask (we know the major tag)
+                            major_tag = aux.fastmode(nonzeros(decoded_edges)) ; % get the major tag (the one which globally appears the most often in this clique). NOTE: nonzeros somewhat slows down the processing BUT it's necessary to ensure that 0 is not chosen as the major tag (since it represents the absence of edge!) - this problem often happens when using a sparse network (Chi > c).
+                        else
+                            major_tag = overlays_guiding_mask(mi); % use the tags guide if available (ie, we already know the clique's tag)
+                        end
                         decoded_edges(decoded_edges ~= min(major_tag)) = 0 ; % shutdown edges who haven't got the maximum tag. NOTE: in case of ambiguity (two or more major tags), we keep the minimum (oldest) one.
                     else
-                        major_tag = aux.kfastmode(nonzeros(decoded_edges), concurrent_cliques);
+                        if isempty(overlays_guiding_mask)
+                            major_tag = aux.kfastmode(nonzeros(decoded_edges), concurrent_cliques); % concurrent case: get the k major tags (if different), because we are trying to find k concurrent cliques (so most likely we will get at least k different major tags, but they may be the same if tags are reused, ie, overlays_max < number of messages)
+                        else
+                            %keyboard % ~any(~ismember(overlays_guiding_mask(:,mi), nonzeros(decoded_edges))) % should be 1 everytime, else it means that an initial tag isn't on any edge of the decoded cliques (if rare this is because of lost fanals because of overwriting newer cliques, if happens too often then there is a bug somewhere)
+                            major_tag = overlays_guiding_mask(:, mi); % use the tags guide if available (ie, we already know the clique's tag)
+                        end
                         decoded_edges(~ismember(decoded_edges, major_tag)) = 0; % shutdown edges who haven't got the maximum tag. NOTE: in case of ambiguity (two or more major tags), we keep them all. This seems to enhance performances a bit compared to select the minimum one or a random one.
                     end
                     decoded_fanals = decoded_fanals(sum(decoded_edges) ~= 0) ; % kick out fanals which have no incoming edges after having deleted edges without major tag (ie: nodes that become isolated because their edges had different tags than the major tag will just be removed, because if these nodes become isolated it's because they obviously are part of another message, else they would have at least one edge with the correct tag).

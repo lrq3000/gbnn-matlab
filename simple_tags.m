@@ -32,6 +32,7 @@ enable_guiding = false;
 enable_overlays = true; % enable tags/overlays disambiguation?
 overlays_max = 0; % 0 for maximum number of tags (as many tags as messages/cliques) ; 1 to use only one tag (equivalent to standard network without tags) ; n > 1 for any definite number of tags
 overlays_interpolation = 'uniform'; % interpolation method to reduce the number of tags when overlays_max > 1: uniform, mod or norm
+enable_overlays_guiding = false; % provide the major tag without voting?
 
 % Concurrency params
 concurrent_cliques = 2;
@@ -53,7 +54,7 @@ error_rate = gbnn_test('cnetwork', cnetwork, 'thriftymessagestest', thriftymessa
                                                                                   'tests', tests, 'tampered_messages_per_test', tampered_messages_per_test, ...
                                                                                   'enable_guiding', enable_guiding, 'filtering_rule', filtering_rule, 'propagation_rule', propagation_rule, 'erasures', erasures, 'gamma_memory', gamma_memory, ...
                                                                                   'concurrent_cliques', concurrent_cliques, 'no_concurrent_overlap', no_concurrent_overlap, ...
-                                                                                  'enable_overlays', enable_overlays, 'overlays_max', overlays_max, 'overlays_interpolation', overlays_interpolation, ...
+                                                                                  'enable_overlays', enable_overlays, 'overlays_max', overlays_max, 'overlays_interpolation', overlays_interpolation, 'enable_overlays_guiding', enable_overlays_guiding, ...
                                                                                   'silent', silent);
 
 if ~silent

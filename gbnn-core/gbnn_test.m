@@ -46,6 +46,7 @@ function [error_rate, theoretical_error_rate, test_stats, error_per_message, tes
 %- enable_overlays : enable tags/overlays disambiguation? Tags may be used as a way to disambiguate between several winning cliques/fanals.
 %- overlays_max : 0 for maximum number of tags (as many tags as messages/cliques) ; 1 to use only one tag (equivalent to standard network without tags) ; n > 1 for any definite number of tags
 %- overlays_interpolation : interpolation method to reduce the number of tags when overlays_max > 1: uniform, mod or norm
+%- enable_overlays_guiding : provide the major tag without voting? (in this case, it's impossible to compute a wrong major tag, we are assured that we will always keep the correct edges)
 %
 % -- Verbosity
 %- silent : silence all outputs
@@ -90,6 +91,7 @@ arguments_defaults = struct( ...
     ...
     ... % Overlays / Tags extension
     'enable_overlays', false, ...
+    'enable_overlays_guiding', false, ...
     'overlays_max', 0, ...
     'overlays_interpolation', 'uniform', ...
     ...
@@ -194,7 +196,7 @@ similarity_measure = 0; % similarity between the corrected messages and the init
 matching_measure = 0; % does the corrected message contains at least all the fanals of the initial message?
 for t=1:tests % TODO: replace by parfor (regression from past versions to allow for better compatibility because Octave cannot do parallel processing, but parfor should work with little modifications)
     if ~silent
-        if tests < 20 || mod(tests, t) == 0
+        if tests < 20 || mod(tests, t) == 0 % old trick to print less when number of tests is very high
             fprintf('== Running test %i with %i tampered messages\n', t, tampered_messages_per_test); aux.flushout();
         end
     end
@@ -212,12 +214,16 @@ for t=1:tests % TODO: replace by parfor (regression from past versions to allow 
     no_concurrent_overlap_flag = false;
     overlap_idxs = [];
     mtogen = tampered_messages_per_test;
+    init_tags = [];
     while (~no_concurrent_overlap_flag)
 
         % Generate random indices to randomly choose messages
         % At first iteration, we generate the whole set of messages. Then subsequent iterations only serve (when concurrent_cliques > 1 and no_concurrent_overlap is true) to generate replacement messages (messages that will replace the previously overlapping messages).
         %rndidx = unidrnd(mtest, [mconcat tampered_messages_per_test]); % TRICKS: unidrnd(m, [SZ]) is twice as fast as unidrnd(m, dim1, dim2)
         rndidx = randi([1 mtest], mconcat, mtogen); % mtest is the total number of messages in the test set (available to be picked up), mconcat is the number of concurrent messages that we will squash together, tampered_messages_per_test is the number of messages we will try to correct per test (number of messages to test per batch).
+        if enable_overlays_guiding % backup the tags so that we can later use them instead of voting if guiding is enabled
+            init_tags = rndidx;
+        end
 
         % Fetch the random messages from the generated indices
         inputm = thriftymessagestest(rndidx,:)'; % just fetch the messages and transpose them so that we have one sparsemessage per column (we don't generate them this way even if it's possible because of optimization: any, or, and sum are more efficient column-wise than row-wise, as any other MatLab/Octave function).
@@ -226,6 +232,7 @@ for t=1:tests % TODO: replace by parfor (regression from past versions to allow 
             init = inputm; % backup the original message before tampering, we will use the original to check if the network correctly corrected the erasure(s)
         else % Else, we had overlapping messages in the previous while iteration, now we replace the overlapping messages by the new ones (so that we won't move around the previously generated messages, we are thus guaranteed that we won't produce more overlapping messages at replacement, we can only get better)
             init(:, overlap_idxs(:)) = inputm; % In-place replacement of overlapping messages by other randomly choosen messages.
+            if enable_overlays_guiding; init_tags(:, overlap_idxs(:)) = rndidx; end;
             overlap_idxs = []; % empty the overlapping indices, so that we won't replace the same indices by mistake at next iteration
         end
         %if ~debug; clear rndidx; end; % clear up memory - DEPRECATED because it violates the transparency (preventing the parfor loop to work)
@@ -306,16 +313,20 @@ for t=1:tests % TODO: replace by parfor (regression from past versions to allow 
     % If concurrent_cliques is enabled, we must mix up the messages together after we've done the characters erasure
     if concurrent_cliques > 1
         % Mix up init (untampered messages)
-        init_mixed = any( reshape(init, n*tampered_messages_per_test, concurrent_cliques)' ); % mix up messages (by stacking concurrent_cliques messages side-by-side and then summing/anying them)
+        % NOTE: [init(:, 1:concurrent_cliques:end) init(:, 2:concurrent_cliques:end)] is necessary to superimpose messages in the same order as rndidx (ensuring that no_concurrent_overlap and enable_overlays_guiding still correspond to the mixed messages). Else if you don't do that, the messages that will be mixed up will just be random.
+        init_mixed = any( reshape([init(:, 1:concurrent_cliques:end) init(:, 2:concurrent_cliques:end)], n*tampered_messages_per_test, concurrent_cliques)' ); % mix up messages (by stacking concurrent_cliques messages side-by-side and then summing/anying them)
         %init = reshape(init, tampered_messages_per_test, n)'; % WRONG % unstack the messages vector into a matrix with one mixed sparsemessage per column
         init_mixed = reshape(init_mixed', n, tampered_messages_per_test); % unstack the messages vector into a matrix with one mixed sparsemessage per column
+
+        % to check that it's correct:
+        % d=reshape([init(:, 1:concurrent_cliques:end) init(:, 2:concurrent_cliques:end)], n*tampered_messages_per_test, concurrent_cliques); d(1:n,:) ~= init(:,1:2)
+        % nnz(init_mixed(:,100) ~= any(thriftymessagestest'(:,rndidx(:,100)),2))
 
         % Only if we don't compute in succession, we mix up the tampered messages now (else we will do that at the end after convergence)
         if ~concurrent_successive
             init = init_mixed; % remove unneeded unmixed init
             % Mix up the tampered messages
-            inputm = reshape(inputm, n*tampered_messages_per_test, concurrent_cliques)';
-            inputm = any(inputm);
+            inputm = any( reshape([inputm(:, 1:concurrent_cliques:end) inputm(:, 2:concurrent_cliques:end)], n*tampered_messages_per_test, concurrent_cliques)' );
             inputm = reshape(inputm', n, tampered_messages_per_test);
         end
     end
@@ -369,7 +380,7 @@ for t=1:tests % TODO: replace by parfor (regression from past versions to allow 
                                   'residual_memory', residual_memory, 'concurrent_cliques', concurrent_cliques, 'filtering_rule_first_iteration', filtering_rule_first_iteration, 'filtering_rule_last_iteration', filtering_rule_last_iteration, ...
                                   'enable_dropconnect', enable_dropconnect, 'dropconnect_p', dropconnect_p, ...
                                   'concurrent_disequilibrium', concurrent_disequilibrium, ...
-                                  'enable_overlays', enable_overlays, 'overlays_max', overlays_max, 'overlays_interpolation', overlays_interpolation, ...
+                                  'enable_overlays', enable_overlays, 'overlays_max', overlays_max, 'overlays_interpolation', overlays_interpolation, 'overlays_guiding_mask', init_tags, ...
                                   'silent', silent);
         % DEBUG: show the original input and the corrected input interleaved by column. Thank's to Peter Yu http://www.peteryu.ca/tutorials/matlab/interleave_matrices
         %a = aux.interleave(inputm_full, inputm, 2); full([sum(a); a])
@@ -407,7 +418,7 @@ for t=1:tests % TODO: replace by parfor (regression from past versions to allow 
                                   'residual_memory', residual_memory, 'concurrent_cliques', cc, 'filtering_rule_first_iteration', filtering_rule_first_iteration, 'filtering_rule_last_iteration', filtering_rule_last_iteration, ...
                                   'enable_dropconnect', enable_dropconnect, 'dropconnect_p', dropconnect_p, ...
                                   'concurrent_disequilibrium', concurrent_disequilibrium, ...
-                                  'enable_overlays', enable_overlays, 'overlays_max', overlays_max, 'overlays_interpolation', overlays_interpolation, ...
+                                  'enable_overlays', enable_overlays, 'overlays_max', overlays_max, 'overlays_interpolation', overlays_interpolation, 'overlays_guiding_mask', init_tags, ...
                                   'silent', silent);
 
         end
