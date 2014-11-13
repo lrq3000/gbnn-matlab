@@ -57,8 +57,9 @@ filtering_rule_last_iteration = false;
 
 % Overlays
 enable_overlays = true;
-overlays_max = [1 0];
+overlays_max = [1 0 20];
 overlays_interpolation = {'uniform'};
+enable_overlays_guiding = false;
 
 % Plot tweaking
 statstries = 5; % retry n times with different networks to average (and thus smooth) the results
@@ -123,7 +124,7 @@ for t=1:statstries
                                                                                       'erasures', erasures, 'iterations', iterations, 'tampered_messages_per_test', tampered_messages_per_test, 'tests', tests, ...
                                                                                       'enable_guiding', enable_guiding, 'gamma_memory', gamma_memory, 'threshold', threshold, 'propagation_rule', propagation_rule, 'filtering_rule', filtering_rule, 'tampering_type', tampering_type, ...
                                                                                       'residual_memory', residual_memory, 'filtering_rule_first_iteration', filtering_rule_first_iteration, 'filtering_rule_last_iteration', filtering_rule_last_iteration, ...
-                                                                                      'enable_overlays', enable_overlays, 'overlays_max', overlays_max(om), 'overlays_interpolation', overlays_interpolation{oi}, ...
+                                                                                      'enable_overlays', enable_overlays, 'overlays_max', overlays_max(om), 'overlays_interpolation', overlays_interpolation{oi}, 'enable_overlays_guiding', enable_overlays_guiding, ...
                                                                                       'silent', silent);
 
                 if M(1) * Mcoeff < 1
