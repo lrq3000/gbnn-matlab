@@ -212,7 +212,7 @@ for t=1:tests % TODO: replace by parfor (regression from past versions to allow 
     no_concurrent_overlap_flag = false;
     overlap_idxs = [];
     mtogen = tampered_messages_per_test;
-    init_tags = [];
+    init_tags = []; % Keep original tag for each message/clique in order to later check if the majority vote is correct
     while (~no_concurrent_overlap_flag)
 
         % Generate random indices to randomly choose messages
@@ -228,7 +228,7 @@ for t=1:tests % TODO: replace by parfor (regression from past versions to allow 
             init = inputm; % backup the original message before tampering, we will use the original to check if the network correctly corrected the erasure(s)
         else % Else, we had overlapping messages in the previous while iteration, now we replace the overlapping messages by the new ones (so that we won't move around the previously generated messages, we are thus guaranteed that we won't produce more overlapping messages at replacement, we can only get better)
             init(:, overlap_idxs(:)) = inputm; % In-place replacement of overlapping messages by other randomly choosen messages.
-            init_tags(:, overlap_idxs(:)) = overlap_idxs;
+            init_tags(:, overlap_idxs(:)) = rndidx;
             overlap_idxs = []; % empty the overlapping indices, so that we won't replace the same indices by mistake at next iteration
         end
         %if ~debug; clear rndidx; end; % clear up memory - DEPRECATED because it violates the transparency (preventing the parfor loop to work)
@@ -253,9 +253,6 @@ for t=1:tests % TODO: replace by parfor (regression from past versions to allow 
                 overlap_idxs = bsxfun(@plus, overlap_idxs, offsets'); % apply offset
                 %init(:, overlap_idxs) = []; % DEPRECATED: in-place remove, but then we can only append newly generated messages but they will unalign the other messages which won't be merged together like before but with other messages, and thus we may get even more overlapping!
             end
-        end
-        if ~isempty(overlap_idxs)
-            rnd_idxs(overlap_idxs) = [];
         end
     end
     inputm = init; % Finally, set inputm with init: we will work on inputm but leave init as a backup to later check the error correction performances
@@ -521,7 +518,7 @@ if enable_overlays && overlays_max ~= 1
     % TROUVER pourquoi avec binocdf maxtag/2 a moins que maxtag, normalement on a plus de chances!
     
     % not working
-    %(1-(1-binocdf(1, (c*(c-1)/2) * (overlays_max-1), 1/(n*(n-1)/2)))^c)^c; % proba qu'au moins une arête soit choisie parmis les arêtes d'une autre clique, multiplié par toutes les cliques qu'on va apprendre (overlays_max ou count_learnt_msg), on prend le complément car on veut qu'il n'y ait pas au moins une arête de perdue, on multiplie par le nombre d'arêtes pour un fanal (c) et ensuite on multiplie par le nombre de fanaux de la clique? (car il ne faut pas qu'au moins un fanal ne soit perdu). Dernière partie à revoir.
+    %(1-(1-binocdf(1, (c*(c-1)/2) * (overlays_max-1), 1/(n*(n-1)/2)))^c)^c; % proba qu'au moins une arÃªte soit choisie parmis les arÃªtes d'une autre clique, multipliÃ© par toutes les cliques qu'on va apprendre (overlays_max ou count_learnt_msg), on prend le complÃ©ment car on veut qu'il n'y ait pas au moins une arÃªte de perdue, on multiplie par le nombre d'arÃªtes pour un fanal (c) et ensuite on multiplie par le nombre de fanaux de la clique? (car il ne faut pas qu'au moins un fanal ne soit perdu). DerniÃ¨re partie Ã  revoir.
     %1-binocdf((c-1), (c*(c-1)/2) * (overlays_max-1), 1/(n*(n-1)/2))^c;
     
     %p_edge_overwritten = 1/netsize;
@@ -541,7 +538,7 @@ if enable_overlays && overlays_max ~= 1
     p_allmsg = (1-p_clique)^(maxtag-1);
     theoretical_error_rate = 1 - p_allmsg;
     
-    % on choisit une arête sur 
+    % on choisit une arÃªte sur 
     
     % p_eo = 1/netsize;
     % p_clique =1-(1-p_eo)^cliquesize;
