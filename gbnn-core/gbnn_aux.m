@@ -9,6 +9,7 @@ end
 % For MatLab compatibility, we use a function to return other functions handlers as properties, this is a workaround since it cannot load multiple functions in one .m file (contrarywise to Octave using source())
 function funs = importFunctions
     funs.shake=@shake; % the most important!
+    funs.vertical_tile=@vertical_tile; % also important for concurrent_cliques to generate mixed messages
     funs.isOctave=@isOctave; % also important! for MatLab compatibility
     funs.getnargs=@getnargs; % to process named optional arguments
     funs.varspull = @varspull; % to load arguments into local namespace/workspace
@@ -488,6 +489,22 @@ function C = interleaven(dimmode, varargin)
         C = reshape(horzcat(varargin{:}), numel(varargin{1}), []);
         C = reshape(C', numel(varargin)*size(varargin{1},1), [])';
     end
+end
+
+function B = vertical_tile(A, ncols)
+% B = vertical_tile(A, ncols)
+% Vertically tile a matrix's columns by grouping ncols together and put the other columns below in the same fashion.
+% Note: this is a loop-based solution because Octave doesn't yet support N-D matrices, but if that was possible, the vectorized solution would then be: reshape(permute(reshape(A,size(A,1),ncols,[]),[1 3 2]),[],ncols);
+
+    B = [];
+    if issparse(A)
+        B = sparse(B);
+    end
+
+    for i=1:ncols
+        B = [B A(:, i:ncols:end)];
+    end
+    B = reshape(B, [], ncols);
 end
 
 

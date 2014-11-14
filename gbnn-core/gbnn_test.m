@@ -314,7 +314,8 @@ for t=1:tests % TODO: replace by parfor (regression from past versions to allow 
     if concurrent_cliques > 1
         % Mix up init (untampered messages)
         % NOTE: [init(:, 1:concurrent_cliques:end) init(:, 2:concurrent_cliques:end)] is necessary to superimpose messages in the same order as rndidx (ensuring that no_concurrent_overlap and enable_overlays_guiding still correspond to the mixed messages). Else if you don't do that, the messages that will be mixed up will just be random.
-        init_mixed = any( reshape([init(:, 1:concurrent_cliques:end) init(:, 2:concurrent_cliques:end)], n*tampered_messages_per_test, concurrent_cliques)' ); % mix up messages (by stacking concurrent_cliques messages side-by-side and then summing/anying them)
+        % On MatLab, you can use the following to do that in a vectorized fashion (but not in Octave yet because it doesn't support N-D sparse matrices): reshape(permute(reshape(init,n,concurrent_cliques,[]),[1 3 2]),[],concurrent_cliques);
+        init_mixed = any( aux.vertical_tile(init, concurrent_cliques)' ); % mix up messages (by stacking concurrent_cliques messages side-by-side and then summing/anying them)
         %init = reshape(init, tampered_messages_per_test, n)'; % WRONG % unstack the messages vector into a matrix with one mixed sparsemessage per column
         init_mixed = reshape(init_mixed', n, tampered_messages_per_test); % unstack the messages vector into a matrix with one mixed sparsemessage per column
 
@@ -326,7 +327,7 @@ for t=1:tests % TODO: replace by parfor (regression from past versions to allow 
         if ~concurrent_successive
             init = init_mixed; % remove unneeded unmixed init
             % Mix up the tampered messages
-            inputm = any( reshape([inputm(:, 1:concurrent_cliques:end) inputm(:, 2:concurrent_cliques:end)], n*tampered_messages_per_test, concurrent_cliques)' );
+            inputm = any( aux.vertical_tile(inputm, concurrent_cliques)' );
             inputm = reshape(inputm', n, tampered_messages_per_test);
         end
     end
