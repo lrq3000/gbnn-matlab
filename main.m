@@ -1,7 +1,7 @@
 % #### Gripon-Berrou Neural Network, aka thrifty clique codes ####
 % Original implementation in Octave by Vincent Gripon.
-% Optimized (compatibility Octave/MatLab, vectorizations, binary sparse matrices, etc.), comments additions and functionality extensions by Stephen Larroque.
-% Coded and tested on Octave 3.6.4 Windows (3.8.1 is necessary for reasonable performances on overlays networks) and MatLab 2013a Linux. No external library nor toolbox is needed for this software to run.
+% Optimized (compatibility Octave/MatLab, vectorizations, binary sparse matrices, modularization, etc.), comments additions and functionality extensions by Stephen Larroque.
+% Coded and tested on Octave 3.8.1 Windows (3.8.1 is necessary for reasonable performances on overlays networks) and MatLab 2013a Linux. No external library nor toolbox is needed for this software to run.
 % To run the code even faster, first use MatLab (which has a sparse-aware bsxfun() function) and use libraries replacements advised in https://research.microsoft.com/en-us/um/people/minka/software/matlab.html and also sparse2 instead of sparse as advised at http://blogs.mathworks.com/loren/2007/03/01/creating-sparse-finite-element-matrices-in-matlab/
 % The code is also parallelizable, just enable multithreading in your MatLab config. You can also enable the use of GPU for implicit GPU parallelization in MatLab and/or for explicit GPU parallelization (to enable the for loops or if you want to convert some of the code to explicitly process on GPU) you can use third-party libraries like GPUmat for free or ArrayFire for maximum speedup.
 %

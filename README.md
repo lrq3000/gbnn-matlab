@@ -1,7 +1,7 @@
 gbnn-matlab
 ===========
 
-Gripon-Berrou Neural Network implementation in Octave 3.8.2 and also working on Matlab 2013a.
+Gripon-Berrou Neural Network implementation in Octave 3.8.1 and also working on Matlab 2013a.
 
 See main.m for more informations and an example of usage, or simple.m or gbnn_mini.m if you want even simpler versions to kickstart you.
 
