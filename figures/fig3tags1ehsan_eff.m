@@ -1,6 +1,7 @@
 % Overlays network: Behrooz vs overlays benchmark. Please use Octave >= 3.8.1 for reasonable performances!
-% To print a figure: print(1, 'test.eps', '-color');
+% To print a figure: print(2, 'test2.eps', '-color', '-S400,300', '-rNUM 300');
 % On Windows, use IrfanView and GhostScript 32-bits to read .eps files without quality loss (all the others will show a deformed image).
+% Gnuplot commands: http://stackoverflow.com/questions/3207148/zoom-out-in-octave-gnuplot?rq=1
 
 % Clear things up
 clear all;
@@ -23,7 +24,7 @@ graphics_toolkit('gnuplot'); % fix truncated curves in output file
 % Preparing stuff to automate the plots
 % This will allow us to automatically select a different color and shape for each curve
 colorvec = 'rgbmc';
-markerstylevec = '+o*.xsd^v><ph';
+markerstylevec = '+od*.xs^v><ph';
 linestylevec = {'-' ; ':' ; '--' ; '-.'};
 linestylestd = ':';
 
@@ -354,10 +355,21 @@ for om=1:numel(overlays_max)
         plot_title2 = plot_title; % back up plot title for the theo curve
         plot_title = strcat(plot_title, sprintf(' - %i it', iterations));
 
-        % -- Efficiency 1
+        % -- Set style
         lstyleidx = mod(counter-1, numel(linestylevec))+1; % change line style ...
         mstyleidx = mod(counter-1, numel(markerstylevec))+1; % and change marker style per plot
 
+        % -- Theoretical efficiency
+        if overlays_max(om) == 0 || overlays_max(om) == 1 % theo error rate is for the moment wrong for any other tags number than 0 or 1
+            lstyle = linestylevec(3, 1); lstyle = lstyle{1}; % for MatLab, can't do that in one command...
+            cur_plot = plot(TE_interp(:,counter), EFF_interp(:,counter), sprintf('%s%s%s', lstyle, markerstylevec(mstyleidx), colorvec(coloridx))); % plot one line
+            set(cur_plot, plot_curves_params{:}); % additional plot style
+            plot_title2 = strcat(plot_title2, ' - theo');
+
+            set(cur_plot, 'DisplayName', plot_title2); % add the legend per plot, this is the best method, which also works with scatterplots and polar plots, see http://hattb.wordpress.com/2010/02/10/appending-legends-and-plots-in-matlab/
+        end
+
+        % -- Efficiency / error rate ratio
         lstyle = linestylevec(1, 1); lstyle = lstyle{1}; % for MatLab, can't do that in one command...
 
         cur_plot = plot(E_interp(:,counter), EFF_interp(:,counter), sprintf('%s%s%s', lstyle, markerstylevec(mstyleidx), colorvec(coloridx))); % plot one line
@@ -378,15 +390,6 @@ for om=1:numel(overlays_max)
             warning(err);
         end
 
-        % -- Theoretical efficiency
-        lstyle = linestylevec(3, 1); lstyle = lstyle{1}; % for MatLab, can't do that in one command...
-        cur_plot = plot(TE_interp(:,counter), EFF_interp(:,counter), sprintf('%s%s%s', lstyle, markerstylevec(mstyleidx), colorvec(coloridx))); % plot one line
-        set(cur_plot, plot_curves_params{:}); % additional plot style
-        plot_title2 = strcat(plot_title2, ' - theo');
-
-        set(cur_plot, 'DisplayName', plot_title2); % add the legend per plot, this is the best method, which also works with scatterplots and polar plots, see http://hattb.wordpress.com/2010/02/10/appending-legends-and-plots-in-matlab/
-
-
         counter = counter + 1;
     end
 end
@@ -398,6 +401,7 @@ if plot_theo
     colornm = 'k';
     counter = 1;
     for om=1:numel(overlays_max)
+        if overlays_max(om) ~= 0 && overlays_max(om) ~= 1; continue; end;
         lstyleidx = mod(counter-1, numel(linestylevec))+1;
         mstyleidx = mod(counter-1, numel(markerstylevec))+1;
 
@@ -425,9 +429,9 @@ if plot_theo
 end
 
 % Refresh plot with legends
-legend(get(gca,'children'),get(get(gca,'children'),'DisplayName'), 'location', 'southeast'); % IMPORTANT: force refreshing to show the legend, else it won't show!
+legend(get(gca,'children'),get(get(gca,'children'),'DisplayName'), 'location', 'northwest'); % IMPORTANT: force refreshing to show the legend, else it won't show!
 legend('boxoff');
-legend('left'); % Bug workaround: as of Octave 3.8.1, gnuplot produce weird legend text, with a huge blank space because it horizontally align legend text to the right, and there's no way currently to change to left. Only solution is to move the text to the left and symbols to the right, this way there's no blank space anymore.
+%legend('left'); % Bug workaround: as of Octave 3.8.1, gnuplot produce weird legend text, with a huge blank space because it horizontally align legend text to the right, and there's no way currently to change to left. Only solution is to move the text to the left and symbols to the right, this way there's no blank space anymore.
 % Setup axis
 xlim([0 round(max(max(E)))]); % adjust x axis zoom
 ylim([0 1]);
