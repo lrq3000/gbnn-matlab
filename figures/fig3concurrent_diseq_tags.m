@@ -14,6 +14,10 @@ end
 % source('gbnn_aux.m'); % does not work with MatLab, only Octave...
 aux = gbnn_aux; % works with both MatLab and Octave
 
+% Fix issues when trying to print into an eps.
+% set (0, 'defaultaxesfontname', 'Helvetica'); % fix GhostScript error about handling unknown fonts
+% graphics_toolkit('gnuplot'); % fix truncated curves in output file
+
 % Preparing stuff to automate the plots
 % This will allow us to automatically select a different color and shape for each curve
 colorvec = 'krbgmc';
@@ -24,18 +28,18 @@ linestylevec = {'-' ; '--' ; ':' ; '-.'};
 M = [0.1:0.2:1.5 1.8 2:1:11 15 40]; % this is a vector because we will try several values of m (number of messages, which influences the density)
 Mcoeff = 1E3;
 miterator = zeros(1,numel(M)); %M/2;
-c = 30;
+c = 8;
 l = 16;
 Chi = 32;
 erasures = 2;
 iterations = 4; % must be > 1 for disequilibrium to take effect. Note: useless for filtering rule ML, therefore it will be automatically set to 1 iiteration only for ML, the other filtering_rules will use the number of iterations you specify here.
-tampered_messages_per_test = 30;
-tests = 1;
+tampered_messages_per_test = 30; % aka sampling rate, the size of the sample to compute the retrieval error rate (higher = more precise, eg if 30 it means that percentage will be in increment of 3.333...%, there cannot be 2.5% for example)
+tests = 1; % number of tests for the retrieval error rate (this will redo only the testing phase, not the learning phase. In the end, it's just a multiplier to the sampling rate, aka tampered_messages_per_test.
 
 enable_guiding = false;
 gamma_memory = 1;
 threshold = 0;
-propagation_rule = 'sum_enorm';
+propagation_rule = 'sum'; % try with sum or sum_enorm
 filtering_rule = {'GWsTA', 'GWsTA', 'GWsTA', 'GWsTA', 'GWsTA'}; % this is a cell array (vector of strings) because we will try several different values of c (order of cliques)
 tampering_type = 'erase';
 
@@ -53,8 +57,8 @@ overlays_max = [0 0 0 1 1];
 overlays_interpolation = 'uniform';
 
 % Plot tweaking
-statstries = 10; % retry n times with different networks to average (and thus smooth) the results
-smooth_factor = 1; % interpolate more points to get smoother curves. Set to 1 to avoid smoothing (and thus plot only the point of the real samples).
+statstries = 10; % retry n times with different networks to average (and thus smooth) the results. This will redo the whole learning phase + testing phases, so the different statstries are all statistically different (contrary to the "tests" variable while will only redo multiple test phases, not the learning phase).
+smooth_factor = 2; % interpolate more points to get smoother curves. Set to 1 to avoid smoothing (and thus plot only the point of the real samples).
 smooth_method = 'cubic'; % use PCHIP or cubic to avoid interpolating into negative values as spline does
 plot_curves_params = { 'markersize', 10, ...
                                             'linewidth', 1 ...
@@ -158,7 +162,7 @@ if smooth_factor > 1
     EC_interp = interp1(D(:,1), EC, D_interp, smooth_method);
 else
     M_interp = M;
-    D_interp = D;
+    D_interp = D(:,1);
     E_interp = E;
     TE_interp = TE;
     ED_interp = ED;
@@ -188,14 +192,14 @@ end
 figure; hold on;
 xlabel(sprintf('(Bottom) Density -- (Top) Number of stored messages (M) x%.1E', Mcoeff));
 ylabel(sprintf('Retrieval Error Rate for concurrent cliques=%i', concurrent_cliques));
-counter = 1; % useful to keep track inside the matrix E. This is guaranteed to be OK since we use the same order of for loops (so be careful, if you move the forloops here in plotting you must also move them the same way in the tests above!)
+counter = 1; % useful to keep track inside the matrix E or for plotting (to change the marker for each curve). This is guaranteed to be OK since we use the same order of for loops (so be careful, if you move the forloops here in plotting you must also move them the same way in the tests above!)
 for f=1:numel(filtering_rule) % for each different filtering rule and whether there is guiding or not, we willl print a different curve, with an automatically selected color and shape
     coloridx = mod(f-1, numel(colorvec))+1; % change color per filtering rule
     lstyleidx = mod(counter-1, numel(linestylevec))+1; % change line style ...
     mstyleidx = mod(counter-1, numel(markerstylevec))+1; % and change marker style per plot
 
     lstyle = linestylevec(lstyleidx, 1); lstyle = lstyle{1}; % for MatLab, can't do that in one command...
-    cur_plot = plot(D_interp, E_interp(:,counter), sprintf('%s%s%s', lstyle, markerstylevec(mstyleidx), colorvec(coloridx))); % plot one line
+    cur_plot = plot(D_interp, E_interp(:,f), sprintf('%s%s%s', lstyle, markerstylevec(mstyleidx), colorvec(coloridx))); % plot one line
     set(cur_plot, plot_curves_params{:}); % additional plot style
 
     fr = filtering_rule(1,f); fr = fr{1};
@@ -218,7 +222,7 @@ for f=1:numel(filtering_rule) % for each different filtering rule and whether th
     end
     set(cur_plot, 'DisplayName', plot_title); % add the legend per plot, this is the best method, which also works with scatterplots and polar plots, see http://hattb.wordpress.com/2010/02/10/appending-legends-and-plots-in-matlab/
 
-    counter = counter + 1;
+    counter = counter + 1; % don't remove or the plotting markers won't be different for each curve
 end
 
 % Plot theoretical error rates
@@ -259,7 +263,7 @@ set([gca; findall(gca, 'Type','text')], plot_text_params{:});
 figure; hold on;
 xlabel(sprintf('(Bottom) Density -- (Top) Number of stored messages (M) x%.1E', Mcoeff));
 ylabel(sprintf('Retrieval Error Rate (concurrent unbiased) for concurrent cliques=%i', concurrent_cliques));
-counter = 1; % useful to keep track inside the matrix E. This is guaranteed to be OK since we use the same order of for loops (so be careful, if you move the forloops here in plotting you must also move them the same way in the tests above!)
+counter = 1; % useful to keep track inside the matrix E or for plotting (to change the marker for each curve). This is guaranteed to be OK since we use the same order of for loops (so be careful, if you move the forloops here in plotting you must also move them the same way in the tests above!)
 for f=1:numel(filtering_rule) % for each different filtering rule and whether there is guiding or not, we willl print a different curve, with an automatically selected color and shape
     coloridx = mod(f-1, numel(colorvec))+1; % change color per filtering rule
     lstyleidx = mod(counter-1, numel(linestylevec))+1; % change line style ...
@@ -267,7 +271,7 @@ for f=1:numel(filtering_rule) % for each different filtering rule and whether th
 
     lstyle = linestylevec(lstyleidx, 1); lstyle = lstyle{1}; % for MatLab, can't do that in one command...
 
-    cur_plot = plot(D_interp, EC_interp(:,counter), sprintf('%s%s%s', lstyle, markerstylevec(mstyleidx), colorvec(coloridx))); % plot one line
+    cur_plot = plot(D_interp, EC_interp(:,f), sprintf('%s%s%s', lstyle, markerstylevec(mstyleidx), colorvec(coloridx))); % plot one line
     set(cur_plot, plot_curves_params{:}); % additional plot style
 
     fr = filtering_rule(1,f); fr = fr{1};
@@ -333,7 +337,7 @@ figure; hold on;
 xlabel(sprintf('(Bottom) Density -- (Top) Number of stored messages (M) x%.1E', Mcoeff));
 ylim([0 1]);
 f = 1; % set here the filtering rule that use disequilibrium + tags
-counter = 1; % useful to keep track inside the matrix E. This is guaranteed to be OK since we use the same order of for loops (so be careful, if you move the forloops here in plotting you must also move them the same way in the tests above!)
+counter = 1; % useful to keep track inside the matrix E or for plotting (to change the marker for each curve). This is guaranteed to be OK since we use the same order of for loops (so be careful, if you move the forloops here in plotting you must also move them the same way in the tests above!)
 
 fr = filtering_rule(1,f); fr = fr{1};
 if concurrent_disequilibrium(f); fr = strcat(fr, ' diseq'); end;

@@ -147,14 +147,25 @@ fprintf('END of all tests!\n'); aux.flushout();
 % -- First interpolate data points to get smoother curves
 % Note: if smooth_factor == 1 then these commands won't change the data points nor add more.
 nsamples = numel(M);
-M_interp = interp1(1:nsamples, M, linspace(1, nsamples, nsamples*smooth_factor), smooth_method);
-D_interp = interp1(1:nsamples, D(:,1), linspace(1, nsamples, nsamples*smooth_factor), smooth_method);
-E_interp = interp1(D(:,1), E, D_interp, smooth_method);
-TE_interp = interp1(D(:,1), TE, D_interp, smooth_method);
-ED_interp = interp1(D(:,1), ED, D_interp, smooth_method);
-SM_interp = interp1(D(:,1), SM, D_interp, smooth_method);
-MM_interp = interp1(D(:,1), MM, D_interp, smooth_method);
-EC_interp = interp1(D(:,1), EC, D_interp, smooth_method);
+if smooth_factor > 1
+    M_interp = interp1(1:nsamples, M, linspace(1, nsamples, nsamples*smooth_factor), smooth_method);
+    D_interp = interp1(1:nsamples, D(:,1), linspace(1, nsamples, nsamples*smooth_factor), smooth_method);
+    E_interp = interp1(D(:,1), E, D_interp, smooth_method);
+    TE_interp = interp1(D(:,1), TE, D_interp, smooth_method);
+    ED_interp = interp1(D(:,1), ED, D_interp, smooth_method);
+    SM_interp = interp1(D(:,1), SM, D_interp, smooth_method);
+    MM_interp = interp1(D(:,1), MM, D_interp, smooth_method);
+    EC_interp = interp1(D(:,1), EC, D_interp, smooth_method);
+else
+    M_interp = M;
+    D_interp = D(:,1);
+    E_interp = E;
+    TE_interp = TE;
+    ED_interp = ED;
+    SM_interp = SM;
+    MM_interp = MM;
+    EC_interp = EC;
+end
 
 % -- Save results to a file
 if save_results

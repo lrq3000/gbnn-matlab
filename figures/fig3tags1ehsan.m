@@ -56,7 +56,7 @@ overlays_max = [1 5 20 100 1000 0];
 overlays_interpolation = {'uniform'};
 
 % Plot tweaking
-statstries = 5; % retry n times with different networks to average (and thus smooth) the results
+statstries = 20; % retry n times with different networks to average (and thus smooth) the results
 smooth_factor = 2; % interpolate more points to get smoother curves. Set to 1 to avoid smoothing (and thus plot only the point of the real samples).
 smooth_method = 'cubic'; % use PCHIP or cubic to avoid interpolating into negative values as spline does
 plot_curves_params = { 'markersize', 6, ...
