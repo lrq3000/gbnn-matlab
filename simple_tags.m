@@ -14,9 +14,9 @@ end
 aux = gbnn_aux; % works with both MatLab and Octave
 
 % Primary network params
-m = 0.2; %1E4;
+m = 0.7; %1E4;
 miterator = 0;
-c = 8; % 8; % with tags, higher c is, the lower the error rate will be
+c = 8; % 8; % with tags, it seems that higher c is, the lower the error rate will be
 l = 16; % 32;
 Chi = 32; % 64;
 erasures = floor(c/2);
@@ -35,7 +35,7 @@ overlays_interpolation = 'uniform'; % interpolation method to reduce the number 
 enable_overlays_guiding = false; % provide the major tag without voting?
 
 % Concurrency params
-concurrent_cliques = 2;
+concurrent_cliques = 1;
 no_concurrent_overlap = false;
 
 % Verbose?
