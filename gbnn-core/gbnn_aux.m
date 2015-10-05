@@ -7,6 +7,9 @@ function funs = gbnn_aux
 end
 
 % For MatLab compatibility, we use a function to return other functions handlers as properties, this is a workaround since it cannot load multiple functions in one .m file (contrarywise to Octave using source())
+% This way, we can just do the following to call any function here from any other script:
+% to load the aux lib: addpath(genpath(strcat(cd(fileparts(mfilename('fullpath'))),'/../gbnn-core/'))); aux = gbnn_aux;
+% to use a function: aux.func_name(args);
 function funs = importFunctions
     funs.shake=@shake; % the most important!
     funs.vertical_tile=@vertical_tile; % also important for concurrent_cliques to generate mixed messages
@@ -20,6 +23,7 @@ function funs = importFunctions
     funs.flushout=@flushout; % to force refresh the stdout after printing in the console
     funs.printcputime=@printcputime;
     funs.printtime=@printtime;
+    funs.printeta=@printeta;
     funs.editarg=@editarg;
     funs.delarg=@delarg;
     funs.addarg=@addarg;
@@ -28,6 +32,7 @@ function funs = importFunctions
     funs.interleaven=@interleaven;
     funs.add_2nd_xaxis=@add_2nd_xaxis;
     funs.savex=@savex;
+    funs.sec2hms=@sec2hms;
     funs.binocdf=@binocdf;
 end
 
@@ -67,6 +72,21 @@ function printtime(perf, sometext)
     else
         fprintf(sometext, perf);
     end
+end
+
+function printeta(current_it, total_it, starttime, silent)
+% Print a progress meter with an estimation of the remaining time required to perform all iterations of the experiment
+% ETA is calculated simply by using a linear interpolation (ie, rule of 3).
+% The only arguments needed are: the current number of iterations done, the total number of iterations to do to end the experiment, and the timestamp before the experiment started (using cputime()).
+    elapsed = cputime() - starttime;
+    if current_it == total_it
+        eta = 0;
+    else
+        eta = elapsed / current_it * (total_it-current_it);
+    end
+    if silent; fprintf('\r'); end;
+    fprintf('%i/%i [elapsed: %s, eta: %s, %.2f it/s]', current_it, total_it, sec2hms(elapsed), sec2hms(eta), (current_it / elapsed)); flushout();
+    if ~silent; fprintf('\n'); aux.flushout(); end;
 end
 
 function [Y, I, J] = shake(X,dim)
@@ -694,6 +714,15 @@ function savex(varargin)
         error('Unknown function usage.')
     end
 end %endfunction
+
+function hms = sec2hms(t)
+% Convert seconds into a human readable datetime in the format HH:MM:SS.FF
+    hours = floor(t / 3600);
+    t = t - hours * 3600;
+    mins = floor(t / 60);
+    secs = t - mins * 60;
+    hms = sprintf('%02d:%02d:%05.2f', hours, mins, secs);
+end
 
 
 

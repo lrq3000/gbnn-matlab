@@ -39,7 +39,7 @@ tests = 1; % number of tests for the retrieval error rate (this will redo only t
 enable_guiding = false;
 gamma_memory = 1;
 threshold = 0;
-propagation_rule = 'sum'; % try with sum or sum_enorm
+propagation_rule = 'sum'; % try with sum or sum_enorm (the latter enhance results significantly but only when using tags+diseq, for all the others it's worse)
 filtering_rule = {'GWsTA', 'GWsTA', 'GWsTA', 'GWsTA', 'GWsTA'}; % this is a cell array (vector of strings) because we will try several different values of c (order of cliques)
 tampering_type = 'erase';
 
@@ -72,7 +72,7 @@ plot_text_params = { 'FontSize', 12, ... % in points
                                        };
 
 plot_theo = true; % plot theoretical error rates?
-silent = false; % If you don't want to see the progress output
+silent = true; % If you don't want to see the progress output
 save_results = true; % save results to a file?
 
 % == Launching the runs
@@ -84,6 +84,9 @@ SM = zeros(numel(M), numel(filtering_rule));
 MM = zeros(numel(M), numel(filtering_rule));
 EC = zeros(numel(M), numel(filtering_rule));
 
+runs_total = statstries * numel(M) * numel(filtering_rule); % total number of runs we will have to do to finish this experiment (allows to compute the ETA)
+tperftotal = cputime(); % total time elapsed until now (allows to compute the ETA)
+rcounter = 0; % current iteration counter (allows to compute the ETA)
 for t=1:statstries
     tperf = cputime(); % to show the total time elapsed later
     cnetwork = logical(sparse([]));
@@ -129,13 +132,19 @@ for t=1:statstries
             SM(m, counter) = SM(m, counter) + test_stats.similarity_measure;
             MM(m, counter) = MM(m, counter) + test_stats.matching_measure;
             EC(m, counter) = EC(m, counter) + test_stats.concurrent_unbiased_error_rate;
-            if ~silent; fprintf('-----------------------------\n\n'); end;
-            
-            counter = counter + 1;
+            if ~silent; fprintf('-----------------------------\n\n'); aux.flushout(); end;
+
+            % Update counters (for plotting and ETA)
+            counter = counter + 1; % for plots
+            rcounter = rcounter + 1; % for ETA
+
+            % Display ETA
+            aux.printeta(rcounter, runs_total, tperftotal, silent);
         end
     end
-    aux.printcputime(cputime() - tperf, 'Total cpu time elapsed to do all runs: %G seconds.\n'); aux.flushout(); % print total time elapsed
+    aux.printcputime(cputime() - tperf, 'Total cpu time elapsed to do all runs of one statstries: %G seconds.\n'); aux.flushout(); % print total time elapsed
 end
+aux.printcputime(cputime() - tperftotal, 'Total cpu time elapsed to do all runs of all statstries: %G seconds.\n'); aux.flushout(); % print total time elapsed
 % Normalizing errors rates by calculating the mean error for all tries
 D = D ./ statstries;
 E = E ./ statstries;
