@@ -19,7 +19,7 @@ m = 0.9;
 c = 30; % with tags, higher c is, the lower the error rate will be
 l = 16;
 Chi = 32;
-erasures = c*0.5;
+erasures = c*0.25;
 
 tampered_messages_per_test = 100;
 tests = 1;
@@ -41,7 +41,8 @@ overlays_max = 0; % 0 for maximum number of tags (as many tags as messages/cliqu
 overlays_interpolation = 'uniform'; % interpolation method to reduce the number of tags when overlays_max > 1: uniform, mod or norm
 
 % Concurrent disequilibrium trick
-concurrent_disequilibrium = 1; % 1 for superscore mode, 2 for one fanal erasure, 3 for nothing at all just trying to decode one clique at a time without any trick, 0 to disable
+concurrent_disequilibrium = 4; % 1 for superscore mode, 2 for one fanal erasure, 3 for nothing at all just trying to decode one clique at a time without any trick, 0 to disable
+% 4: stats+random boost, 5: stats+deterministic erase, 6: stats+deterministic boost, 7: stats+nothing, like mode 3 (just trying to decode different cliques at the same time without any trick).
 
 % Verbose?
 silent = false;

@@ -165,11 +165,15 @@ if enable_dropconnect
     orig_net = net;
 end
 
-% Backup the initial messages if we use disequilibrium trick in concurrent case because we will erase one fanal at each diter
+% Backup the initial messages if we use disequilibrium trick in concurrent case because we will decode one clique at each diter, and then begin again with the full message to get other cliques
 diterations = 1;
 concurrent_cliques_bak = concurrent_cliques;
 if concurrent_cliques > 1 && concurrent_disequilibrium
-    diterations = concurrent_cliques_bak;
+    if concurrent_disequilibrium <= 3 % for all erasures cases, the maximum number of iterations is as much as there are concurent cliques
+        diterations = concurrent_cliques_bak;
+    elseif concurrent_disequilibrium >= 4 % for noise cases, the maximum number of iterations is the total number of fanals (we will try for each activated fanal)
+        diterations = concurrent_cliques_bak*c; % ideally, we should do as many iterations as there are activated fanals, but since we're working on vectorized messages, we can't use a different number of iteration for each message, thus we just compute the theoretical number of iterations that would be required
+    end
     partial_messages_bak = partial_messages;
     out_final = logical(sparse(size(partial_messages,1), size(partial_messages,2)));
     concurrent_cliques = 1;
@@ -190,10 +194,12 @@ for diter=1:diterations
     % Idea from Xiaoran Jiang, thank's a lot!
     % concurrent_disequilibrium = 1 for superscore mode, 2 for one fanal erasure, 3 for nothing at all just trying to decode one clique at a time without any trick
     if concurrent_cliques_bak > 1 && concurrent_disequilibrium && diter < diterations % do not erase nor superboost a fanal at the last iteration, because we already erased all the other cliques thus we don't need to disequilibrate at the last step
-        if concurrent_disequilibrium ~= 3 % third disequilibrium technique: we don't do anything, we will just try to find only one clique at one time, but without doing any special trick
+
+        % -- Preparing the indexes to boost
+        if concurrent_disequilibrium <= 2 || concurrent_disequilibrium == 4
             % get the number of activated fanals per message
             franges = sum(partial_messages);
-            % select a random fanal to erase per message
+            % select a random fanal to erase or boost per message
             random_idxs = ceil(franges .* rand(1, numel(franges)));
             % adjust offset to get matlab style indexes (instead of per column index, we get indexes counting from 1 at the start of the matrix to numel at the end of the matrix)
             franges = cumsum(franges);
@@ -202,24 +208,44 @@ for diter=1:diterations
             % Find which fanal we will select per message
             idxs = find(partial_messages);
             diseq_idxs = idxs(full(random_idxs));
-
-            % Erase those fanals
-            % NOTE: this does not work if the cliques are heavily overlapping, because erasing one fanal will probably erase a shared fanal and thus there won't be any disequilibrium. But anyway if the cliques are heavily overlapping, this means that the density is super high and anyway we can't do anything about the error rate.
-            % NOTE2: tried to do the generalization trick proposed by Xiaoran, but it doesn't work well: at the end of one iteration, instead of considering that the decoded message is one clique, consider that the decoded message is multiple cliques, and instead of keeping that, keep the fanals that were activated in the original message but are now shutdown in the decoded message, and remove these fanals from the original message to now try to find the other cliques the same way
-            % NOTE3: this IS working for multiple cliques > 2, I have no idea why but it works (albeit with a higher error rate than with trick 1 superboost score or 3 do nothing)
-            if concurrent_disequilibrium == 2
-                partial_messages(diseq_idxs) = 0;
-            % Superboost the score of one fanal to give advantage to one and only one clique for now (because this fanal will propagate its score to one clique)
-            else
-                partial_messages = double(partial_messages); % must convert to double so that we can set an integer (non binary/logical) value
-                %partial_messages(diseq_idxs) = sum(partial_messages);
-                partial_messages(diseq_idxs) = concurrent_cliques_bak*c + 1;
-            end
-
             % Clear memory
             clear random_idxs;
             clear idxs;
             clear franges;
+        elseif concurrent_disequilibrium >= 5
+            % First iteration: setup the list of fanals we will boost at each iteration
+            if diter == 1
+                idxs = find(partial_messages);
+                all_diseq_idxs = sparse(diterations, mpartial);
+                for tm=1:mpartial
+                    ii = idxs(idxs <= n);
+                    idxs = idxs(idxs > n) - n;
+                    % filling missing idxs to obtain the exact number of diterations
+                    all_diseq_idxs(1:numel(ii), tm) = ii;
+                end
+            end
+            % In all cases, we just pick one node (per input stimulus/message) to boost
+            diseq_idxs = nonzeros(all_diseq_idxs(diter, :));
+            % Clear memory
+            clear ii;
+            clear idxs;
+        end
+
+        % -- Boosting/Erasing fanals (or just do nothing at all)
+        if concurrent_disequilibrium <= 2 || concurrent_disequilibrium == 4 || concurrent_disequilibrium == 5 || concurrent_disequilibrium == 6
+            % Erase those fanals
+            % NOTE: this does not work if the cliques are heavily overlapping, because erasing one fanal will probably erase a shared fanal and thus there won't be any disequilibrium. But anyway if the cliques are heavily overlapping, this means that the density is super high and anyway we can't do anything about the error rate.
+            % NOTE2: tried to do the generalization trick proposed by Xiaoran, but it doesn't work well: at the end of one iteration, instead of considering that the decoded message is one clique, consider that the decoded message is multiple cliques, and instead of keeping that, keep the fanals that were activated in the original message but are now shutdown in the decoded message, and remove these fanals from the original message to now try to find the other cliques the same way
+            % NOTE3: this IS working for multiple cliques > 2, I have no idea why but it works (albeit with a higher error rate than with trick 1 superboost score or 3 do nothing)
+            if concurrent_disequilibrium == 2 || concurrent_disequilibrium == 5
+                partial_messages(diseq_idxs) = 0;
+            % Superboost the score of one fanal to give advantage to one and only one clique for now (because this fanal will propagate its score to one clique)
+            else % if concurrent_disequilibrium == 1
+                partial_messages = double(partial_messages); % must convert to double so that we can set an integer (non binary/logical) value
+                %partial_messages(diseq_idxs) = sum(partial_messages);
+                partial_messages(diseq_idxs) = concurrent_cliques_bak*c + 1;
+            end
+        %elseif concurrent_disequilibrium == 3 % third disequilibrium technique: we don't do anything, we will just try to find only one clique at one time, but without doing any special trick
         end
     end
     % Printing info on concurrent disequilibrium trick
@@ -969,7 +995,7 @@ for diter=1:diterations
                         winning_score = max(fanal_scores);
                         gwta_mask = (fanal_scores == winning_score);
                         decoded_edges = decoded_edges(gwta_mask, :) ;
-                    else % else i we have concurrent cliques and/or disequilibrium, use GWSTA to filter (because GWTA won't work in concurrent case).
+                    else % else we have concurrent cliques and/or disequilibrium, use GWSTA to filter (because GWTA won't work in concurrent case). Also, this may be better than GWTA in case of noise instead of erasures (not tested).
                     % NOTE: this is even less necessary than in the non concurrent cliques case, here it only provides a small performance boost (but significative), so it's up to you to see if the additional CPU time needed to do the GWSTA filtering is worth it, but keep in mind that filtering also speeds up the tags filtering below, because we remove fanals whose edges won't have to be tag checked!
                         fanal_scores = sum(sign(decoded_edges));
                         if numel(fanal_scores) > (c * concurrent_cliques)
@@ -1076,24 +1102,54 @@ for diter=1:diterations
         if ~silent; aux.printtime(toc()); end;
     end
 
-    % Disequilibrium post-processing: we remove the clique we just found from the messages
+    % Disequilibrium trick post-processing: storing temporary decoding results and preparing input message inhibitions for the next decoding
     if concurrent_cliques_bak > 1 && concurrent_disequilibrium
-        %bsxfun(@and, sum(out_final) < (concurrent_cliques * c), out) % avoid adding more fanals if we already found enough fanals to cover all cliques
-        out_final = or(out_final, out);
-        if diter < diterations
-            partial_messages = partial_messages_bak; % reload the full messages
-            partial_messages(find(out_final)) = 0; % remove all cliques we have found up until now to focus only on cliques we didn't find yet. NOTE: be careful not to use find(out) instead of find(out_final), because out contains only the latest clique found, not all the previous cliques, and this will lower down performances a lot!
-            %a = aux.interleaven(2, partial_messages_bak, out, partial_messages); full([sum(a); a])
+
+        % In case of erasures: store the result and then prepare the input message for the next decoding by removing the clique we just found from the messages, in the end we should converge to an empty message (when all cliques have been discovered)
+        % The biological concept behind this post-processing is that the temporary result (each separately decoded clique) will be stored in a temporary working memory. Meanwhile, the input message is still the same (eg, imagine the source of the input message being another brain area, such as the eyes neural network, which stimulates all the cliques that matches the items in the scene), the source still stimulates all the cliques of the message (ie, the scene currently seen), but we can inhibate the cliques that are currently stored in the working memory.
+        if concurrent_disequilibrium <= 3
+            % First, store the clique we just decoded in a temporary result variable
+            %bsxfun(@and, sum(out_final) < (concurrent_cliques * c), out) % avoid adding more fanals if we already found enough fanals to cover all cliques
+            out_final = or(out_final, out); % in practice, we just append the new clique to the out_final message, so we don't use any additional space
+            % Secondly, we inhibate the decoded cliques thus far from the input stimulus/message, so that we can decode other cliques
+            if diter < diterations
+                partial_messages = partial_messages_bak; % reload the original full input stimulus
+                partial_messages(find(out_final)) = 0; % remove all cliques we have found up until now to focus only on cliques we didn't find yet. NOTE: be careful not to use find(out) instead of find(out_final), because out contains only the latest clique found, not all the previous cliques, and this will lower down performances a lot!
+                %a = aux.interleaven(2, partial_messages_bak, out, partial_messages); full([sum(a); a])
+            end
+            % TODO: adapt guiding mask. NO: we can't adapt the guiding mask because we don't know where to look at.
+            % TODO: with concurrent_disequilibrium == 3, try to find when there are errors: when both cliques are found at the first iteration? If that's the case, try to redo the iteration only for these messages by using another random fanal
+
+        % In case of noise: store the result with an occurrence score, so that at the end we can extract the cliques that were decoded the most often, which indicates they are probably the correct non-noised cliques. There's no inhibition in the input message, we just reload it.
+        elseif concurrent_disequilibrium >= 4
+            % First, store the clique we just decoded, by adding +1 to our temporary result variable in the temporary working memory.
+            % The score represents the occurrence of each clique. Some fanals may have a higher score if they are shared, but that doesn't matter.
+            % In the end, we will just use a GWsTA to keep the most frequent fanals, this should give us our solution.
+            % NO: for the moment, we use a matrix where we store ALL different cliques we have found, and we extract later the most frequent cliques.
+            %out_final = double(out_final) + out;
+            out_final = sparse([out_final;out]);
+
+            % Secondly, we reload the input stimulus/message (ie, inhibition from the decoding is suppressed)
+            partial_messages = partial_messages_bak; % reload the original full input stimulus
         end
-        % TODO: adapt guiding mask. NO: we can't adapt the guiding mask because we don't know where to look at.
-        % TODO: with concurrent_disequilibrium == 3, try to find when there are errors: when both cliques are found at the first iteration? If that's the case, try to redo the iteration only for these messages by using another random fanal
     end
 end
 
 % -- After-convergence post-processing
-% Disequilibrium final post-processing: we set the final messages to be returned (= the concatenation of all cliques found separately via disequilibrium)
+% Disequilibrium trick final post-processing (after the convergence): we set the final messages to be returned (= the concatenation of all cliques found separately via disequilibrium)
 if concurrent_cliques_bak > 1 && concurrent_disequilibrium
-    partial_messages = out_final;
+    % In case of erasure, we just return the temporary result variable, it contains the solution of the decoding
+    if concurrent_disequilibrium <= 3
+        partial_messages = out_final;
+    % Else in case of noise, we return the most frequent cliques
+    elseif concurrent_disequilibrium >= 4
+        for tm=1:mpartial
+            allcliques = reshape(out_final(:, tm), n, []);
+            [uniquecliques, ~, cliques_idx] = unique(allcliques', 'rows');
+            cbest_idxs = aux.kfastmode(cliques_idx, concurrent_cliques_bak);
+            partial_messages(:, tm) = logical(sum(uniquecliques(cbest_idxs, :))');
+        end
+    end
 end
 
 if residual_memory > 0 % if residual memory is enabled, we need to make sure that values are binary at the end, not just near-binary (eg: values of nodes with 0.000001 instead of just 0 due to the memory addition), else the error can't be computed correctly since some activated nodes will still linger after the last WTA!

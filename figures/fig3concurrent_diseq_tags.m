@@ -25,7 +25,8 @@ markerstylevec = '+o*.xsd^v><ph';
 linestylevec = {'-' ; '--' ; ':' ; '-.'};
 
 % Vars config, tweak the stuff here
-M = [0.1:0.2:1.5 1.8 2:1:11 15 40]; % this is a vector because we will try several values of m (number of messages, which influences the density)
+%M = [0.1:0.2:1.5 1.8 2:1:11 15 40]; % this is a vector because we will try several values of m (number of messages, which influences the density)
+M = [0.1:0.2:1.5 1.8 2:1:11];
 Mcoeff = 1E3;
 miterator = zeros(1,numel(M)); %M/2;
 c = 8;
@@ -39,25 +40,25 @@ tests = 1; % number of tests for the retrieval error rate (this will redo only t
 enable_guiding = false;
 gamma_memory = 1;
 threshold = 0;
-propagation_rule = 'sum'; % try with sum or sum_enorm (the latter enhance results significantly but only when using tags+diseq, for all the others it's worse)
-filtering_rule = {'GWsTA', 'GWsTA', 'GWsTA', 'GWsTA', 'GWsTA'}; % this is a cell array (vector of strings) because we will try several different values of c (order of cliques)
-tampering_type = 'erase';
+propagation_rule = 'sum_enorm'; % try with sum or sum_enorm (the latter enhance results significantly but only when using tags+diseq, for all the others it's worse)
+filtering_rule = {'GWsTA', 'GWsTA', 'GWsTA', 'GWsTA', 'GWsTA', 'GWsTA'}; % this is a cell array (vector of strings) because we will try several different values of c (order of cliques)
+tampering_type = 'noise';
 
 residual_memory = 0;
 concurrent_cliques = 2;
 no_concurrent_overlap = false;
 concurrent_successive = false;
-concurrent_disequilibrium = [true, 3, false, true, false];
+concurrent_disequilibrium = [true, 3, false, 3, true, false];
 filtering_rule_first_iteration = false;
 filtering_rule_last_iteration = false;
 
 % Overlays
 enable_overlays = true;
-overlays_max = [0 0 0 1 1];
+overlays_max = [0 0 0 1 1 1];
 overlays_interpolation = 'uniform';
 
 % Plot tweaking
-statstries = 10; % retry n times with different networks to average (and thus smooth) the results. This will redo the whole learning phase + testing phases, so the different statstries are all statistically different (contrary to the "tests" variable while will only redo multiple test phases, not the learning phase).
+statstries = 3; % retry n times with different networks to average (and thus smooth) the results. This will redo the whole learning phase + testing phases, so the different statstries are all statistically different (contrary to the "tests" variable while will only redo multiple test phases, not the learning phase).
 smooth_factor = 2; % interpolate more points to get smoother curves. Set to 1 to avoid smoothing (and thus plot only the point of the real samples).
 smooth_method = 'cubic'; % use PCHIP or cubic to avoid interpolating into negative values as spline does
 plot_curves_params = { 'markersize', 10, ...
