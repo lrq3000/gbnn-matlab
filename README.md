@@ -11,6 +11,6 @@ If you want to use the GBNN network in your own application, you only need the f
 
 If you want to make your own simple implementation, you can take a look at [gbnn-core/gbnn_mini.m](https://github.com/lrq3000/gbnn-matlab/blob/master/gbnn-core/gbnn_mini.m), which is a minimal implementation of the GBNN network under 150 LoC.
 
-This implementation in MATLAB/Octave was developed by Stephen Larroque and Vincent Gripon.
+This implementation in MATLAB/Octave was developed by Stephen Larroque and Vincent Gripon. Tagged network extension by Ehsan Sedgh Gooya.
 
 It is licensed under CRAPL or MIT Public License at your convenience.
