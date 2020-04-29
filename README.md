@@ -10,3 +10,5 @@ This is a work-in-progress, a lot of features may be added or changed (but since
 If you want to use the GBNN network in your own application, you only need the files inside the gbnn-core/ folder. The other folders and files are just usage examples or figures.
 
 This implementation in MATLAB/Octave was developed by Stephen Larroque.
+
+It is licensed under CRAPL or MIT Public License at your convenience.
